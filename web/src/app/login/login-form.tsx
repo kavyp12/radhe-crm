@@ -32,12 +32,21 @@ export function LoginForm({ next }: { next: string }) {
   }
 
   return (
-    <Card className="w-full max-w-sm">
-      <CardHeader>
-        <CardTitle className="text-lg">Radhe CRM</CardTitle>
-        <CardDescription>Sign in with your username and password.</CardDescription>
+    <Card className="w-full max-w-sm gap-5 py-6">
+      <CardHeader className="px-6">
+        <div className="mb-3 flex items-center gap-2.5">
+          <span className="grid size-8 place-items-center rounded-md bg-primary text-sm font-bold text-primary-foreground">
+            R
+          </span>
+          <div className="leading-tight">
+            <p className="text-sm font-medium">Radhe</p>
+            <p className="text-xs text-muted-foreground">Digital Sign Board</p>
+          </div>
+        </div>
+        <CardTitle className="text-lg">Sign in</CardTitle>
+        <CardDescription>Use the username and password the owner gave you.</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-6">
         <form onSubmit={onSubmit} className="grid gap-4">
           <Label className="grid gap-1.5">
             Username

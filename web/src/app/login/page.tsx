@@ -16,7 +16,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const next = safeNext((await searchParams).next);
   if (await getUser()) redirect(next);
   return (
-    <main className="flex min-h-svh items-center justify-center bg-muted p-4">
+    <main className="flex min-h-svh items-center justify-center p-4">
       <LoginForm next={next} />
     </main>
   );

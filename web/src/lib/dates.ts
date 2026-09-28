@@ -69,3 +69,19 @@ export function periodRange(period: Period, now = new Date()): { from: string; t
       return { from: utc(y, m, 1), to: today };
   }
 }
+
+const IST_DATE_TIME = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Asia/Kolkata",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h12",
+});
+
+/** A moment (e.g. created_at) in India: "28/09/2026 03:45 PM". */
+export function formatDateTime(at: Date): string {
+  const p = Object.fromEntries(IST_DATE_TIME.formatToParts(at).map((x) => [x.type, x.value]));
+  return `${p.day}/${p.month}/${p.year} ${p.hour}:${p.minute} ${p.dayPeriod.toUpperCase()}`;
+}

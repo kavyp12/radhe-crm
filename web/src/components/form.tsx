@@ -25,3 +25,33 @@ export function FormError({ state }: { state: FormState }) {
     </p>
   );
 }
+
+/** A titled card section of a form (DESIGN.md "Form"). */
+export function FormSection({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="min-w-0 rounded-lg border bg-card">
+      <div className="border-b px-4 py-3">
+        <h2 className="text-sm font-medium">{title}</h2>
+        {description && <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>}
+      </div>
+      <div className="p-4">{children}</div>
+    </section>
+  );
+}
+
+/** Save Draft / Issue buttons, stuck to the bottom of the scrolling page. */
+export function FormActions({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="sticky bottom-0 z-10 -mx-4 mt-2 flex items-center justify-end gap-2 border-t bg-card/95 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-card/80 md:-mx-6 md:px-6">
+      {children}
+    </div>
+  );
+}

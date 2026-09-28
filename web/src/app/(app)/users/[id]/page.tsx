@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
-import Link from "next/link";
 import { notFound } from "next/navigation";
+import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { db } from "@/db";
 import { users } from "@/db/schema";
@@ -26,18 +26,14 @@ export default async function UserPage({ params }: PageProps<"/users/[id]">) {
   if (!user) notFound();
 
   return (
-    <div className="grid max-w-xl gap-4">
-      <div>
-        <Link href="/users" className="text-sm text-muted-foreground hover:underline">
-          ← Users
-        </Link>
-        <h1 className="text-lg font-semibold">{user.name}</h1>
-        <p className="text-sm text-muted-foreground">
-          {user.username} · {ROLE_LABEL[user.role]} · {user.active ? "Active" : "Disabled"}
-        </p>
-      </div>
+    <div className="grid max-w-2xl grid-cols-1 gap-5">
+      <PageHeader
+        back={{ href: "/users", label: "Users" }}
+        title={user.name}
+        description={`${user.username}, ${ROLE_LABEL[user.role]}${user.active ? "" : ", disabled"}`}
+      />
       <Card>
-        <CardHeader>
+        <CardHeader className="border-b">
           <CardTitle>Access</CardTitle>
         </CardHeader>
         <CardContent>
@@ -45,7 +41,7 @@ export default async function UserPage({ params }: PageProps<"/users/[id]">) {
         </CardContent>
       </Card>
       <Card>
-        <CardHeader>
+        <CardHeader className="border-b">
           <CardTitle>Password</CardTitle>
         </CardHeader>
         <CardContent>

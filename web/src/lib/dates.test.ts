@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { formatDate, fyKey, parseDate, periodRange, todayIST } from "./dates";
+import { formatDate, formatDateTime, fyKey, parseDate, periodRange, todayIST } from "./dates";
 
 test("financial year boundary", () => {
   expect(fyKey("2027-03-31")).toBe("26-27");
@@ -40,4 +40,10 @@ test("period presets: week = Monday → today, month = 1st → today", () => {
   expect(periodRange("yesterday", new Date("2027-01-01T06:30:00Z"))).toEqual({ from: "2026-12-31", to: "2026-12-31" });
   // Sunday 19:00 UTC is already Monday 00:30 in India
   expect(periodRange("week", new Date("2026-10-04T19:00:00Z"))).toEqual({ from: "2026-10-05", to: "2026-10-05" });
+});
+
+test("date-time in IST, hh:mm a", () => {
+  expect(formatDateTime(new Date("2026-09-28T10:15:00Z"))).toBe("28/09/2026 03:45 PM");
+  expect(formatDateTime(new Date("2026-09-27T18:35:00Z"))).toBe("28/09/2026 12:05 AM"); // after midnight IST
+  expect(formatDateTime(new Date("2026-09-28T06:30:00Z"))).toBe("28/09/2026 12:00 PM");
 });
