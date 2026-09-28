@@ -23,7 +23,21 @@ Unclear or missing → STOP and ask. Never invent business rules, GST rates, HSN
 - TASKS.md — the task list. Only the reviewer ticks [x].
 
 ## Commands (run inside web/)
-_T01 fills this in._
+- `pnpm dev` — dev server on http://localhost:3000
+- `pnpm build` / `pnpm start` — production build / serve it
+- `pnpm typecheck` — `next typegen` + `tsc --noEmit`
+- `pnpm lint` — ESLint
+- `pnpm test` — Vitest on radhe_test: wipes its schemas, runs migrations, then test files one at a time. Refuses any DB not named *_test.
+- `pnpm db:generate` — drizzle-kit migration from src/db/schema.ts (custom SQL: `pnpm db:generate --custom --name=<name>`)
+- `pnpm db:migrate` — apply migrations in drizzle/ to DATABASE_URL (radhe_dev). "already exists, skipping" NOTICEs on repeat runs are normal.
+- `pnpm db:seed` — run src/db/seed.ts
+
+One-time DB setup (new machine):
+1. As the postgres superuser, create the app role and DBs — the app, migrations and tests never use the superuser:
+   `CREATE ROLE radhe LOGIN PASSWORD '<random>';` · `CREATE DATABASE radhe_dev OWNER radhe ENCODING 'UTF8' TEMPLATE template0;` · same for `radhe_test`.
+   (psql: `& "C:\Program Files\PostgreSQL\16\bin\psql.exe" -U postgres -h localhost`)
+2. Copy web/.env.example → web/.env and put the password in both URLs.
+3. `pnpm install` → `pnpm db:migrate` → `pnpm test`.
 
 ## Hard rules
 1. Money = integer paise (bigint). Qty / size / sq ft = integer thousandths. Never JS floats for money or qty — use web/src/lib/num.ts helpers only.
