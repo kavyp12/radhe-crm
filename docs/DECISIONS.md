@@ -41,6 +41,9 @@ To change one: Ronnie agrees → the reviewer adds a NEW dated entry below. Neve
 - **D33 Two tasks per builder chat** (Ronnie, to go faster): from T03 a builder prompt may carry 2 linked tasks. Builder does them in order, runs checks and commits after each, and stops if the first fails. Reviewer reviews both commits together. Plan for Phase 0: T03 + T04 → T05 → T06 + T07.
 - **D34 Batch T03 + T04 + T05** (Ronnie, amends D33's plan): one builder chat, one commit per task, with a pause after T04 so Ronnie approves the look before T05 builds more screens on it. Then T06 + T07. The Supabase driver for lib/storage.ts moves to T44 (can't be tested without the real bucket); T05 builds the local driver only.
 
+## 2026-09-28 — design input (Ronnie)
+- **D35 Look**: font Roboto everywhere (replaces Geist in DESIGN.md; next/font/google, subsets latin + latin-ext so ₹ renders in Roboto). The left sidebar is the main navigation: every module is its own item with an icon, grouped as DESIGN.md lists, count badges where useful (e.g. Approvals), collapsible to icons on desktop, drawer on phone. Quality bar: top-tier modern CRM (Attio / Linear / HubSpot level polish) while staying calm and dense per DESIGN.md.
+
 ## Open questions (reviewer: when answered, add a new decision above and strike the question)
 - **Q1** Print workflow per PC: machines list; CorelDRAW → Windows printer, or RIP software (Maintop / PhotoPrint / Onyx / Caldera / other)? Where are job files saved (local D:\ or shared drive)? — blocks T40.
 - **Q2** HSN/SAC + GST % per product category (from their CA). — before go-live; invoices work with blanks until then.
