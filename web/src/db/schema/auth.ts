@@ -22,6 +22,8 @@ export const users = pgTable(
     role: text("role", { enum: ROLES }).notNull(),
     canViewCost: boolean("can_view_cost").notNull(),
     active: boolean("active").notNull().default(true),
+    // Set by lib/users.ts on a password reset, so the audited users row shows when (the hash lives in auth_accounts).
+    passwordChangedAt: ts("password_changed_at"),
   },
   (t) => [check("users_role_check", sql`${t.role} in ('owner', 'accountant', 'sales', 'production')`)],
 );

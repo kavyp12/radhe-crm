@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { amountInWords, divRound, formatMoney, invoiceTotals, lineCalc, parseMoney, parseQty } from "./num";
+import { amountInWords, bpText, divRound, formatMoney, invoiceTotals, lineCalc, parseMoney, parseQty } from "./num";
 
 test("rounding is half away from zero", () => {
   // qty 1.500 × ₹0.33 = 49.5 paise
@@ -81,4 +81,17 @@ test("amount in words, Indian system", () => {
   );
   expect(amountInWords(50n)).toBe("Rupees Zero and Fifty Paise Only");
   expect(amountInWords(100000000000n)).toBe("Rupees One Hundred Crore Only");
+});
+
+test("basis points as percent text", () => {
+  expect([0, 5, 1000, 1205, 1250, 1800, 10000, -250].map(bpText)).toEqual([
+    "0",
+    "0.05",
+    "10",
+    "12.05",
+    "12.5",
+    "18",
+    "100",
+    "-2.5",
+  ]);
 });

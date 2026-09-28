@@ -1,12 +1,12 @@
 import { hashPassword } from "better-auth/crypto";
 import { and, eq } from "drizzle-orm";
-import { db, type Tx } from "@/db";
+import { writeTx, type Tx } from "@/db";
 import { authAccounts, sessions, users } from "@/db/schema";
 import { UserError } from "@/lib/action";
 import { can, ROLES, type Role, type SessionUser } from "@/lib/permissions";
 
-// Staff accounts (S21). Written straight to Better Auth's tables in our own transactions — the same shapes its
-// sign-up writes — so they share the write transaction (and, from T05, the audit user) with the rest of the app.
+// Staff accounts (S21). Written straight to Better Auth's tables through writeTx — the same rows its sign-up
+// writes — so every change to a user is audited with the owner who made it.
 
 export type NewUser = { name: string; username: string; role: Role; canViewCost: boolean; password: string };
 export type UserChanges = { role?: Role; canViewCost?: boolean; active?: boolean };
@@ -60,7 +60,7 @@ async function insertUser(tx: Tx, input: NewUser): Promise<string> {
 
 export async function createUser(actor: SessionUser, input: NewUser): Promise<string> {
   allow(actor, "create");
-  return db.transaction((tx) => insertUser(tx, input));
+  return writeTx(actor, (tx) => insertUser(tx, input));
 }
 
 /** Role, can_view_cost, enable / disable. Disabling signs the user out everywhere. */
@@ -70,7 +70,7 @@ export async function updateUser(actor: SessionUser, id: string, changes: UserCh
   if (id === actor.id && (changes.active === false || (changes.role && changes.role !== actor.role))) {
     throw new UserError("You can't disable or change the role of your own account.");
   }
-  await db.transaction(async (tx) => {
+  await writeTx(actor, async (tx) => {
     const [row] = await tx.update(users).set(changes).where(eq(users.id, id)).returning({ id: users.id });
     if (!row) throw new UserError("User not found.");
     if (changes.active === false) await tx.delete(sessions).where(eq(sessions.userId, id));
@@ -82,20 +82,22 @@ export async function resetPassword(actor: SessionUser, id: string, password: st
   allow(actor, "edit");
   checkPassword(password);
   const hash = await hashPassword(password);
-  await db.transaction(async (tx) => {
+  await writeTx(actor, async (tx) => {
     const [row] = await tx
       .update(authAccounts)
       .set({ password: hash })
       .where(and(eq(authAccounts.userId, id), eq(authAccounts.providerId, "credential")))
       .returning({ id: authAccounts.id });
     if (!row) throw new UserError("User not found.");
+    // auth_accounts isn't audited (it holds the hash); this puts the reset on the user's history.
+    await tx.update(users).set({ passwordChangedAt: new Date() }).where(eq(users.id, id));
     await tx.delete(sessions).where(eq(sessions.userId, id));
   });
 }
 
 /** `pnpm db:seed`: the first owner, only while no owner exists. */
 export async function seedOwner(owner: { name: string; username: string; password: string }) {
-  return db.transaction(async (tx) => {
+  return writeTx(null, async (tx) => {
     const [existing] = await tx.select({ id: users.id }).from(users).where(eq(users.role, "owner")).limit(1);
     if (existing) return "exists" as const;
     await insertUser(tx, { ...owner, role: "owner", canViewCost: true });

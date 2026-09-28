@@ -1,7 +1,9 @@
 "use client";
 
-import { startTransition, useActionState } from "react";
+import { cloneElement, startTransition, useActionState, useId, type ReactElement } from "react";
+import { Label } from "@/components/ui/label";
 import type { FormState } from "@/lib/action";
+import { cn } from "@/lib/utils";
 
 /**
  * useActionState without React's reset-on-submit, so a rejected form keeps what the user typed.
@@ -52,6 +54,43 @@ export function FormActions({ children }: { children: React.ReactNode }) {
   return (
     <div className="sticky bottom-0 z-10 -mx-4 mt-2 flex items-center justify-end gap-2 border-t bg-card/95 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-card/80 md:-mx-6 md:px-6">
       {children}
+    </div>
+  );
+}
+
+/**
+ * A labelled field: the label wraps the input, then an inline error (DESIGN: errors under the field) or a hint.
+ * The single child input gets aria-invalid / aria-describedby.
+ */
+export function Field({
+  label,
+  error,
+  hint,
+  className,
+  children,
+}: {
+  label: string;
+  error?: string;
+  hint?: string;
+  className?: string;
+  children: ReactElement<{ "aria-invalid"?: boolean; "aria-describedby"?: string }>;
+}) {
+  const noteId = useId();
+  const note = error ?? hint;
+  return (
+    <div className={cn("grid content-start gap-1.5", className)}>
+      <Label className="grid gap-1.5">
+        {label}
+        {cloneElement(children, {
+          "aria-invalid": error ? true : undefined,
+          "aria-describedby": note ? noteId : undefined,
+        })}
+      </Label>
+      {note && (
+        <p id={noteId} className={cn("text-xs", error ? "text-destructive" : "text-muted-foreground")}>
+          {note}
+        </p>
+      )}
     </div>
   );
 }

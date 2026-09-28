@@ -87,3 +87,10 @@ export function amountInWords(paise: bigint): string {
   const p = paise % 100n;
   return `Rupees ${words(paise / 100n) || "Zero"}${p ? ` and ${words(p)} Paise` : ""} Only`;
 }
+
+/** Basis points as a percentage, no trailing zeros: 1250 → "12.5", 1800 → "18", 5 → "0.05" (integer maths). */
+export function bpText(bp: number): string {
+  const abs = Math.abs(bp);
+  const fraction = String(abs % 100).padStart(2, "0").replace(/0+$/, "");
+  return `${bp < 0 ? "-" : ""}${Math.trunc(abs / 100)}${fraction ? `.${fraction}` : ""}`;
+}

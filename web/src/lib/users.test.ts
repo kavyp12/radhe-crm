@@ -2,26 +2,20 @@ import { count, eq } from "drizzle-orm";
 import { beforeAll, expect, test } from "vitest";
 import { db } from "@/db";
 import { sessions, users } from "@/db/schema";
+import { OWNER, signedIn as signIn, testOwner } from "@/db/test-owner";
 import { UserError } from "@/lib/action";
 import { auth } from "@/lib/auth";
 import type { SessionUser } from "@/lib/permissions";
 import { createUser, resetPassword, seedOwner, updateUser } from "@/lib/users";
 
-const OWNER = { name: "Owner", username: "owner", password: "owner-pass-1" };
 let seeded: string[];
 let owner: SessionUser;
 
 beforeAll(async () => {
   seeded = [await seedOwner(OWNER), await seedOwner(OWNER)];
-  const [row] = await db.select().from(users).where(eq(users.role, "owner"));
-  owner = { id: row.id, name: row.name, username: row.username ?? "", role: row.role, canViewCost: row.canViewCost };
+  owner = await testOwner();
 });
 
-/** Signs in through Better Auth and returns request headers carrying the session cookie. */
-async function signIn(username: string, password: string) {
-  const { headers } = await auth.api.signInUsername({ body: { username, password }, returnHeaders: true });
-  return new Headers({ cookie: headers.get("set-cookie")!.split(";")[0] });
-}
 const sessionCount = async (userId: string) =>
   (await db.select({ n: count() }).from(sessions).where(eq(sessions.userId, userId)))[0].n;
 

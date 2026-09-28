@@ -51,13 +51,16 @@ export const auth = betterAuth({
   },
 });
 
-/** The signed-in, active user of this request, or null. */
-export const getUser = cache(async (): Promise<SessionUser | null> => {
-  const session = await auth.api.getSession({ headers: await headers() });
+/** The signed-in, active user for these request headers, or null. Route handlers: answer 401 on null. */
+export async function userFromHeaders(requestHeaders: Headers): Promise<SessionUser | null> {
+  const session = await auth.api.getSession({ headers: requestHeaders });
   if (!session?.user.active) return null;
   const { id, name, username, role, canViewCost } = session.user;
   return { id, name, username: username ?? "", role, canViewCost };
-});
+}
+
+/** The signed-in, active user of this page / server action request, or null. */
+export const getUser = cache(async () => userFromHeaders(await headers()));
 
 /** Pages and server actions: no session → /login. */
 export async function requireUser(): Promise<SessionUser> {
