@@ -28,7 +28,7 @@ Unclear or missing → STOP and ask. Never invent business rules, GST rates, HSN
 - `pnpm typecheck` — `next typegen` + `tsc --noEmit`
 - `pnpm lint` — ESLint
 - `pnpm test` — Vitest on radhe_test: wipes its schemas, runs migrations, then test files one at a time. Refuses any DB not named *_test.
-- `pnpm db:generate` — drizzle-kit migration from src/db/schema.ts (custom SQL: `pnpm db:generate --custom --name=<name>`)
+- `pnpm db:generate` — drizzle-kit migration from src/db/schema/ (one file per module, re-exported by index.ts) (custom SQL: `pnpm db:generate --custom --name=<name>`)
 - `pnpm db:migrate` — apply migrations in drizzle/ to DATABASE_URL (radhe_dev). "already exists, skipping" NOTICEs on repeat runs are normal.
 - `pnpm db:seed` — run src/db/seed.ts
 

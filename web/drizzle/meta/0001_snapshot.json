@@ -1,0 +1,58 @@
+{
+  "id": "a0a2df77-5ee8-4464-894e-5457f63b81c9",
+  "prevId": "f5f42595-c68c-4b17-90e6-ef4e632cf0a1",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.counters": {
+      "name": "counters",
+      "schema": "",
+      "columns": {
+        "series": {
+          "name": "series",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "period_key": {
+          "name": "period_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "next_value": {
+          "name": "next_value",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "counters_series_period_key_pk": {
+          "name": "counters_series_period_key_pk",
+          "columns": [
+            "series",
+            "period_key"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

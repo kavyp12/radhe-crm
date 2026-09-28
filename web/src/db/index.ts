@@ -11,3 +11,6 @@ const client = g.pgClient ?? postgres(url);
 if (process.env.NODE_ENV !== "production") g.pgClient = client;
 
 export const db = drizzle({ client, schema });
+
+/** The `tx` inside db.transaction(async (tx) => …). */
+export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
