@@ -5,9 +5,12 @@ import { PageHeader } from "@/components/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { listAttachments } from "@/lib/attachments";
 import { requirePermission } from "@/lib/auth";
+import { moneyAccounts } from "@/lib/ledger";
+import { moneyText } from "@/lib/num";
 import { can } from "@/lib/permissions";
 import { getSettings, percentText } from "@/lib/settings";
-import { saveSettingsAction, setImageAction } from "./actions";
+import { saveBooksAction, saveSettingsAction, setImageAction } from "./actions";
+import { BooksForm } from "./books-form";
 import { SettingsForm } from "./settings-form";
 
 const LABELS = {
@@ -25,11 +28,12 @@ const LABELS = {
   discount_limit_bp: "Discount limit",
   backdate_days: "Backdate days",
   default_credit_days: "Default credit days",
+  books_start_date: "Books start date",
 };
 
 export default async function SettingsPage() {
   const user = await requirePermission("settings", "view");
-  const [settings, files] = await Promise.all([getSettings(), listAttachments("settings", 1)]);
+  const [settings, files, money] = await Promise.all([getSettings(), listAttachments("settings", 1), moneyAccounts()]);
 
   return (
     <div className="grid grid-cols-1 gap-5">
@@ -37,6 +41,7 @@ export default async function SettingsPage() {
       <Tabs defaultValue="details" className="gap-4">
         <TabsList variant="line">
           <TabsTrigger value="details">Details</TabsTrigger>
+          <TabsTrigger value="books">Books</TabsTrigger>
           <TabsTrigger value="attachments">Attachments ({files.length})</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
@@ -63,6 +68,18 @@ export default async function SettingsPage() {
             settings={settings}
             discountLimit={percentText(settings.discountLimitBp)}
             action={saveSettingsAction}
+          />
+        </TabsContent>
+        <TabsContent value="books">
+          <BooksForm
+            booksStartDate={settings.booksStartDate}
+            accounts={money.map((a) => ({
+              id: a.id,
+              code: a.code,
+              name: a.name,
+              opening: a.openingBalancePaise ? moneyText(a.openingBalancePaise) : "",
+            }))}
+            action={saveBooksAction}
           />
         </TabsContent>
         <TabsContent value="attachments">

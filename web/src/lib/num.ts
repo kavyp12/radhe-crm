@@ -28,11 +28,15 @@ export const parseQty = (input: string) => parseFixed(input, 3, "quantity");
 
 const INR = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" });
 
+/** Paise as plain form text that parseMoney reads back: 123450n → "1234.50", -5n → "-0.05". */
+export function moneyText(paise: bigint): string {
+  const a = paise < 0n ? -paise : paise;
+  return `${paise < 0n ? "-" : ""}${a / 100n}.${String(a % 100n).padStart(2, "0")}`;
+}
+
 /** 10000000n → "₹1,00,000.00" · -123450n → "-₹1,234.50". Intl gets an exact decimal string, never a float. */
 export function formatMoney(paise: bigint): string {
-  const a = paise < 0n ? -paise : paise;
-  const decimal = `${paise < 0n ? "-" : ""}${a / 100n}.${String(a % 100n).padStart(2, "0")}`;
-  return INR.format(decimal as Intl.StringNumericLiteral);
+  return INR.format(moneyText(paise) as Intl.StringNumericLiteral);
 }
 
 /** same_state → CGST + SGST · other_state → IGST · estimate → no GST (D18). */

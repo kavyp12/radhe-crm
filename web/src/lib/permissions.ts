@@ -58,10 +58,11 @@ export const PERMISSIONS = {
   users: { owner: FULL },
   approvals: { owner: ["view", "approve"] },
   devices: { owner: FULL },
-  // TODO(ask): purchase orders, material receive (GRN) and stock items are not in A§8 — owner + accountant for now.
+  // D36: areas A§8 doesn't list.
   purchaseOrders: { owner: FULL, accountant: FULL },
   goodsReceipts: { owner: FULL, accountant: FULL },
-  stockItems: { owner: FULL, accountant: FULL },
+  stockItems: { owner: FULL, accountant: FULL, production: ["view"] }, // production: items without any values
+  categories: { owner: FULL, accountant: FULL }, // product + expense categories
 } satisfies Record<string, Partial<Record<Role, Action[]>>>;
 
 export type Area = keyof typeof PERMISSIONS;

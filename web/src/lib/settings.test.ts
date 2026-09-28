@@ -6,7 +6,8 @@ import { testOwner } from "@/db/test-owner";
 import type { SessionUser } from "@/lib/permissions";
 import { getSettings, percentText, updateSettings, type SettingsInput } from "@/lib/settings";
 
-// Only this file touches the settings row, so the order below is the row's whole life in a test run.
+// Other test files only set the books start date or restore what they change, so the order below is the life of
+// these fields in a test run.
 
 let owner: SessionUser;
 beforeAll(async () => {

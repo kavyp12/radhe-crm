@@ -1,7 +1,9 @@
 import { and, eq } from "drizzle-orm";
 import { db, writeTx } from "@/db";
-import { attachments, settings } from "@/db/schema";
+import { accounts, attachments, settings } from "@/db/schema";
 import { UserError } from "@/lib/action";
+import { parseDate } from "@/lib/dates";
+import { liveOpenings, moveOpenings, setOpening } from "@/lib/ledger";
 import { bpText, parseMoney } from "@/lib/num";
 import { can, type SessionUser } from "@/lib/permissions";
 
@@ -105,5 +107,62 @@ export async function setSettingsImage(actor: SessionUser, image: "logo" | "sign
     }
     const column = image === "logo" ? { logoAttachmentId: attachmentId } : { signatureAttachmentId: attachmentId };
     await tx.update(settings).set(column).where(eq(settings.id, 1));
+  });
+}
+
+export type BooksInput = {
+  booksStartDate: string; // DD/MM/YYYY, or blank
+  accounts: { id: number; name: string; opening: string }[]; // money accounts; opening in rupees, minus = Cr
+};
+
+/** Blank = 0. */
+function amount(value: string, field: string): bigint {
+  if (!value.trim()) return 0n;
+  try {
+    return parseMoney(value);
+  } catch {
+    throw new UserError("Enter an amount like 1,00,000.50 (minus for an overdraft).", field);
+  }
+}
+
+/**
+ * The Books tab (D40): books start date + money accounts' names and opening balances, in one transaction.
+ * A changed opening is reversed and posted again; a new start date moves every opening balance onto it.
+ */
+export async function saveBooks(actor: SessionUser, input: BooksInput): Promise<void> {
+  if (!can(actor, "settings", "edit")) throw new Error("Not allowed");
+  let date: string | null = null;
+  if (input.booksStartDate.trim()) {
+    try {
+      date = parseDate(input.booksStartDate);
+    } catch {
+      throw new UserError("Use DD/MM/YYYY, e.g. 01/04/2026.", "booksStartDate");
+    }
+  }
+
+  await writeTx(actor, async (tx) => {
+    const [s] = await tx.select({ date: settings.booksStartDate }).from(settings).where(eq(settings.id, 1)).for("update");
+    if (date !== s.date) {
+      if (!date && (await liveOpenings(tx)).length) {
+        throw new UserError("Opening balances are posted on this date, so it can't be blank.", "booksStartDate");
+      }
+      await tx.update(settings).set({ booksStartDate: date }).where(eq(settings.id, 1));
+      if (date) await moveOpenings(tx, date);
+    }
+
+    const money = await tx.select().from(accounts).where(eq(accounts.isMoney, true)).for("update");
+    for (const row of input.accounts) {
+      const account = money.find((a) => a.id === row.id);
+      if (!account) throw new Error("Not a money account");
+      const name = text(row.name, `name.${row.id}`, 60);
+      if (!name) throw new UserError("Give the account a name.", `name.${row.id}`);
+      const opening = amount(row.opening, `opening.${row.id}`);
+      if (name === account.name && opening === account.openingBalancePaise) continue;
+      await tx.update(accounts).set({ name, openingBalancePaise: opening }).where(eq(accounts.id, account.id));
+      if (opening !== account.openingBalancePaise) {
+        const doc = { type: "accounts" as const, id: account.id, narration: `Opening balance: ${name}` };
+        await setOpening(tx, doc, opening, { account: account.id }, { account: "opening_equity" });
+      }
+    }
   });
 }

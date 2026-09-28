@@ -11,16 +11,16 @@ const samples: Record<Role, { allowed: Sample[]; denied: Sample[] }> = {
     denied: [["customers", "approve"], ["invoices", "status"]],
   },
   accountant: {
-    allowed: [["invoices", "cancel"], ["payments", "create"], ["books", "create"], ["reports", "view"], ["quotations", "view"]],
+    allowed: [["invoices", "cancel"], ["payments", "create"], ["books", "create"], ["reports", "view"], ["quotations", "view"], ["categories", "edit"], ["stockItems", "edit"]],
     denied: [["users"], ["settings"], ["approvals"], ["devices"], ["quotations", "create"], ["materialRequests", "approve"]],
   },
   sales: {
     allowed: [["customers", "edit"], ["quotations", "create"], ["jobs", "create"], ["followUps", "create"], ["invoices", "view"], ["salesReports", "view"]],
-    denied: [["customers", "cancel"], ["invoices", "create"], ["payments"], ["vendors"], ["books"], ["reports"], ["users"], ["jobs", "status"]],
+    denied: [["customers", "cancel"], ["invoices", "create"], ["payments"], ["vendors"], ["books"], ["reports"], ["users"], ["jobs", "status"], ["categories"], ["stockItems"]],
   },
   production: {
-    allowed: [["jobs", "view"], ["jobs", "status"], ["stockIssue", "create"], ["materialRequests", "create"], ["printJobs", "view"]],
-    denied: [["jobs", "edit"], ["customers"], ["invoices"], ["payments"], ["books"], ["reports"], ["salesReports"], ["settings"]],
+    allowed: [["jobs", "view"], ["jobs", "status"], ["stockIssue", "create"], ["materialRequests", "create"], ["printJobs", "view"], ["stockItems", "view"]],
+    denied: [["jobs", "edit"], ["customers"], ["invoices"], ["payments"], ["books"], ["reports"], ["salesReports"], ["settings"], ["stockItems", "edit"], ["categories"]],
   },
 };
 

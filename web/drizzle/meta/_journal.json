@@ -36,6 +36,20 @@
       "when": 1790583625591,
       "tag": "0004_audit_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790596537529,
+      "tag": "0005_ledger",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790596552018,
+      "tag": "0006_ledger_rules",
+      "breakpoints": true
     }
   ]
 }

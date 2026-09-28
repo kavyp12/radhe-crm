@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { formAction, type FormState } from "@/lib/action";
 import { requirePermission } from "@/lib/auth";
-import { setSettingsImage, updateSettings } from "@/lib/settings";
+import { saveBooks, setSettingsImage, updateSettings } from "@/lib/settings";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "");
 
@@ -35,4 +35,16 @@ export async function setImageAction(image: "logo" | "signature", attachmentId: 
   const state = await formAction(() => setSettingsImage(actor, image, attachmentId));
   revalidatePath("/settings");
   return { error: state?.error };
+}
+
+export async function saveBooksAction(_: FormState, form: FormData): Promise<FormState> {
+  const actor = await requirePermission("settings", "edit");
+  const [ids, names, openings] = ["id", "name", "opening"].map((key) => form.getAll(key).map(String));
+  return formAction(async () => {
+    await saveBooks(actor, {
+      booksStartDate: text(form, "booksStartDate"),
+      accounts: ids.map((id, i) => ({ id: Number(id), name: names[i] ?? "", opening: openings[i] ?? "" })),
+    });
+    revalidatePath("/settings");
+  });
 }

@@ -77,7 +77,7 @@ export const NAV: NavGroup[] = [
     items: [
       { label: "Items", href: "/items", area: "stockItems", icon: Package },
       { label: "Issue to Job", href: "/issue-to-job", area: "stockIssue", icon: PackageMinus },
-      { label: "Adjustments", href: "/adjustments", area: "stockAdjustment", icon: SlidersHorizontal },
+      { label: "Adjustments", href: "/stock-adjustments", area: "stockAdjustment", icon: SlidersHorizontal },
     ],
   },
   {

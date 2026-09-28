@@ -30,7 +30,7 @@ test("sales: customers, quotations, jobs, invoices, follow-ups, reports — no m
 });
 
 test("production: jobs and shop-floor stock only, no dashboard", () => {
-  expect(labels("production")).toEqual(["Jobs", "Print Jobs", "Material Requests", "Issue to Job"]);
+  expect(labels("production")).toEqual(["Jobs", "Print Jobs", "Material Requests", "Items", "Issue to Job"]); // items: view only (D36)
   expect(navFor({ role: "production" }).map((group) => group.label)).toEqual(["Sales", "Purchase", "Stock"]);
 });
 

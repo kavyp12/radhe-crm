@@ -4,8 +4,8 @@ import { DateText } from "@/components/date-text";
 import { EmptyState } from "@/components/empty-state";
 import { db } from "@/db";
 import { auditLog, users } from "@/db/schema";
-import { formatDateTime } from "@/lib/dates";
-import { bpText } from "@/lib/num";
+import { formatDate, formatDateTime } from "@/lib/dates";
+import { bpText, formatMoney } from "@/lib/num";
 
 // History tab (S23): who changed what and when, read from audit_log. Server component; the page that shows it
 // has already checked the user may see the record.
@@ -25,8 +25,10 @@ function show(column: string, value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (column.endsWith("_bp") && typeof value === "number") return `${bpText(value)}%`;
+  if (column.endsWith("_paise") && typeof value === "number") return formatMoney(BigInt(value));
   if (column.endsWith("_attachment_id")) return `file #${value}`;
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) return formatDateTime(new Date(value));
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return formatDate(value);
   return typeof value === "object" ? JSON.stringify(value) : String(value);
 }
 
