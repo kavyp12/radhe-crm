@@ -21,7 +21,7 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
   Done when: Ronnie approves the look (reviewer tells him exactly what to open).
 
 - [ ] **T05 · Audit log, settings, attachments** — S22–S24, A§7, D08
-  audit_log + generic trigger (custom SQL migration) + write-transaction helper setting app.user_id (also wrap T03's user writes); reusable History tab (who / when / old → new). Settings page (company profile, logo, bank, UPI, terms, discount limit, backdate days, default credit days). lib/storage.ts (local dev / Supabase prod); attachments table + upload (phone camera capture) + list/preview component with S24 kinds.
+  audit_log + generic trigger (custom SQL migration) + write-transaction helper setting app.user_id (also wrap T03's user writes); reusable History tab (who / when / old → new). Settings page (company profile, logo, bank, UPI, terms, discount limit, backdate days, default credit days). lib/storage.ts (local driver; Supabase driver in T44 — D34); attachments table + upload (phone camera capture) + list/preview component with S24 kinds.
   Done when: test proves an app update writes an audit row with user + old/new · upload and view work locally · settings save.
 
 - [ ] **T06 · Ledger core** — D14, A§3
@@ -190,7 +190,7 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
   Done when: sample import round-trips · trial balance = 0 after import.
 
 - [ ] **T44 · Deploy** — D10
-  Supabase prod (Mumbai) + storage bucket; Vercel project (root web/, region bom1) + env; migrations; seed owner; domain; nightly pg_dump; prod smoke test; admin guide. (Pushing to GitHub/Vercel only with Ronnie's OK.)
+  Supabase prod (Mumbai) + storage bucket + Supabase driver for lib/storage.ts (D34); Vercel project (root web/, region bom1) + env; migrations; seed owner; domain; nightly pg_dump; prod smoke test; admin guide. (Pushing to GitHub/Vercel only with Ronnie's OK.)
   Done when: prod URL works end-to-end · backup job ran once · restore tested.
 
 - [ ] **🚦 G3 · Client UAT & sign-off** — client uses it for real; reviewer converts feedback into fix tasks until sign-off.
