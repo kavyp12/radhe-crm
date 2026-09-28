@@ -2,7 +2,7 @@
 
 import { Bell, ChevronsUpDown, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Plus, Search } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { logout } from "@/app/(app)/actions";
@@ -18,7 +18,7 @@ import {
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { navFor, navItemFor, newMenuFor, SIDEBAR_COOKIE, type NavCount, type NavItem } from "@/lib/nav";
-import { ROLE_LABEL, type SessionUser } from "@/lib/permissions";
+import { can, ROLE_LABEL, type SessionUser } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 
 export type ShellCounts = Record<NavCount | "alerts", number>;
@@ -242,6 +242,7 @@ type TopBarProps = {
 
 function TopBar({ user, alerts, collapsed, onToggle, onMenu }: TopBarProps) {
   const newItems = newMenuFor(user);
+  const router = useRouter();
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b bg-card px-3 md:px-4">
       <Button variant="ghost" size="icon-sm" className="md:hidden" aria-label="Open menu" onClick={onMenu}>
@@ -286,13 +287,13 @@ function TopBar({ user, alerts, collapsed, onToggle, onMenu }: TopBarProps) {
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-        {/* Placeholder count: alerts arrive in T29. */}
+        {/* Pending approvals for the owner; the other alerts arrive in T29. */}
         <Button
           variant="ghost"
           size="icon-sm"
           className="relative text-muted-foreground"
           aria-label={`Alerts (${alerts})`}
-          onClick={() => toast("Alerts are coming soon.")}
+          onClick={() => (can(user, "approvals") ? router.push("/approvals") : toast("Alerts are coming soon."))}
         >
           <Bell />
           {alerts > 0 && (

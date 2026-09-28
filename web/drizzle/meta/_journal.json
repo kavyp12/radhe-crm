@@ -50,6 +50,20 @@
       "when": 1790596552018,
       "tag": "0006_ledger_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790598668514,
+      "tag": "0007_approvals",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790598672022,
+      "tag": "0008_approvals_audit",
+      "breakpoints": true
     }
   ]
 }

@@ -15,6 +15,7 @@ export const STATUSES = [
   "Overdue",
   "Credit Customer",
   "Pending approval",
+  "Rejected",
   "Cancelled",
 ] as const;
 export type Status = (typeof STATUSES)[number];
@@ -33,6 +34,7 @@ const TONE: Record<Status, string> = {
   Overdue: "bg-red-50 text-red-700 ring-red-600/20",
   "Credit Customer": "bg-blue-50 text-blue-700 ring-blue-600/20",
   "Pending approval": "bg-orange-50 text-orange-800 ring-orange-600/25",
+  Rejected: "bg-red-50 text-red-700 ring-red-600/20",
   Cancelled: "bg-zinc-100 text-zinc-500 ring-zinc-500/20",
 };
 

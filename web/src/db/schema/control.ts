@@ -57,3 +57,40 @@ export const attachments = pgTable(
     ),
   ],
 );
+
+export const APPROVAL_STATUSES = ["pending", "approved", "rejected"] as const;
+
+/**
+ * A sensitive action by someone other than the owner, waiting for the owner (A§7, S22). Written only by
+ * lib/approvals.ts: on approval the executor for `type` runs with `payload`, exactly once. Audited.
+ */
+export const approvalRequests = pgTable(
+  "approval_requests",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    type: text("type").notNull(), // the registered executor
+    targetType: text("target_type"), // the record it is about: its table and id
+    targetId: bigint("target_id", { mode: "number" }),
+    payload: jsonb("payload").notNull(), // the executor's input, as requested (JSON: amounts as text)
+    summary: text("summary").notNull(), // "Cancel invoice RDS/26-27/0012"
+    // What will change, captured when requested, so the owner (and history) sees old → new.
+    changes: jsonb("changes").$type<{ label: string; old: string | null; new: string | null }[]>().notNull(),
+    reason: text("reason"),
+    status: text("status", { enum: APPROVAL_STATUSES }).notNull().default("pending"),
+    requestedBy: text("requested_by")
+      .notNull()
+      .references(() => users.id),
+    decidedBy: text("decided_by").references(() => users.id),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decisionNote: text("decision_note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index("approval_requests_status_idx").on(t.status, t.id),
+    check("approval_requests_status_check", sql`${t.status} in ('pending', 'approved', 'rejected')`),
+  ],
+);

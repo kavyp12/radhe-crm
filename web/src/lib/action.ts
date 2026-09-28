@@ -11,13 +11,16 @@ export class UserError extends Error {
   }
 }
 
-export type FormState = { error?: string; field?: string; ok?: boolean } | undefined;
+export type FormState = { error?: string; field?: string; ok?: boolean; message?: string } | undefined;
 
-/** Server actions used with useActionState: a UserError becomes { error, field } for the form. */
+/**
+ * Server actions used with useActionState: a UserError becomes { error, field } for the form. If `fn` returns
+ * { message } (e.g. runOrRequest's "Sent for approval."), the form shows that instead of its usual success text.
+ */
 export async function formAction(fn: () => Promise<unknown>): Promise<FormState> {
   try {
-    await fn();
-    return { ok: true };
+    const message = ((await fn()) as { message?: unknown } | undefined)?.message;
+    return { ok: true, message: typeof message === "string" ? message : undefined };
   } catch (e) {
     if (e instanceof UserError) return { error: e.message, field: e.field };
     throw e;
