@@ -24,20 +24,20 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
   audit_log + generic trigger (custom SQL migration) + write-transaction helper setting app.user_id (also wrap T03's user writes); reusable History tab (who / when / old → new). Settings page (company profile, logo, bank, UPI, terms, discount limit, backdate days, default credit days). lib/storage.ts (local driver; Supabase driver in T44 — D34); attachments table + upload (phone camera capture) + list/preview component with S24 kinds.
   Done when: test proves an app update writes an audit row with user + old/new · upload and view work locally · settings save.
 
-- [ ] **T06 · Ledger core** — D14, A§3
+- [x] **T06 · Ledger core** — D14, A§3
   accounts + seed chart; journal_entries / journal_lines; DB triggers: deferred balance check, append-only; posting service post() / reverse(); money accounts Cash, Petty Cash, UPI, Bank 1, Bank 2 with opening balance; ledger query helper (date range, running balance).
   Done when: tests: unbalanced entry rejected · UPDATE/DELETE on journal rejected · reverse nets to zero · running balance correct.
 
-- [ ] **T07 · Approvals framework** — S22, A§7
+- [x] **T07 · Approvals framework** — S22, A§7
   approval_requests; helper: owner runs the action directly, others create a request; Approvals page (pending list, old → new view, approve/reject + note); executor registry; backdate-check and discount-limit-check helpers; bell count of pending approvals for owner.
   Done when: test with a dummy action: non-owner → request · approve → runs exactly once · reject → no change · all audited.
 
 ## Phase 1 — Masters
-- [ ] **T08 · Customers** — S1, A§2
+- [x] **T08 · Customers** — S1, A§2
   CRUD with all S1 fields + state, sales person, collection person, credit-customer flag; GSTIN format + state-code check; opening balance posts to journal; list (search, outstanding column); detail page with Overview (total business, received, outstanding, last payment date — from journal/docs), Attachments and History tabs.
   Done when: tests: GSTIN validation · opening balance appears in AR ledger · edit is audited.
 
-- [ ] **T09 · Vendors & categories** — S4, S9, S10
+- [x] **T09 · Vendors & categories** — S4, S9, S10
   Vendors CRUD (name, GSTIN, state, mobile, address, credit days, opening balance → journal). Product categories (14 seeded; HSN/SAC blank, GST % editable). Expense categories (21 seeded; each with its own expense account + cost bucket).
   Done when: seeds are idempotent · vendor opening shows in AP ledger.
 
@@ -70,7 +70,7 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
   Linked to the original invoice; reason; lines from the invoice (partial qty/amount); GST reversed; CN needs approval for non-owner; CN allocates to its invoice; DN adds receivable; PDFs.
   Done when: tests: CN reduces invoice open amount + GST output · DN increases them.
 
-- [ ] **🚦 G1 · Sales-flow demo** — Ronnie (and client) walk through quotation → job → invoice → receipt → ledger on real-looking data. Confirm D17, D19, D24, D25, D30, D38, D41. Reviewer records answers in DECISIONS.md.
+- [ ] **🚦 G1 · Sales-flow demo** — Ronnie (and client) walk through quotation → job → invoice → receipt → ledger on real-looking data. Confirm D17, D19, D24, D25, D30, D38, D41, D45. Reviewer records answers in DECISIONS.md.
 
 ## Phase 3 — Purchase, expenses, stock
 - [ ] **T17 · Stock core** — S17, D20, A§9
@@ -197,7 +197,7 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
 
 ## Batch plan (D42) — one builder chat per line; the reviewer checks each batch before the next
 - ✅ B1 T01 · ✅ B2 T02 · ✅ B3 T03 + T04 + T05
-- B4 T06 + T07 + T08 + T09 → Phases 0–1 done
+- ✅ B4 T06 + T07 + T08 + T09 → Phases 0–1 done
 - B5 T10 + T11 + T12
 - B6 T13 + T14 + T15 + T16 → 🚦 G1 demo
 - B7 T17 + T18 + T19 + T20
