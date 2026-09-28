@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { db } from "@/db";
 import { customers } from "@/db/schema";
 import { listAttachments } from "@/lib/attachments";
+import { liveJobFor } from "@/lib/jobs";
 import { requirePermission } from "@/lib/auth";
 import { stateName } from "@/lib/gstin";
 import { can } from "@/lib/permissions";
@@ -42,10 +43,11 @@ export default async function QuotationPage({ params }: PageProps<"/quotations/[
   const id = Number((await params).id);
   const q = Number.isSafeInteger(id) ? await getQuotation(id) : undefined;
   if (!q) notFound();
-  const [files, settings, names] = await Promise.all([
+  const [files, settings, names, job] = await Promise.all([
     listAttachments("quotation", id),
     getSettings(),
     db.select({ id: customers.id, name: customers.name }).from(customers),
+    liveJobFor(db, id),
   ]);
   const c = q.customer;
   const edit = can(user, "quotations", "edit");
@@ -82,6 +84,16 @@ export default async function QuotationPage({ params }: PageProps<"/quotations/[
               : undefined
           }
         />
+        {job && can(user, "jobs", "view") && (
+          <Button asChild variant="outline">
+            <Link href={`/jobs/${job.id}`}>Job {job.number}</Link>
+          </Button>
+        )}
+        {!job && q.status === "approved" && can(user, "jobs", "create") && (
+          <Button asChild>
+            <Link href={`/jobs/new?quotation=${id}`}>Create job</Link>
+          </Button>
+        )}
         {edit && (q.status === "draft" || q.status === "sent") && (
           <Button asChild variant="outline">
             <Link href={`/quotations/${id}/edit`}>Edit</Link>

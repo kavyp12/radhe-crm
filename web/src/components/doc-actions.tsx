@@ -43,16 +43,18 @@ export function ActionButton({
   label,
   done,
   variant = "outline",
+  size,
 }: {
   action: Action;
   label: string;
   done: string;
   variant?: Variant;
+  size?: "sm";
 }) {
   const { onSubmit, pending } = useToasted(action, done);
   return (
     <form onSubmit={onSubmit}>
-      <Button type="submit" variant={variant} disabled={pending}>
+      <Button type="submit" variant={variant} size={size} disabled={pending}>
         {pending ? "Working…" : label}
       </Button>
     </form>

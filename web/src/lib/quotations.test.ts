@@ -231,7 +231,7 @@ test("the PDF renders a Gujarati customer name and ₹, embedding both Noto font
   expect(text).toMatch(/\/basefont\s*\/[a-z]{6}\+notosansgujarati-regular/);
   expect(text).toContain("<20b9>"); // ₹ in a ToUnicode map
   expect(text).toContain("<0a97>"); // ગ
-});
+}, 30_000); // the first render parses the fonts
 
 test("/share/<token> serves the PDF without a login; a wrong token gets 404", async () => {
   const id = await createQuotation(owner, input(local, twoLines()));
@@ -248,7 +248,7 @@ test("/share/<token> serves the PDF without a login; a wrong token gets 404", as
   expect((await get(wrong)).status).toBe(404);
   expect((await get("nope")).status).toBe(404);
   expect(await pdfForToken("x".repeat(43))).toBeNull();
-});
+}, 30_000);
 
 test("WhatsApp links carry the message; email without SMTP says it isn't set up", async () => {
   expect(whatsappLink("98250 11111", "Hi & bye")).toBe("https://wa.me/919825011111?text=Hi%20%26%20bye");

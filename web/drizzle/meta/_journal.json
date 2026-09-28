@@ -106,6 +106,20 @@
       "when": 1790618207778,
       "tag": "0014_quotations_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1790620559523,
+      "tag": "0015_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790620565205,
+      "tag": "0016_jobs_audit",
+      "breakpoints": true
     }
   ]
 }

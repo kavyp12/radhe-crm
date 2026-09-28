@@ -5,6 +5,7 @@ import { customers, productCategories, quotationLines, quotations, type QUOTATIO
 import { formText, UserError } from "@/lib/action";
 import { registerExecutor, runOrRequest } from "@/lib/approvals";
 import { todayIST } from "@/lib/dates";
+import { liveJobFor } from "@/lib/jobs";
 import { checkBooksDate } from "@/lib/ledger";
 import { gstMode, lineTotals } from "@/lib/lines";
 import { formatMoney } from "@/lib/num";
@@ -165,6 +166,8 @@ export async function cancelQuotation(actor: SessionUser, id: number): Promise<v
   await writeTx(actor, async (tx) => {
     const q = await lock(tx, id);
     if (q.status === "cancelled") throw new UserError("This quotation is already cancelled.");
+    const job = await liveJobFor(tx, id);
+    if (job) throw new UserError(`Job ${job.number} was made from this quotation: cancel the job first.`);
     await tx.update(quotations).set({ status: "cancelled" }).where(eq(quotations.id, id));
   });
 }

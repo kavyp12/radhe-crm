@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, check, date, index, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { bigint, check, date, index, integer, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { users } from "./auth";
 import { customers, productCategories } from "./masters";
 
@@ -69,4 +69,74 @@ export const quotationLines = pgTable(
     ...lineColumns(),
   },
   (t) => [index("quotation_lines_doc_idx").on(t.quotationId)],
+);
+
+export const JOB_STATUSES = ["in_production", "ready", "delivered", "invoiced", "cancelled"] as const;
+
+/**
+ * Jobs / work orders (S2, S3): RDS-YYYY-NNNNN by the job date's calendar year (D16). From an approved quotation (lines
+ * copied, one job per quotation — D46) or blank. Invoiced is set only by issuing an invoice. Audited.
+ */
+export const jobs = pgTable(
+  "jobs",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    number: text("number").notNull().unique(),
+    date: date("date").notNull(),
+    customerId: bigint("customer_id", { mode: "number" })
+      .notNull()
+      .references(() => customers.id),
+    quotationId: bigint("quotation_id", { mode: "number" }).references(() => quotations.id),
+    placeOfSupply: text("place_of_supply").notNull(),
+    status: text("status", { enum: JOB_STATUSES }).notNull().default("in_production"),
+    totalPaise: bigint("total_paise", { mode: "bigint" }).notNull(),
+    siteAddress: text("site_address"),
+    siteReference: text("site_reference"),
+    vehicleNo: text("vehicle_no"),
+    salesPersonId: text("sales_person_id").references(() => users.id),
+    targetDate: date("target_date"),
+    notes: text("notes"),
+    ...stamps(),
+  },
+  (t) => [
+    index("jobs_customer_idx").on(t.customerId),
+    // One live job per quotation (D46); a cancelled job frees the quotation for a new one.
+    uniqueIndex("jobs_quotation_live_idx").on(t.quotationId).where(sql`${t.status} <> 'cancelled'`),
+    check(
+      "jobs_status_check",
+      sql`${t.status} in ('in_production', 'ready', 'delivered', 'invoiced', 'cancelled')`,
+    ),
+  ],
+);
+
+export const jobLines = pgTable(
+  "job_lines",
+  {
+    jobId: bigint("job_id", { mode: "number" })
+      .notNull()
+      .references(() => jobs.id),
+    ...lineColumns(),
+    quotationLineId: bigint("quotation_line_id", { mode: "number" }).references(() => quotationLines.id),
+  },
+  (t) => [index("job_lines_doc_idx").on(t.jobId)],
+);
+
+/** Every status a job moved to, with who and when (T11). Append-only. */
+export const jobStatusHistory = pgTable(
+  "job_status_history",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    jobId: bigint("job_id", { mode: "number" })
+      .notNull()
+      .references(() => jobs.id),
+    fromStatus: text("from_status", { enum: JOB_STATUSES }), // null = created
+    toStatus: text("to_status", { enum: JOB_STATUSES }).notNull(),
+    // Stamped by the DB from app.user_id (writeTx), like the journal.
+    changedBy: text("changed_by")
+      .notNull()
+      .default(sql`nullif(current_setting('app.user_id', true), '')`)
+      .references(() => users.id),
+    changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("job_status_history_job_idx").on(t.jobId, t.id)],
 );

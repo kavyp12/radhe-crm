@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { type AnyPgColumn, bigint, check, date, index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { users } from "./auth";
 import { accounts, customers, vendors } from "./masters";
+import { jobs } from "./sales";
 
 /**
  * The journal (A§3, D14): each money-moving document posts one balanced entry through lib/ledger.ts post(), the
@@ -44,10 +45,10 @@ export const journalLines = pgTable(
       .references(() => accounts.id),
     debitPaise: bigint("debit_paise", { mode: "bigint" }).notNull().default(sql`0`),
     creditPaise: bigint("credit_paise", { mode: "bigint" }).notNull().default(sql`0`),
-    // Sub-ledgers. job_id gets its foreign key with the jobs table (T11).
+    // Sub-ledgers.
     customerId: bigint("customer_id", { mode: "number" }).references(() => customers.id),
     vendorId: bigint("vendor_id", { mode: "number" }).references(() => vendors.id),
-    jobId: bigint("job_id", { mode: "number" }),
+    jobId: bigint("job_id", { mode: "number" }).references(() => jobs.id),
   },
   (t) => [
     check(
