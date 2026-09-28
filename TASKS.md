@@ -4,7 +4,7 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
 🚦 = Ronnie checks the app himself before the reviewer ticks.
 
 ## Phase 0 — Foundation
-- [ ] **T01 · Scaffold & dev environment** — D01–D03, D09
+- [x] **T01 · Scaffold & dev environment** — D01–D03, D09
   Next.js app in web/ (App Router, TS, Tailwind, src/, alias @/*, pnpm); shadcn/ui init; Drizzle + postgres.js + drizzle-kit; create radhe_dev + radhe_test on local Postgres 16; Vitest wired to radhe_test (migrate before run); scripts dev / build / start / typecheck / lint / test / db:generate / db:migrate / db:seed; web/.env.example; fill the "Commands" section in CLAUDE.md.
   Done when: `pnpm dev` serves localhost:3000 · typecheck clean · one DB smoke test passes on radhe_test · migrations run on radhe_dev.
 
@@ -70,7 +70,7 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
   Linked to the original invoice; reason; lines from the invoice (partial qty/amount); GST reversed; CN needs approval for non-owner; CN allocates to its invoice; DN adds receivable; PDFs.
   Done when: tests: CN reduces invoice open amount + GST output · DN increases them.
 
-- [ ] **🚦 G1 · Sales-flow demo** — Ronnie (and client) walk through quotation → job → invoice → receipt → ledger on real-looking data. Confirm D17, D19, D24, D25. Reviewer records answers in DECISIONS.md.
+- [ ] **🚦 G1 · Sales-flow demo** — Ronnie (and client) walk through quotation → job → invoice → receipt → ledger on real-looking data. Confirm D17, D19, D24, D25, D30. Reviewer records answers in DECISIONS.md.
 
 ## Phase 3 — Purchase, expenses, stock
 - [ ] **T17 · Stock core** — S17, D20, A§9

@@ -29,6 +29,12 @@ To change one: Ronnie agrees → the reviewer adds a NEW dated entry below. Neve
 - **D25 "Pending Payment Report"** (S20 #17) = vendor bills pending payment (customer side = Outstanding report). — confirm at G1.
 - **D26 Not built unless the client asks**: GST on advances, reverse charge, e-invoice / e-way bill, GSTR JSON, Tally XML (journal Excel export instead), delivery challan PDF, multi-language, dark mode, native mobile app (PWA instead), cheque clearing, purchase returns, unit conversion, per-user custom permissions (only the can_view_cost toggle), WebSockets.
 
+## 2026-09-28 — T01 review / T02 prompt
+- **D27 Dev DB access**: app, migrations and tests connect as login role `radhe` (owner of radhe_dev + radhe_test), never as the postgres superuser. `pnpm test` wipes and re-migrates radhe_test every run and refuses any DB not named *_test.
+- **D28 Packages approved at T01**: tsx (dev, runs TS scripts). From shadcn init: radix-ui, class-variance-authority, lucide-react, tw-animate-css, shadcn (CSS import), cn (shadcn-ui's clsx + tailwind-merge replacement). pnpm install scripts stay blocked (esbuild, sharp, unrs-resolver ignored; prebuilt binaries work) — allowing one needs reviewer OK.
+- **D29 Next agent files**: keep web/AGENTS.md + web/CLAUDE.md written by `next dev`; they point agents to the Next docs in node_modules/next/dist/docs (hard rule 10).
+- **D30 Rounding & display defaults**: half-up = half away from zero (negatives mirror positives, so reversals net to zero). Invoice round-off: 50 paise and above rounds up. Date presets: Week = Monday → today, Month = 1st → today. Amount in words: "Rupees One Lakh Twenty Thousand and Fifty Paise Only" (Indian system; match the client's invoice sample when Q3 arrives). — confirm presets at G1.
+
 ## Open questions (reviewer: when answered, add a new decision above and strike the question)
 - **Q1** Print workflow per PC: machines list; CorelDRAW → Windows printer, or RIP software (Maintop / PhotoPrint / Onyx / Caldera / other)? Where are job files saved (local D:\ or shared drive)? — blocks T40.
 - **Q2** HSN/SAC + GST % per product category (from their CA). — before go-live; invoices work with blanks until then.
