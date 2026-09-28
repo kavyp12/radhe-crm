@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { db, writeTx } from "@/db";
 import { accounts, attachments, settings } from "@/db/schema";
-import { UserError } from "@/lib/action";
+import { formDays, formMoney, formText, UserError } from "@/lib/action";
 import { parseDate } from "@/lib/dates";
 import { liveOpenings, moveOpenings, setOpening } from "@/lib/ledger";
 import { bpText, parseMoney } from "@/lib/num";
@@ -37,32 +37,20 @@ export const percentText = (bp: number | null) => (bp === null ? "" : bpText(bp)
 
 const GSTIN = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 
-function text(value: string, field: string, max = 200): string | null {
-  const v = value.trim();
-  if (v.length > max) throw new UserError(`Keep this under ${max} characters.`, field);
-  return v || null;
-}
-
-function days(value: string, field: string): number | null {
-  const v = value.trim();
-  if (!v) return null;
-  if (!/^\d{1,4}$/.test(v)) throw new UserError("Enter a whole number of days.", field);
-  return Number(v);
-}
 
 export async function updateSettings(actor: SessionUser, input: SettingsInput): Promise<void> {
   if (!can(actor, "settings", "edit")) throw new Error("Not allowed");
 
   const stateCode = input.stateCode.trim();
   if (!/^\d{2}$/.test(stateCode)) throw new UserError("State code is two digits, e.g. 24 for Gujarat.", "stateCode");
-  const gstin = text(input.gstin.toUpperCase(), "gstin", 15);
+  const gstin = formText(input.gstin.toUpperCase(), "gstin", 15);
   if (gstin && !GSTIN.test(gstin)) throw new UserError("GSTIN is 15 characters, e.g. 24ABCDE1234F1Z5.", "gstin");
   if (gstin && !gstin.startsWith(stateCode)) {
     throw new UserError(`A GSTIN for state ${stateCode} starts with ${stateCode}.`, "gstin");
   }
-  const email = text(input.email, "email");
+  const email = formText(input.email, "email");
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new UserError("Enter a valid email.", "email");
-  const upiId = text(input.upiId, "upiId");
+  const upiId = formText(input.upiId, "upiId");
   if (upiId && !/^[\w.-]+@[\w.-]+$/.test(upiId)) throw new UserError("A UPI id looks like name@bank.", "upiId");
 
   let discountLimitBp: number | null = null;
@@ -78,18 +66,18 @@ export async function updateSettings(actor: SessionUser, input: SettingsInput): 
   }
 
   const values = {
-    companyName: text(input.companyName, "companyName"),
-    address: text(input.address, "address", 1000),
+    companyName: formText(input.companyName, "companyName"),
+    address: formText(input.address, "address", 1000),
     gstin,
     stateCode,
-    phone: text(input.phone, "phone"),
+    phone: formText(input.phone, "phone"),
     email,
-    bankDetails: text(input.bankDetails, "bankDetails", 1000),
+    bankDetails: formText(input.bankDetails, "bankDetails", 1000),
     upiId,
-    invoiceTerms: text(input.invoiceTerms, "invoiceTerms", 4000),
+    invoiceTerms: formText(input.invoiceTerms, "invoiceTerms", 4000),
     discountLimitBp,
-    backdateDays: days(input.backdateDays, "backdateDays"),
-    defaultCreditDays: days(input.defaultCreditDays, "defaultCreditDays"),
+    backdateDays: formDays(input.backdateDays, "backdateDays"),
+    defaultCreditDays: formDays(input.defaultCreditDays, "defaultCreditDays"),
   };
   await writeTx(actor, (tx) => tx.update(settings).set(values).where(eq(settings.id, 1)));
 }
@@ -114,16 +102,6 @@ export type BooksInput = {
   booksStartDate: string; // DD/MM/YYYY, or blank
   accounts: { id: number; name: string; opening: string }[]; // money accounts; opening in rupees, minus = Cr
 };
-
-/** Blank = 0. */
-function amount(value: string, field: string): bigint {
-  if (!value.trim()) return 0n;
-  try {
-    return parseMoney(value);
-  } catch {
-    throw new UserError("Enter an amount like 1,00,000.50 (minus for an overdraft).", field);
-  }
-}
 
 /**
  * The Books tab (D40): books start date + money accounts' names and opening balances, in one transaction.
@@ -154,9 +132,9 @@ export async function saveBooks(actor: SessionUser, input: BooksInput): Promise<
     for (const row of input.accounts) {
       const account = money.find((a) => a.id === row.id);
       if (!account) throw new Error("Not a money account");
-      const name = text(row.name, `name.${row.id}`, 60);
+      const name = formText(row.name, `name.${row.id}`, 60);
       if (!name) throw new UserError("Give the account a name.", `name.${row.id}`);
-      const opening = amount(row.opening, `opening.${row.id}`);
+      const opening = formMoney(row.opening, `opening.${row.id}`) ?? 0n;
       if (name === account.name && opening === account.openingBalancePaise) continue;
       await tx.update(accounts).set({ name, openingBalancePaise: opening }).where(eq(accounts.id, account.id));
       if (opening !== account.openingBalancePaise) {

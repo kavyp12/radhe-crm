@@ -64,6 +64,20 @@
       "when": 1790598672022,
       "tag": "0008_approvals_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790602298081,
+      "tag": "0009_customers",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790602299462,
+      "tag": "0010_customers_audit",
+      "breakpoints": true
     }
   ]
 }

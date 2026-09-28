@@ -17,6 +17,8 @@ type Props = {
   labels?: Record<string, string>;
   /** Columns never shown (id, created_at and updated_at never are). */
   hide?: string[];
+  /** Column → how to show a value, e.g. a user id as the person's name. */
+  display?: Record<string, (value: unknown) => string>;
 };
 
 const ALWAYS_HIDDEN = ["id", "created_at", "updated_at"];
@@ -34,7 +36,7 @@ function show(column: string, value: unknown): string {
 
 const VERB = { insert: "created this", update: "made changes", delete: "deleted this" } as const;
 
-export async function History({ table, rowId, labels = {}, hide = [] }: Props) {
+export async function History({ table, rowId, labels = {}, hide = [], display = {} }: Props) {
   const rows = await db
     .select({
       id: auditLog.id,
@@ -59,6 +61,8 @@ export async function History({ table, rowId, labels = {}, hide = [] }: Props) {
   }
 
   const hidden = new Set([...ALWAYS_HIDDEN, ...hide]);
+  const value = (column: string, v: unknown) =>
+    display[column] && v !== null && v !== undefined && v !== "" ? display[column](v) : show(column, v);
   const label = (column: string) =>
     labels[column] ?? column.charAt(0).toUpperCase() + column.slice(1).replaceAll("_", " ");
 
@@ -92,11 +96,11 @@ export async function History({ table, rowId, labels = {}, hide = [] }: Props) {
                     <dd className="break-words whitespace-pre-line">
                       {row.action === "update" && (
                         <>
-                          <span className="text-muted-foreground">{show(c, before[c])}</span>
+                          <span className="text-muted-foreground">{value(c, before[c])}</span>
                           <span aria-label="changed to"> → </span>
                         </>
                       )}
-                      {show(c, row.action === "delete" ? before[c] : after[c])}
+                      {value(c, row.action === "delete" ? before[c] : after[c])}
                     </dd>
                   </div>
                 ))}

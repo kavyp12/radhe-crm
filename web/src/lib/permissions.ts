@@ -63,6 +63,7 @@ export const PERMISSIONS = {
   goodsReceipts: { owner: FULL, accountant: FULL },
   stockItems: { owner: FULL, accountant: FULL, production: ["view"] }, // production: items without any values
   categories: { owner: FULL, accountant: FULL }, // product + expense categories
+  openingBalances: { owner: FULL, accountant: FULL }, // D40: they post to the journal
 } satisfies Record<string, Partial<Record<Role, Action[]>>>;
 
 export type Area = keyof typeof PERMISSIONS;

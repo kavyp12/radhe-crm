@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { bigint, boolean, check, date, integer, pgTable, smallint, text, timestamp } from "drizzle-orm/pg-core";
+import { users } from "./auth";
 import { attachments } from "./control";
 
 /**
@@ -59,3 +60,32 @@ export const accounts = pgTable(
   },
   (t) => [check("accounts_type_check", sql`${t.type} in ('asset', 'liability', 'equity', 'income', 'expense')`)],
 );
+
+/**
+ * Customers (A§2, S1). Never deleted: deactivated. The opening balance is what was typed (+Dr = they owe us,
+ * −Cr = we owe them); lib/customers.ts posts it to the journal (D40). Audited.
+ */
+export const customers = pgTable("customers", {
+  id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  firmName: text("firm_name"),
+  mobile: text("mobile"),
+  gstin: text("gstin"),
+  stateCode: text("state_code").notNull().default("24"), // GSTIN's first 2 digits, or chosen when unregistered
+  billingAddress: text("billing_address"),
+  siteAddress: text("site_address"),
+  creditLimitPaise: bigint("credit_limit_paise", { mode: "bigint" }), // null = no limit set
+  creditDays: integer("credit_days"),
+  isCreditCustomer: boolean("is_credit_customer").notNull().default(false),
+  salesPersonId: text("sales_person_id").references(() => users.id),
+  collectionPersonId: text("collection_person_id").references(() => users.id),
+  openingBalancePaise: bigint("opening_balance_paise", { mode: "bigint" }).notNull().default(sql`0`),
+  active: boolean("active").notNull().default(true),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: text("created_by").references(() => users.id),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});

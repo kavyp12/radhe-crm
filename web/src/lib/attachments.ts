@@ -10,7 +10,7 @@ import { storage } from "@/lib/storage";
 // Files attached to records (S24). Uploading needs "edit" on the record's area, viewing needs "view".
 
 /** The permission area behind each entity type's files. Each module adds its entity when it gets attachments. */
-const ENTITY_AREA: Record<string, Area> = { settings: "settings" };
+const ENTITY_AREA: Record<string, Area> = { settings: "settings", customer: "customers" };
 
 export function canAttach(user: SessionUser, entityType: string, action: Extract<Action, "view" | "edit">) {
   const area = ENTITY_AREA[entityType];
