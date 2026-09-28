@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AttachmentsPanel } from "@/components/attachments";
 import { DateText } from "@/components/date-text";
-import { ActionDialog } from "@/components/doc-actions";
+import { ActionButton, ActionDialog } from "@/components/doc-actions";
 import { DocLines } from "@/components/doc-lines";
 import { DocFacts } from "@/components/doc-share";
 import { History } from "@/components/history";
@@ -16,6 +16,8 @@ import { requirePermission } from "@/lib/auth";
 import { todayIST } from "@/lib/dates";
 import { getJob, JOB_STATUS, type JobStatus } from "@/lib/jobs";
 import { can } from "@/lib/permissions";
+import { jobsOnInvoices } from "@/lib/sales";
+import { invoiceJobAction } from "../../invoices/actions";
 import { cancelJobAction } from "../actions";
 import { StatusButtons } from "../status-buttons";
 
@@ -37,9 +39,10 @@ export default async function JobPage({ params }: PageProps<"/jobs/[id]">) {
   const id = Number((await params).id);
   const job = Number.isSafeInteger(id) ? await getJob(user, id) : undefined;
   if (!job) notFound();
-  const [files, people] = await Promise.all([
+  const [files, people, [invoice]] = await Promise.all([
     listAttachments("job", id),
     db.select({ id: users.id, name: users.name }).from(users),
+    jobsOnInvoices(db, [id]),
   ]);
   const open = job.status !== "invoiced" && job.status !== "cancelled";
   const overdue = open && job.status !== "delivered" && !!job.targetDate && job.targetDate < todayIST();
@@ -56,6 +59,14 @@ export default async function JobPage({ params }: PageProps<"/jobs/[id]">) {
       />
       <div className="flex flex-wrap gap-2">
         {can(user, "jobs", "status") && <StatusButtons id={id} status={job.status} />}
+        {invoice && can(user, "invoices", "view") && (
+          <Button asChild variant="outline">
+            <Link href={`/invoices/${invoice.invoiceId}`}>{invoice.number ? `Invoice ${invoice.number}` : "Draft invoice"}</Link>
+          </Button>
+        )}
+        {!invoice && open && can(user, "invoices", "create") && (
+          <ActionButton action={invoiceJobAction.bind(null, id)} label="Create invoice" done="Draft created." />
+        )}
         {can(user, "jobs", "edit") && open && (
           <Button asChild variant="outline">
             <Link href={`/jobs/${id}/edit`}>Edit</Link>

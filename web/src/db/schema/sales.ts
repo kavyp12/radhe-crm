@@ -140,3 +140,56 @@ export const jobStatusHistory = pgTable(
   },
   (t) => [index("job_status_history_job_idx").on(t.jobId, t.id)],
 );
+
+export const INVOICE_KINDS = ["tax", "estimate"] as const;
+export const INVOICE_STATUSES = ["draft", "issued", "cancelled"] as const;
+
+/**
+ * Tax invoices and estimates (S5, A§2–§6). Numbered at Issue (RDS/… or EST/…, D44), which also posts the journal
+ * entry; issued invoices are frozen, a cancel reverses the entry and keeps the number. Payment status is never stored
+ * (hard rule 6, T13). Audited.
+ */
+export const invoices = pgTable(
+  "invoices",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    kind: text("kind", { enum: INVOICE_KINDS }).notNull(),
+    number: text("number").unique(), // null while a draft
+    date: date("date").notNull(),
+    customerId: bigint("customer_id", { mode: "number" })
+      .notNull()
+      .references(() => customers.id),
+    placeOfSupply: text("place_of_supply").notNull(), // the customer's state (A§4)
+    dueDate: date("due_date").notNull(), // date + the customer's credit days
+    status: text("status", { enum: INVOICE_STATUSES }).notNull().default("draft"),
+    totalPaise: bigint("total_paise", { mode: "bigint" }).notNull(), // grand total after round-off
+    roundOffPaise: bigint("round_off_paise", { mode: "bigint" }).notNull(),
+    terms: text("terms"),
+    notes: text("notes"),
+    shareToken: text("share_token").notNull().unique(),
+    ...stamps(),
+  },
+  (t) => [
+    index("invoices_customer_idx").on(t.customerId),
+    check("invoices_kind_check", sql`${t.kind} in ('tax', 'estimate')`),
+    check("invoices_status_check", sql`${t.status} in ('draft', 'issued', 'cancelled')`),
+    check("invoices_number_when_issued", sql`${t.status} = 'draft' or ${t.number} is not null`),
+  ],
+);
+
+export const invoiceLines = pgTable(
+  "invoice_lines",
+  {
+    invoiceId: bigint("invoice_id", { mode: "number" })
+      .notNull()
+      .references(() => invoices.id),
+    ...lineColumns(),
+    jobId: bigint("job_id", { mode: "number" }).references(() => jobs.id),
+    quotationLineId: bigint("quotation_line_id", { mode: "number" }).references(() => quotationLines.id),
+  },
+  (t) => [
+    index("invoice_lines_doc_idx").on(t.invoiceId),
+    index("invoice_lines_job_idx").on(t.jobId),
+    index("invoice_lines_quotation_line_idx").on(t.quotationLineId),
+  ],
+);

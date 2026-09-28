@@ -5,6 +5,7 @@ export const STATUSES = [
   "Draft",
   "Sent",
   "Approved",
+  "Issued",
   "In Production",
   "Ready",
   "Delivered",
@@ -24,6 +25,7 @@ const TONE: Record<Status, string> = {
   Draft: "bg-zinc-100 text-zinc-700 ring-zinc-500/20",
   Sent: "bg-blue-50 text-blue-700 ring-blue-600/20",
   Approved: "bg-violet-50 text-violet-700 ring-violet-600/20",
+  Issued: "bg-sky-50 text-sky-800 ring-sky-600/25", // an invoice until T13 shows its payment status
   "In Production": "bg-amber-50 text-amber-800 ring-amber-600/25",
   Ready: "bg-cyan-50 text-cyan-800 ring-cyan-600/25",
   Delivered: "bg-teal-50 text-teal-800 ring-teal-600/25",

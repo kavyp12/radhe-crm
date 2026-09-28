@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, ne } from "drizzle-orm";
 import { db, type Tx } from "@/db";
-import { customers, productCategories, settings } from "@/db/schema";
+import { customers, invoiceLines, invoices, productCategories, quotationLines, settings } from "@/db/schema";
 import { UserError } from "@/lib/action";
 import { discountNeedsApproval, needsBackdateApproval } from "@/lib/approvals";
 import { formatDate, parseDate } from "@/lib/dates";
@@ -131,4 +131,32 @@ export async function salesFormOptions(keep: { customerId?: number; categoryIds?
       .map((c) => ({ id: c.id, name: c.name, hsnSac: c.hsnSac, gstBp: c.gstBp })),
     companyState: state,
   };
+}
+
+/** The live (not cancelled) invoice a quotation's lines are on, if any. */
+export async function quotationInvoice(q: Tx | typeof db, quotationId: number) {
+  const [row] = await q
+    .select({ id: invoices.id, number: invoices.number })
+    .from(invoiceLines)
+    .innerJoin(invoices, eq(invoices.id, invoiceLines.invoiceId))
+    .innerJoin(quotationLines, eq(quotationLines.id, invoiceLines.quotationLineId))
+    .where(and(eq(quotationLines.quotationId, quotationId), ne(invoices.status, "cancelled")))
+    .limit(1);
+  return row;
+}
+
+/** Of these jobs, the ones already on a live invoice (other than `exceptInvoiceId`), with that invoice. */
+export async function jobsOnInvoices(q: Tx | typeof db, jobIds: number[], exceptInvoiceId?: number) {
+  if (!jobIds.length) return [];
+  return q
+    .selectDistinct({ jobId: invoiceLines.jobId, invoiceId: invoices.id, number: invoices.number })
+    .from(invoiceLines)
+    .innerJoin(invoices, eq(invoices.id, invoiceLines.invoiceId))
+    .where(
+      and(
+        inArray(invoiceLines.jobId, jobIds),
+        ne(invoices.status, "cancelled"),
+        exceptInvoiceId ? ne(invoices.id, exceptInvoiceId) : undefined,
+      ),
+    );
 }

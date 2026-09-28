@@ -18,6 +18,7 @@ import {
   customerFor,
   lineRow,
   newShareToken,
+  quotationInvoice,
   readDate,
   readLines,
   type SavedLine,
@@ -168,6 +169,8 @@ export async function cancelQuotation(actor: SessionUser, id: number): Promise<v
     if (q.status === "cancelled") throw new UserError("This quotation is already cancelled.");
     const job = await liveJobFor(tx, id);
     if (job) throw new UserError(`Job ${job.number} was made from this quotation: cancel the job first.`);
+    const invoice = await quotationInvoice(tx, id);
+    if (invoice) throw new UserError(`It is on invoice ${invoice.number ?? "(draft)"}: cancel that first.`);
     await tx.update(quotations).set({ status: "cancelled" }).where(eq(quotations.id, id));
   });
 }

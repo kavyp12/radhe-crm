@@ -3,11 +3,12 @@ import { Document, Font, Image, Page, renderToBuffer, StyleSheet, Text, View } f
 import { eq } from "drizzle-orm";
 import type { ReactNode } from "react";
 import { db } from "@/db";
-import { attachments, quotations } from "@/db/schema";
+import { attachments, invoices, quotations } from "@/db/schema";
 import { formatDate } from "@/lib/dates";
 import { stateName } from "@/lib/gstin";
 import { lineTotals, sizeText } from "@/lib/lines";
 import { amountInWords, bpText, formatMoney, milliText, type GstMode } from "@/lib/num";
+import { getInvoice, INVOICE_KIND } from "@/lib/invoices";
 import { getQuotation } from "@/lib/quotations";
 import { getSettings } from "@/lib/settings";
 import { storage } from "@/lib/storage";
@@ -305,12 +306,33 @@ export async function quotationPdf(id: number) {
   return { bytes, fileName: pdfFileName(q.number) };
 }
 
+export async function invoicePdf(id: number) {
+  const inv = await getInvoice(id);
+  if (!inv) return null;
+  const number = inv.number ?? "Draft";
+  const bytes = await renderPdf({
+    title: INVOICE_KIND[inv.kind],
+    number,
+    date: inv.date,
+    dueDate: inv.dueDate,
+    mark: inv.status === "draft" ? "DRAFT" : inv.status === "cancelled" ? "CANCELLED" : null,
+    customer: inv.customer,
+    placeOfSupply: inv.kind === "tax" ? inv.placeOfSupply : null,
+    mode: inv.mode,
+    lines: inv.lines,
+    terms: inv.terms,
+    payment: true,
+  });
+  return { bytes, fileName: pdfFileName(inv.number ?? `draft-invoice-${inv.id}`) };
+}
+
 /** The PDF behind a public share link (/share/<token>), or null for an unknown token. */
 export async function pdfForToken(token: string) {
   if (!/^[\w-]{43}$/.test(token)) return null; // 32 bytes, base64url
   const [q] = await db.select({ id: quotations.id }).from(quotations).where(eq(quotations.shareToken, token));
   if (q) return quotationPdf(q.id);
-  return null;
+  const [inv] = await db.select({ id: invoices.id }).from(invoices).where(eq(invoices.shareToken, token));
+  return inv ? invoicePdf(inv.id) : null;
 }
 
 /** A PDF as an inline HTTP response (opens in the browser's viewer: read, print, download). */

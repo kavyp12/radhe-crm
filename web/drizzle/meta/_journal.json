@@ -120,6 +120,20 @@
       "when": 1790620565205,
       "tag": "0016_jobs_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790621904249,
+      "tag": "0017_invoices",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790621908391,
+      "tag": "0018_invoices_audit",
+      "breakpoints": true
     }
   ]
 }

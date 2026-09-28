@@ -16,6 +16,7 @@ const ENTITY_AREA: Record<string, Area> = {
   vendor: "vendors",
   quotation: "quotations",
   job: "jobs",
+  invoice: "invoices",
 };
 
 export function canAttach(user: SessionUser, entityType: string, action: Extract<Action, "view" | "edit">) {

@@ -18,7 +18,7 @@ import { checkBooksDate } from "@/lib/ledger";
 import { gstMode, lineTotals } from "@/lib/lines";
 import { nextNumber } from "@/lib/numbering";
 import { can, type SessionUser } from "@/lib/permissions";
-import { companyState, customerFor, lineRow, readDate, readLines } from "@/lib/sales";
+import { companyState, customerFor, jobsOnInvoices, lineRow, quotationInvoice, readDate, readLines } from "@/lib/sales";
 
 // Jobs / work orders (S2, S3, A§2, A§8). Sales and the owner create them (from an approved quotation, lines copied —
 // R0 — or blank); production and the owner move them In Production → Ready → Delivered; issuing an invoice sets
@@ -104,6 +104,8 @@ export async function createJobFromQuotation(actor: SessionUser, quotationId: nu
     if (q.status !== "approved") throw new UserError("Only an approved quotation becomes a job.");
     const existing = await liveJobFor(tx, quotationId);
     if (existing) throw new UserError(`Job ${existing.number} was already made from this quotation.`);
+    const invoice = await quotationInvoice(tx, quotationId);
+    if (invoice) throw new UserError(`This quotation is already on invoice ${invoice.number ?? "(draft)"}.`);
     const customer = await customerFor(tx, String(q.customerId), false);
     const h = await header(tx, input, customer);
     const lines = await tx
@@ -204,6 +206,8 @@ export async function cancelJob(actor: SessionUser, id: number): Promise<void> {
     const job = await lock(tx, id);
     if (job.status === "cancelled") throw new UserError("This job is already cancelled.");
     if (job.status === "invoiced") throw new UserError("An invoiced job can't be cancelled: cancel the invoice first.");
+    const [draft] = await jobsOnInvoices(tx, [id]);
+    if (draft) throw new UserError(`This job is on draft invoice #${draft.invoiceId}: take it off that invoice first.`);
     await tx.update(jobs).set({ status: "cancelled" }).where(eq(jobs.id, id));
     await addHistory(tx, id, job.status, "cancelled");
   });
