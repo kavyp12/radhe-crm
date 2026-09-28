@@ -3,6 +3,8 @@
 import { redirect } from "next/navigation";
 import { formAction, type FormState } from "@/lib/action";
 import { requirePermission } from "@/lib/auth";
+import { vendors } from "@/db/schema";
+import { duplicateText, findDuplicates } from "@/lib/customers";
 import { createVendor, updateVendor, type VendorInput } from "@/lib/vendors";
 
 /** The form as typed. Opening balance / active only when the form showed them. */
@@ -36,4 +38,11 @@ export async function updateVendorAction(id: number, _: FormState, form: FormDat
     await updateVendor(actor, id, input(form));
     redirect(`/vendors/${id}`);
   });
+}
+
+/** The duplicate GSTIN / mobile warning (D46). exceptId = the vendor being edited. */
+export async function vendorDuplicatesAction(exceptId: number | null, gstin: string, mobile: string) {
+  await requirePermission("vendors", "view");
+  const found = await findDuplicates(vendors, String(gstin), String(mobile), exceptId ?? undefined);
+  return duplicateText(found, "vendor");
 }

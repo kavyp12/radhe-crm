@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { Field, FormActions, FormSection, useFormAction } from "@/components/form";
-import { GstinStateFields } from "@/components/gstin-state";
+import { GstinStateFields, useDuplicateCheck } from "@/components/gstin-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,17 +29,20 @@ type Props = {
   canDeactivate: boolean;
   submitLabel: string;
   action: (state: FormState, form: FormData) => Promise<FormState>;
+  /** Server action: the duplicate GSTIN / mobile warning, or null. */
+  duplicates: (gstin: string, mobile: string) => Promise<string | null>;
 };
 
-export function VendorForm({ values: v, canSetOpening, canDeactivate, submitLabel, action }: Props) {
+export function VendorForm({ values: v, canSetOpening, canDeactivate, submitLabel, action, duplicates }: Props) {
   const { state, onSubmit, pending } = useFormAction(action);
+  const { onBlur, warning } = useDuplicateCheck(duplicates);
   useEffect(() => {
     if (state?.error) toast.error(state.error);
   }, [state]);
   const error = (field: string) => (state?.field === field ? state.error : undefined);
 
   return (
-    <form onSubmit={onSubmit} className="grid grid-cols-1 gap-4">
+    <form onSubmit={onSubmit} onBlur={onBlur} className="grid grid-cols-1 gap-4">
       <FormSection title="Vendor">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Vendor name" error={error("name")}>
@@ -49,6 +52,7 @@ export function VendorForm({ values: v, canSetOpening, canDeactivate, submitLabe
             <Input name="mobile" type="tel" defaultValue={v.mobile} maxLength={20} />
           </Field>
           <GstinStateFields gstin={v.gstin} stateCode={v.stateCode} error={error} />
+          {warning && <div className="sm:col-span-2">{warning}</div>}
           <Field label="Address" error={error("address")}>
             <Textarea name="address" rows={3} defaultValue={v.address} />
           </Field>

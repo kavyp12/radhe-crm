@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { amountInWords, bpText, divRound, formatMoney, invoiceTotals, lineCalc, parseMoney, parseQty } from "./num";
+import { amountInWords, bpText, divRound, formatMoney, invoiceTotals, lineCalc, milliText, parseMoney, parsePercent, parseQty } from "./num";
 
 test("rounding is half away from zero", () => {
   // qty 1.500 × ₹0.33 = 49.5 paise
@@ -94,4 +94,11 @@ test("basis points as percent text", () => {
     "100",
     "-2.5",
   ]);
+});
+
+test("qty text and percentages", () => {
+  expect([12500n, 3000n, -250n, 1n, 0n].map(milliText)).toEqual(["12.5", "3", "-0.25", "0.001", "0"]);
+  expect(parsePercent("18")).toBe(1800);
+  expect(parsePercent("12.5")).toBe(1250);
+  expect(() => parsePercent("12.345")).toThrow();
 });

@@ -2,7 +2,7 @@ import { PageHeader } from "@/components/page-header";
 import { requirePermission } from "@/lib/auth";
 import { COMPANY_STATE } from "@/lib/gstin";
 import { can } from "@/lib/permissions";
-import { createVendorAction } from "../actions";
+import { createVendorAction, vendorDuplicatesAction } from "../actions";
 import { VendorForm } from "../vendor-form";
 
 export default async function NewVendorPage() {
@@ -26,6 +26,7 @@ export default async function NewVendorPage() {
         canDeactivate={false}
         submitLabel="Create vendor"
         action={createVendorAction}
+        duplicates={vendorDuplicatesAction.bind(null, null)}
       />
     </div>
   );

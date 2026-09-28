@@ -92,6 +92,20 @@
       "when": 1790604889426,
       "tag": "0012_categories_seed",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790618205550,
+      "tag": "0013_quotations",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790618207778,
+      "tag": "0014_quotations_audit",
+      "breakpoints": true
     }
   ]
 }

@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { listAttachments } from "@/lib/attachments";
 import { requirePermission } from "@/lib/auth";
-import { moneyAccounts } from "@/lib/ledger";
+import { firstDocumentDate, moneyAccounts } from "@/lib/ledger";
 import { moneyText } from "@/lib/num";
 import { can } from "@/lib/permissions";
 import { getSettings, percentText } from "@/lib/settings";
@@ -33,7 +33,12 @@ const LABELS = {
 
 export default async function SettingsPage() {
   const user = await requirePermission("settings", "view");
-  const [settings, files, money] = await Promise.all([getSettings(), listAttachments("settings", 1), moneyAccounts()]);
+  const [settings, files, money, firstDocument] = await Promise.all([
+    getSettings(),
+    listAttachments("settings", 1),
+    moneyAccounts(),
+    firstDocumentDate(),
+  ]);
 
   return (
     <div className="grid grid-cols-1 gap-5">
@@ -73,6 +78,7 @@ export default async function SettingsPage() {
         <TabsContent value="books">
           <BooksForm
             booksStartDate={settings.booksStartDate}
+            locked={!!settings.booksStartDate && !!firstDocument}
             accounts={money.map((a) => ({
               id: a.id,
               code: a.code,

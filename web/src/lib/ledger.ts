@@ -1,9 +1,9 @@
-import { and, asc, eq, gte, inArray, isNull, lt, lte, ne, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lt, lte, ne, notInArray, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, type Tx } from "@/db";
 import { accounts, journalEntries, journalLines, settings } from "@/db/schema";
 import { UserError } from "@/lib/action";
-import { dateParts } from "@/lib/dates";
+import { dateParts, formatDate } from "@/lib/dates";
 
 // The journal (A§3, D14, D32). post() is the ONLY code that inserts journal rows (hard rule 2). It runs inside the
 // document's writeTx, so the entry commits or rolls back with the document; the DB re-checks balance at commit.
@@ -53,6 +53,7 @@ async function insert(tx: Tx, entry: PostEntry, reversesEntryId: number | null):
   );
   if (!userId) throw new Error("Posting needs a signed-in user: run it inside writeTx(user, …)");
   dateParts(entry.date);
+  if (!(OPENING_DOCS as readonly string[]).includes(entry.docType)) await checkBooksDate(tx, entry.date);
 
   const lines = entry.lines.filter((l) => (l.debit ?? 0n) !== 0n || (l.credit ?? 0n) !== 0n);
   const sum = (side: "debit" | "credit") => lines.reduce((s, l) => s + (l[side] ?? 0n), 0n);
@@ -154,6 +155,26 @@ function liveEntries(tx: Tx, where?: SQL) {
 
 // Opening balances (A§3, D40) are posted by the master row itself: doc_type = its table, doc_id = its id.
 const OPENING_DOCS = ["accounts", "customers", "vendors"] as const;
+
+/**
+ * No document may be dated before the books start date (D43). FOR SHARE: Settings can't move the date while a
+ * document is being saved, and a saved document is seen by Settings' lock check (saveBooks).
+ */
+export async function checkBooksDate(tx: Tx, date: string) {
+  const [s] = await tx.select({ start: settings.booksStartDate }).from(settings).where(eq(settings.id, 1)).for("share");
+  if (s?.start && date < s.start) {
+    throw new UserError(`The books start on ${formatDate(s.start)}: date it on or after that.`, "date");
+  }
+}
+
+/** The earliest date anything but an opening balance has posted on, or null. Posted = books start date locked (D43). */
+export async function firstDocumentDate(q: Tx | typeof db = db): Promise<string | null> {
+  const [row] = await q
+    .select({ date: sql<string | null>`min(${journalEntries.date})` })
+    .from(journalEntries)
+    .where(notInArray(journalEntries.docType, [...OPENING_DOCS]));
+  return row.date;
+}
 
 /**
  * Sets a record's opening balance: reverses the one in force (on its own date, so the pair nets to zero in every

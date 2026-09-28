@@ -24,6 +24,7 @@ const blank: SettingsInput = {
   bankDetails: "",
   upiId: "",
   invoiceTerms: "",
+  quotationTerms: "",
   discountLimit: "",
   backdateDays: "",
   defaultCreditDays: "",
@@ -67,13 +68,14 @@ test("settings save and reload", async () => {
   const input: SettingsInput = {
     companyName: "  Radhe Digital Sign Board ",
     address: "Line 1\nAhmedabad",
-    gstin: "24abcde1234f1z5",
+    gstin: "24abcde1234f1z6",
     stateCode: "24",
     phone: "98250 00000",
     email: "office@example.com",
     bankDetails: "Bank X\nA/c 123456\nIFSC ABCD0123456",
     upiId: "radhe@upi",
     invoiceTerms: "Subject to Ahmedabad jurisdiction.",
+    quotationTerms: "Valid for 15 days.",
     discountLimit: "10",
     backdateDays: "3",
     defaultCreditDays: "15",
@@ -83,13 +85,14 @@ test("settings save and reload", async () => {
   expect(s).toMatchObject({
     companyName: "Radhe Digital Sign Board",
     address: "Line 1\nAhmedabad",
-    gstin: "24ABCDE1234F1Z5",
+    gstin: "24ABCDE1234F1Z6",
     stateCode: "24",
     phone: "98250 00000",
     email: "office@example.com",
     bankDetails: "Bank X\nA/c 123456\nIFSC ABCD0123456",
     upiId: "radhe@upi",
     invoiceTerms: "Subject to Ahmedabad jurisdiction.",
+    quotationTerms: "Valid for 15 days.",
     discountLimitBp: 1000,
     backdateDays: 3,
     defaultCreditDays: 15,
@@ -102,7 +105,8 @@ test("settings save and reload", async () => {
 
 test("bad values are refused, naming the field", async () => {
   const cases: [Partial<SettingsInput>, string][] = [
-    [{ gstin: "27ABCDE1234F1Z5" }, "gstin"], // another state's GSTIN
+    [{ gstin: "27ABCDE1234F1Z0" }, "gstin"], // another state's GSTIN
+    [{ gstin: "24ABCDE1234F1Z5" }, "gstin"], // check digit wrong (D46)
     [{ gstin: "24ABCDE1234" }, "gstin"],
     [{ stateCode: "Gujarat" }, "stateCode"],
     [{ discountLimit: "120" }, "discountLimit"],

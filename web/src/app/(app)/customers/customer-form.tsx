@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { Field, FormActions, FormSection, useFormAction } from "@/components/form";
-import { GstinStateFields } from "@/components/gstin-state";
+import { GstinStateFields, useDuplicateCheck } from "@/components/gstin-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
@@ -14,6 +14,7 @@ export type CustomerFormValues = {
   name: string;
   firmName: string;
   mobile: string;
+  email: string;
   gstin: string;
   stateCode: string;
   billingAddress: string;
@@ -37,6 +38,8 @@ type Props = {
   canDeactivate: boolean;
   submitLabel: string;
   action: (state: FormState, form: FormData) => Promise<FormState>;
+  /** Server action: the duplicate GSTIN / mobile warning, or null. */
+  duplicates: (gstin: string, mobile: string) => Promise<string | null>;
 };
 
 function PersonSelect({ name, value, staff }: { name: string; value: string; staff: Props["staff"] }) {
@@ -52,15 +55,16 @@ function PersonSelect({ name, value, staff }: { name: string; value: string; sta
   );
 }
 
-export function CustomerForm({ values: v, staff, canSetOpening, canDeactivate, submitLabel, action }: Props) {
+export function CustomerForm({ values: v, staff, canSetOpening, canDeactivate, submitLabel, action, duplicates }: Props) {
   const { state, onSubmit, pending } = useFormAction(action);
+  const { onBlur, warning } = useDuplicateCheck(duplicates);
   useEffect(() => {
     if (state?.error) toast.error(state.error);
   }, [state]);
   const error = (field: string) => (state?.field === field ? state.error : undefined);
 
   return (
-    <form onSubmit={onSubmit} className="grid grid-cols-1 gap-4">
+    <form onSubmit={onSubmit} onBlur={onBlur} className="grid grid-cols-1 gap-4">
       <FormSection title="Customer">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Customer name" error={error("name")}>
@@ -72,7 +76,11 @@ export function CustomerForm({ values: v, staff, canSetOpening, canDeactivate, s
           <Field label="Mobile" error={error("mobile")}>
             <Input name="mobile" type="tel" defaultValue={v.mobile} maxLength={20} />
           </Field>
+          <Field label="Email" hint="Quotations and invoices are emailed here." error={error("email")}>
+            <Input name="email" type="email" defaultValue={v.email} maxLength={200} />
+          </Field>
           <GstinStateFields gstin={v.gstin} stateCode={v.stateCode} error={error} />
+          {warning && <div className="sm:col-span-2">{warning}</div>}
         </div>
       </FormSection>
 

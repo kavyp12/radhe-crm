@@ -20,6 +20,7 @@ export async function saveSettingsAction(_: FormState, form: FormData): Promise<
       bankDetails: text(form, "bankDetails"),
       upiId: text(form, "upiId"),
       invoiceTerms: text(form, "invoiceTerms"),
+      quotationTerms: text(form, "quotationTerms"),
       discountLimit: text(form, "discountLimit"),
       backdateDays: text(form, "backdateDays"),
       defaultCreditDays: text(form, "defaultCreditDays"),

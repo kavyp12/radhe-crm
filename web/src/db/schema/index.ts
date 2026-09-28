@@ -3,3 +3,4 @@ export * from "./auth";
 export * from "./control";
 export * from "./masters";
 export * from "./money";
+export * from "./sales";

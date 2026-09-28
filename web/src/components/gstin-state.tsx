@@ -48,3 +48,23 @@ export function GstinStateFields({
     </>
   );
 }
+
+/**
+ * Warns, never blocks, when another customer / vendor already has this GSTIN or mobile (D46): spread onBlur on the
+ * form; `check` is a server action returning the warning or null.
+ */
+export function useDuplicateCheck(check: (gstin: string, mobile: string) => Promise<string | null>) {
+  const [note, setNote] = useState<string | null>(null);
+  const onBlur = (e: React.FocusEvent<HTMLFormElement>) => {
+    const { name } = e.target as EventTarget as HTMLInputElement;
+    if (name !== "gstin" && name !== "mobile") return;
+    const data = new FormData(e.currentTarget);
+    check(String(data.get("gstin") ?? ""), String(data.get("mobile") ?? "")).then(setNote, () => setNote(null));
+  };
+  const warning = note && (
+    <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+      {note}
+    </p>
+  );
+  return { onBlur, warning };
+}

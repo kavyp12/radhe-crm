@@ -71,10 +71,15 @@ export function SettingsForm({ settings: s, discountLimit, action }: Props) {
         </div>
       </FormSection>
 
-      <FormSection title="Invoice terms">
-        <Field label="Terms and conditions" error={error("invoiceTerms")}>
-          <Textarea name="invoiceTerms" rows={4} defaultValue={s.invoiceTerms ?? ""} />
-        </Field>
+      <FormSection title="Terms" description="Printed at the foot of the PDF; each document can change its own copy.">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Invoice terms" error={error("invoiceTerms")}>
+            <Textarea name="invoiceTerms" rows={4} defaultValue={s.invoiceTerms ?? ""} />
+          </Field>
+          <Field label="Quotation terms" error={error("quotationTerms")}>
+            <Textarea name="quotationTerms" rows={4} defaultValue={s.quotationTerms ?? ""} />
+          </Field>
+        </div>
       </FormSection>
 
       <FormSection title="Approval rules" description="When an entry by someone other than the owner needs the owner's approval.">

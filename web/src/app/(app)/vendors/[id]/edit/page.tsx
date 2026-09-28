@@ -4,7 +4,7 @@ import { requirePermission } from "@/lib/auth";
 import { moneyText } from "@/lib/num";
 import { can } from "@/lib/permissions";
 import { getVendor } from "@/lib/vendors";
-import { updateVendorAction } from "../../actions";
+import { updateVendorAction, vendorDuplicatesAction } from "../../actions";
 import { VendorForm } from "../../vendor-form";
 
 export default async function EditVendorPage({ params }: PageProps<"/vendors/[id]/edit">) {
@@ -32,6 +32,7 @@ export default async function EditVendorPage({ params }: PageProps<"/vendors/[id
         canDeactivate={can(user, "vendors", "cancel")}
         submitLabel="Save changes"
         action={updateVendorAction.bind(null, id)}
+        duplicates={vendorDuplicatesAction.bind(null, id)}
       />
     </div>
   );

@@ -3,7 +3,8 @@
 import { redirect } from "next/navigation";
 import { formAction, type FormState } from "@/lib/action";
 import { requirePermission } from "@/lib/auth";
-import { createCustomer, updateCustomer, type CustomerInput } from "@/lib/customers";
+import { customers } from "@/db/schema";
+import { createCustomer, duplicateText, findDuplicates, updateCustomer, type CustomerInput } from "@/lib/customers";
 
 /** The form as typed. Opening balance / active only when the form showed them (owner / accountant). */
 function input(form: FormData): CustomerInput {
@@ -12,6 +13,7 @@ function input(form: FormData): CustomerInput {
     name: text("name"),
     firmName: text("firmName"),
     mobile: text("mobile"),
+    email: text("email"),
     gstin: text("gstin"),
     stateCode: text("stateCode"),
     billingAddress: text("billingAddress"),
@@ -42,4 +44,11 @@ export async function updateCustomerAction(id: number, _: FormState, form: FormD
     await updateCustomer(actor, id, input(form));
     redirect(`/customers/${id}`);
   });
+}
+
+/** The duplicate GSTIN / mobile warning (D46). exceptId = the customer being edited. */
+export async function customerDuplicatesAction(exceptId: number | null, gstin: string, mobile: string) {
+  await requirePermission("customers", "view");
+  const found = await findDuplicates(customers, String(gstin), String(mobile), exceptId ?? undefined);
+  return duplicateText(found, "customer");
 }

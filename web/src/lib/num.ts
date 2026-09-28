@@ -25,6 +25,15 @@ function parseFixed(input: string, decimals: number, what: string): bigint {
 export const parseMoney = (input: string) => parseFixed(input, 2, "amount");
 /** "12.5" → 12500n thousandths. Throws on empty, junk or more than 3 decimals (never rounds). */
 export const parseQty = (input: string) => parseFixed(input, 3, "quantity");
+/** "18" / "12.5" (%) → basis points (1800 / 1250). Throws on empty, junk or more than 2 decimals. */
+export const parsePercent = (input: string) => Number(parseFixed(input, 2, "percentage"));
+
+/** Thousandths as plain text, no trailing zeros: 12500n → "12.5", 3000n → "3", -250n → "-0.25". */
+export function milliText(milli: bigint): string {
+  const a = milli < 0n ? -milli : milli;
+  const fraction = String(a % 1000n).padStart(3, "0").replace(/0+$/, "");
+  return `${milli < 0n ? "-" : ""}${a / 1000n}${fraction ? `.${fraction}` : ""}`;
+}
 
 const INR = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" });
 

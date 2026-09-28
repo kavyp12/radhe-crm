@@ -1,7 +1,7 @@
 "use client";
 
 import { Plus, Trash2 } from "lucide-react";
-import { useRef, type ReactNode } from "react";
+import { useId, useRef, type ReactNode } from "react";
 import { Money } from "@/components/money";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,10 @@ export type LineColumn = {
   placeholder?: string;
   /** True when the text can't be read (e.g. parseQty throws); the cell turns red. */
   invalid?: (value: string) => boolean;
+  /** A pick list instead of free text. */
+  options?: { value: string; label: string }[];
+  /** Free text with suggestions (a datalist). */
+  suggestions?: string[];
 };
 export type LineRow = { id: string } & Record<string, string>;
 
@@ -25,11 +29,14 @@ type Props = {
   newRow: () => LineRow;
   /** Read-only amount shown at the end of each line. */
   amount?: (row: LineRow) => ReactNode;
+  /** Tailwind min-width for wide grids (scrolls sideways inside its card). */
+  minWidth?: string;
 };
 
 /** Line-items grid (DESIGN.md "Form"): Tab moves across cells, Enter adds a line below. */
-export function LineItemsGrid({ columns, rows, onChange, newRow, amount }: Props) {
+export function LineItemsGrid({ columns, rows, onChange, newRow, amount, minWidth = "min-w-[640px]" }: Props) {
   const grid = useRef<HTMLTableElement>(null);
+  const listId = useId();
   const focusCell = (row: number, col: number) =>
     requestAnimationFrame(() => grid.current?.querySelector<HTMLInputElement>(`[data-cell="${row}:${col}"]`)?.focus());
 
@@ -46,7 +53,7 @@ export function LineItemsGrid({ columns, rows, onChange, newRow, amount }: Props
     <div>
       {/* relative: keeps the sr-only header label inside the scroll area */}
       <div className="relative overflow-x-auto">
-        <table ref={grid} className="w-full min-w-[640px] border-separate border-spacing-0 text-[13px]">
+        <table ref={grid} className={cn("w-full border-separate border-spacing-0 text-[13px]", minWidth)}>
           <thead>
             <tr>
               <th scope="col" className={cn(head, "w-8 text-right")}>
@@ -74,29 +81,44 @@ export function LineItemsGrid({ columns, rows, onChange, newRow, amount }: Props
                 {columns.map((column, j) => {
                   const value = row[column.key] ?? "";
                   const invalid = !!value && !!column.invalid?.(value);
+                  const cell = {
+                    "data-cell": `${i}:${j}`,
+                    "aria-label": `${column.label}, line ${i + 1}`,
+                    "aria-invalid": invalid || undefined,
+                    value,
+                    onKeyDown: (e: React.KeyboardEvent) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addAfter(i);
+                      }
+                    },
+                    className: cn(
+                      "h-8 w-full min-w-0 rounded-md border border-transparent bg-transparent px-2 outline-none transition-colors duration-100",
+                      "placeholder:text-muted-foreground/60 hover:border-input focus:border-ring focus:bg-card focus:ring-2 focus:ring-ring/25",
+                      column.numeric && "text-right tabular-nums",
+                      invalid && "border-destructive/60 bg-destructive/5 hover:border-destructive/60",
+                    ),
+                  };
                   return (
                     <td key={column.key} className="border-b p-1">
-                      <input
-                        data-cell={`${i}:${j}`}
-                        aria-label={`${column.label}, line ${i + 1}`}
-                        aria-invalid={invalid || undefined}
-                        value={value}
-                        placeholder={column.placeholder}
-                        inputMode={column.numeric ? "decimal" : undefined}
-                        onChange={(e) => set(i, column.key, e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            addAfter(i);
-                          }
-                        }}
-                        className={cn(
-                          "h-8 w-full min-w-0 rounded-md border border-transparent bg-transparent px-2 outline-none transition-colors duration-100",
-                          "placeholder:text-muted-foreground/60 hover:border-input focus:border-ring focus:bg-card focus:ring-2 focus:ring-ring/25",
-                          column.numeric && "text-right tabular-nums",
-                          invalid && "border-destructive/60 bg-destructive/5 hover:border-destructive/60",
-                        )}
-                      />
+                      {column.options ? (
+                        <select {...cell} onChange={(e) => set(i, column.key, e.target.value)}>
+                          <option value="">{column.placeholder ?? "—"}</option>
+                          {column.options.map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          {...cell}
+                          placeholder={column.placeholder}
+                          inputMode={column.numeric ? "decimal" : undefined}
+                          list={column.suggestions ? `${listId}-${column.key}` : undefined}
+                          onChange={(e) => set(i, column.key, e.target.value)}
+                        />
+                      )}
                     </td>
                   );
                 })}
@@ -117,6 +139,15 @@ export function LineItemsGrid({ columns, rows, onChange, newRow, amount }: Props
           </tbody>
         </table>
       </div>
+      {columns
+        .filter((column) => column.suggestions)
+        .map((column) => (
+          <datalist key={column.key} id={`${listId}-${column.key}`}>
+            {column.suggestions!.map((option) => (
+              <option key={option} value={option} />
+            ))}
+          </datalist>
+        ))}
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <Button variant="ghost" size="sm" onClick={() => addAfter(rows.length - 1)}>
           <Plus />

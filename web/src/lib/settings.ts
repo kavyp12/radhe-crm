@@ -3,7 +3,8 @@ import { db, writeTx } from "@/db";
 import { accounts, attachments, settings } from "@/db/schema";
 import { formDays, formMoney, formText, UserError } from "@/lib/action";
 import { parseDate } from "@/lib/dates";
-import { liveOpenings, moveOpenings, setOpening } from "@/lib/ledger";
+import { gstinProblem } from "@/lib/gstin";
+import { firstDocumentDate, liveOpenings, moveOpenings, setOpening } from "@/lib/ledger";
 import { bpText, parseMoney } from "@/lib/num";
 import { can, type SessionUser } from "@/lib/permissions";
 
@@ -22,6 +23,7 @@ export type SettingsInput = {
   bankDetails: string;
   upiId: string;
   invoiceTerms: string;
+  quotationTerms: string;
   discountLimit: string; // percent, e.g. "10" or "12.5"
   backdateDays: string;
   defaultCreditDays: string;
@@ -35,19 +37,14 @@ export async function getSettings(): Promise<Settings> {
 /** The stored discount limit back as form text: 1000 bp → "10", null → "". */
 export const percentText = (bp: number | null) => (bp === null ? "" : bpText(bp));
 
-const GSTIN = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
-
-
 export async function updateSettings(actor: SessionUser, input: SettingsInput): Promise<void> {
   if (!can(actor, "settings", "edit")) throw new Error("Not allowed");
 
   const stateCode = input.stateCode.trim();
   if (!/^\d{2}$/.test(stateCode)) throw new UserError("State code is two digits, e.g. 24 for Gujarat.", "stateCode");
-  const gstin = formText(input.gstin.toUpperCase(), "gstin", 15);
-  if (gstin && !GSTIN.test(gstin)) throw new UserError("GSTIN is 15 characters, e.g. 24ABCDE1234F1Z5.", "gstin");
-  if (gstin && !gstin.startsWith(stateCode)) {
-    throw new UserError(`A GSTIN for state ${stateCode} starts with ${stateCode}.`, "gstin");
-  }
+  const gstin = formText(input.gstin.replace(/\s/g, "").toUpperCase(), "gstin", 15);
+  const problem = gstin && gstinProblem(gstin, stateCode); // format, check digit, state (D46)
+  if (problem) throw new UserError(problem, "gstin");
   const email = formText(input.email, "email");
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new UserError("Enter a valid email.", "email");
   const upiId = formText(input.upiId, "upiId");
@@ -75,6 +72,7 @@ export async function updateSettings(actor: SessionUser, input: SettingsInput): 
     bankDetails: formText(input.bankDetails, "bankDetails", 1000),
     upiId,
     invoiceTerms: formText(input.invoiceTerms, "invoiceTerms", 4000),
+    quotationTerms: formText(input.quotationTerms, "quotationTerms", 4000),
     discountLimitBp,
     backdateDays: formDays(input.backdateDays, "backdateDays"),
     defaultCreditDays: formDays(input.defaultCreditDays, "defaultCreditDays"),
@@ -121,6 +119,11 @@ export async function saveBooks(actor: SessionUser, input: BooksInput): Promise<
   await writeTx(actor, async (tx) => {
     const [s] = await tx.select({ date: settings.booksStartDate }).from(settings).where(eq(settings.id, 1)).for("update");
     if (date !== s.date) {
+      // D43: once documents have posted the date is locked; a first date can still be set if none is before it.
+      const first = await firstDocumentDate(tx);
+      if (first && (s.date || !date || date > first)) {
+        throw new UserError("Documents have been posted, so the books start date can't change any more.", "booksStartDate");
+      }
       if (!date && (await liveOpenings(tx)).length) {
         throw new UserError("Opening balances are posted on this date, so it can't be blank.", "booksStartDate");
       }

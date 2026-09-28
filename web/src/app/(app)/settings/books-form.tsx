@@ -12,11 +12,13 @@ type MoneyAccount = { id: number; code: string; name: string; opening: string };
 
 type Props = {
   booksStartDate: string | null;
+  /** Documents have posted: the date can no longer change (D43). */
+  locked: boolean;
   accounts: MoneyAccount[];
   action: (state: FormState, form: FormData) => Promise<FormState>;
 };
 
-export function BooksForm({ booksStartDate, accounts, action }: Props) {
+export function BooksForm({ booksStartDate, locked, accounts, action }: Props) {
   const { state, onSubmit, pending } = useFormAction(action);
   useEffect(() => {
     if (state?.ok) toast.success("Books saved.");
@@ -30,8 +32,13 @@ export function BooksForm({ booksStartDate, accounts, action }: Props) {
         title="Books start date"
         description="Every opening balance (money accounts, customers, vendors) is posted on this date."
       >
-        <Field label="Books start date" error={error("booksStartDate")} className="sm:max-w-60">
-          <DateInput name="booksStartDate" defaultValue={booksStartDate ?? undefined} />
+        <Field
+          label="Books start date"
+          hint={locked ? "Locked: documents have been posted. No document can be dated before it." : undefined}
+          error={error("booksStartDate")}
+          className="sm:max-w-60"
+        >
+          <DateInput name="booksStartDate" defaultValue={booksStartDate ?? undefined} readOnly={locked} />
         </Field>
       </FormSection>
 

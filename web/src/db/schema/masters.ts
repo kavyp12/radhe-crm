@@ -23,6 +23,7 @@ export const settings = pgTable(
     logoAttachmentId: bigint("logo_attachment_id", { mode: "number" }).references(() => attachments.id),
     signatureAttachmentId: bigint("signature_attachment_id", { mode: "number" }).references(() => attachments.id),
     invoiceTerms: text("invoice_terms"),
+    quotationTerms: text("quotation_terms"), // default terms of a new quotation (D46)
     discountLimitBp: integer("discount_limit_bp"),
     backdateDays: integer("backdate_days"),
     defaultCreditDays: integer("default_credit_days"),
@@ -71,6 +72,7 @@ export const customers = pgTable("customers", {
   name: text("name").notNull(),
   firmName: text("firm_name"),
   mobile: text("mobile"),
+  email: text("email"), // where quotation / invoice PDFs are emailed (D46)
   gstin: text("gstin"),
   stateCode: text("state_code").notNull().default("24"), // GSTIN's first 2 digits, or chosen when unregistered
   billingAddress: text("billing_address"),

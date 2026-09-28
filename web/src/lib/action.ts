@@ -53,6 +53,13 @@ export function formPhone(value: string, field: string): string | null {
   return phone;
 }
 
+/** An email address; blank = null. */
+export function formEmail(value: string, field: string): string | null {
+  const email = formText(value, field, 200);
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new UserError("Enter a valid email.", field);
+  return email;
+}
+
 /** Rupees → paise, minus allowed (never rounds); blank = null. */
 export function formMoney(value: string, field: string): bigint | null {
   if (!value.trim()) return null;

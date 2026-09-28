@@ -1,8 +1,8 @@
-import { asc, eq, inArray, sql } from "drizzle-orm";
+import { asc, eq, inArray, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, writeTx, type Tx } from "@/db";
-import { customers, journalLines, users } from "@/db/schema";
-import { formDays, formMoney, formPhone, formText, UserError } from "@/lib/action";
+import { customers, journalLines, users, vendors } from "@/db/schema";
+import { formDays, formEmail, formMoney, formPhone, formText, UserError } from "@/lib/action";
 import { stateAndGstin } from "@/lib/gstin";
 import { setOpening, systemAccountId } from "@/lib/ledger";
 import { can, type SessionUser } from "@/lib/permissions";
@@ -16,6 +16,7 @@ export type CustomerInput = {
   name: string;
   firmName: string;
   mobile: string;
+  email: string;
   gstin: string;
   stateCode: string;
   billingAddress: string;
@@ -49,6 +50,7 @@ async function values(tx: Tx, input: CustomerInput) {
     name,
     firmName: formText(input.firmName, "firmName"),
     mobile: formPhone(input.mobile, "mobile"),
+    email: formEmail(input.email, "email"),
     ...stateAndGstin(input.stateCode, input.gstin),
     billingAddress: formText(input.billingAddress, "billingAddress", 1000),
     siteAddress: formText(input.siteAddress, "siteAddress", 1000),
@@ -181,4 +183,40 @@ export async function customerOverview(id: number) {
     outstanding: BigInt(row.outstanding),
     lastPaymentDate: row.last,
   };
+}
+
+/**
+ * Other customers / vendors with this GSTIN or mobile (last 10 digits), for a warning on the form, never a block
+ * (D46). exceptId = the record being edited.
+ */
+export async function findDuplicates(
+  table: typeof customers | typeof vendors,
+  gstinInput: string,
+  mobileInput: string,
+  exceptId?: number,
+) {
+  const gstin = gstinInput.replace(/\s/g, "").toUpperCase();
+  const mobile = mobileInput.replace(/\D/g, "").slice(-10);
+  if (gstin.length < 15 && mobile.length < 10) return [];
+  const rows = await db
+    .select({ id: table.id, name: table.name, gstin: table.gstin })
+    .from(table)
+    .where(
+      or(
+        gstin.length === 15 ? eq(table.gstin, gstin) : undefined,
+        mobile.length === 10
+          ? sql`right(regexp_replace(coalesce(${table.mobile}, ''), '[^0-9]', '', 'g'), 10) = ${mobile}`
+          : undefined,
+      ),
+    )
+    .orderBy(asc(table.name));
+  return rows
+    .filter((r) => r.id !== exceptId)
+    .map((r) => ({ id: r.id, name: r.name, same: r.gstin === gstin ? "GSTIN" : "mobile" }));
+}
+
+/** The warning text for findDuplicates, or null. */
+export function duplicateText(found: Awaited<ReturnType<typeof findDuplicates>>, what: string): string | null {
+  if (!found.length) return null;
+  return `Also on another ${what}: ${found.map((d) => `${d.name} (same ${d.same})`).join(", ")}. Save anyway if that's right.`;
 }

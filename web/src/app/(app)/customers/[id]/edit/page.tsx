@@ -4,7 +4,7 @@ import { requirePermission } from "@/lib/auth";
 import { getCustomer, staffOptions } from "@/lib/customers";
 import { moneyText } from "@/lib/num";
 import { can } from "@/lib/permissions";
-import { updateCustomerAction } from "../../actions";
+import { customerDuplicatesAction, updateCustomerAction } from "../../actions";
 import { CustomerForm } from "../../customer-form";
 
 export default async function EditCustomerPage({ params }: PageProps<"/customers/[id]/edit">) {
@@ -29,6 +29,7 @@ export default async function EditCustomerPage({ params }: PageProps<"/customers
         values={{
           name: c.name,
           firmName: c.firmName ?? "",
+          email: c.email ?? "",
           mobile: c.mobile ?? "",
           gstin: c.gstin ?? "",
           stateCode: c.stateCode,
@@ -48,6 +49,7 @@ export default async function EditCustomerPage({ params }: PageProps<"/customers
         canDeactivate={can(user, "customers", "cancel")}
         submitLabel="Save changes"
         action={updateCustomerAction.bind(null, id)}
+        duplicates={customerDuplicatesAction.bind(null, id)}
       />
     </div>
   );

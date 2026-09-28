@@ -1,11 +1,13 @@
 import { and, eq } from "drizzle-orm";
 import { beforeAll, expect, test } from "vitest";
 import { db, writeTx } from "@/db";
-import { auditLog, settings } from "@/db/schema";
+import { auditLog, customers, settings } from "@/db/schema";
 import { testOwner } from "@/db/test-owner";
 import {
   createCustomer,
   customerOverview,
+  duplicateText,
+  findDuplicates,
   getCustomer,
   listCustomers,
   updateCustomer,
@@ -36,6 +38,7 @@ beforeAll(async () => {
 const base: CustomerInput = {
   name: "Shree Ganesh Traders",
   firmName: "",
+  email: "",
   mobile: "98250 11111",
   gstin: "",
   stateCode: "24",
@@ -168,3 +171,19 @@ test("credit days default from Settings when left blank on create", async () => 
     await setDefault(saved.days);
   }
 });
+
+test("duplicate GSTIN / mobile: found for a warning, never blocked (D46)", async () => {
+  const gstin = "24AAACD1234E1Z3";
+  const first = await createCustomer(owner, { ...base, name: "Dupe One", gstin: gstinWithCheck(gstin), mobile: "98250 77777" });
+  const second = await createCustomer(owner, { ...base, name: "Dupe Two", gstin: "", mobile: "+91 9825077777" });
+  expect(second).toBeGreaterThan(first); // saved anyway
+
+  const found = await findDuplicates(customers, gstinWithCheck(gstin).toLowerCase(), "", undefined);
+  expect(found.map((d) => [d.name, d.same])).toEqual([["Dupe One", "GSTIN"]]);
+  const byMobile = await findDuplicates(customers, "", "098250-77777", second);
+  expect(byMobile.map((d) => [d.name, d.same])).toEqual([["Dupe One", "mobile"]]);
+  expect(duplicateText(byMobile, "customer")).toContain("Dupe One (same mobile)");
+  expect(await findDuplicates(customers, "", "123")).toEqual([]);
+});
+
+const gstinWithCheck = (g: string) => g.slice(0, 14) + gstinCheckChar(g.slice(0, 14));

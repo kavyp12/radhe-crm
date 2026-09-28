@@ -20,6 +20,7 @@ const LABELS = {
   name: "Name",
   firm_name: "Firm name",
   mobile: "Mobile",
+  email: "Email",
   gstin: "GSTIN",
   state_code: "State",
   billing_address: "Billing address",
@@ -98,6 +99,7 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
             <Detail label="GSTIN">{c.gstin ?? "Unregistered"}</Detail>
             <Detail label="State">{`${c.stateCode} · ${stateName(c.stateCode) ?? ""}`}</Detail>
             <Detail label="Mobile">{c.mobile}</Detail>
+            <Detail label="Email">{c.email}</Detail>
             <Detail label="Billing address">{c.billingAddress}</Detail>
             <Detail label="Delivery / site address">{c.siteAddress}</Detail>
             <Detail label="Credit limit">{c.creditLimitPaise === null ? "No limit" : <Money paise={c.creditLimitPaise} />}</Detail>

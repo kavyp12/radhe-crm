@@ -4,7 +4,7 @@ import { staffOptions } from "@/lib/customers";
 import { COMPANY_STATE } from "@/lib/gstin";
 import { can } from "@/lib/permissions";
 import { getSettings } from "@/lib/settings";
-import { createCustomerAction } from "../actions";
+import { createCustomerAction, customerDuplicatesAction } from "../actions";
 import { CustomerForm } from "../customer-form";
 
 export default async function NewCustomerPage() {
@@ -18,6 +18,7 @@ export default async function NewCustomerPage() {
         values={{
           name: "",
           firmName: "",
+          email: "",
           mobile: "",
           gstin: "",
           stateCode: COMPANY_STATE,
@@ -37,6 +38,7 @@ export default async function NewCustomerPage() {
         canDeactivate={false}
         submitLabel="Create customer"
         action={createCustomerAction}
+        duplicates={customerDuplicatesAction.bind(null, null)}
       />
     </div>
   );

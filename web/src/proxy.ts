@@ -5,7 +5,9 @@ import { NextResponse, type NextRequest } from "next/server";
 // the real session on the server (lib/auth.ts).
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
-  if (pathname === "/login" || pathname.startsWith("/api/auth/") || getSessionCookie(request)) {
+  // /share/<token>: a public PDF link (D46); the token is checked by the route itself.
+  const open = pathname === "/login" || pathname.startsWith("/api/auth/") || pathname.startsWith("/share/");
+  if (open || getSessionCookie(request)) {
     return NextResponse.next();
   }
   if (pathname.startsWith("/api/")) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
