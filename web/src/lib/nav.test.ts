@@ -5,13 +5,15 @@ import type { Role } from "@/lib/permissions";
 const labels = (role: Role) => navFor({ role }).flatMap((group) => group.items.map((item) => item.label));
 
 test("owner sees every item", () => {
-  expect(labels("owner")).toHaveLength(25);
-  expect(labels("owner")).toEqual(expect.arrayContaining(["Users", "Settings", "Approvals", "Cash Book"]));
+  expect(labels("owner")).toHaveLength(26);
+  expect(labels("owner")).toEqual(expect.arrayContaining(["Users", "Categories", "Settings", "Approvals", "Cash Book"]));
 });
 
 test("accountant: money, purchase and stock, but no users / settings / approvals", () => {
   const items = labels("accountant");
-  expect(items).toEqual(expect.arrayContaining(["Invoices", "Receipts", "Cash & Bank", "Purchase Bills", "Reports"]));
+  expect(items).toEqual(
+    expect.arrayContaining(["Invoices", "Receipts", "Cash & Bank", "Purchase Bills", "Reports", "Categories"]),
+  );
   for (const hidden of ["Users", "Settings", "Approvals"]) expect(items).not.toContain(hidden);
 });
 

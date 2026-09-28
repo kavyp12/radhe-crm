@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { toast } from "sonner";
 import { Field, FormActions, FormSection, useFormAction } from "@/components/form";
+import { GstinStateFields } from "@/components/gstin-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import type { FormState } from "@/lib/action";
-import { GST_STATES } from "@/lib/gstin";
 
 export type CustomerFormValues = {
   name: string;
@@ -54,7 +54,6 @@ function PersonSelect({ name, value, staff }: { name: string; value: string; sta
 
 export function CustomerForm({ values: v, staff, canSetOpening, canDeactivate, submitLabel, action }: Props) {
   const { state, onSubmit, pending } = useFormAction(action);
-  const [stateCode, setStateCode] = useState(v.stateCode);
   useEffect(() => {
     if (state?.error) toast.error(state.error);
   }, [state]);
@@ -73,30 +72,7 @@ export function CustomerForm({ values: v, staff, canSetOpening, canDeactivate, s
           <Field label="Mobile" error={error("mobile")}>
             <Input name="mobile" type="tel" defaultValue={v.mobile} maxLength={20} />
           </Field>
-          <Field label="GSTIN" hint="Blank for an unregistered customer." error={error("gstin")}>
-            <Input
-              name="gstin"
-              defaultValue={v.gstin}
-              maxLength={15}
-              autoCapitalize="characters"
-              spellCheck={false}
-              className="uppercase"
-              // A GSTIN starts with its state code: pick that state while typing.
-              onChange={(e) => {
-                const code = e.target.value.trim().slice(0, 2);
-                if (GST_STATES.some(([c]) => c === code)) setStateCode(code);
-              }}
-            />
-          </Field>
-          <Field label="State" hint="Must match the GSTIN. Pick it for an unregistered customer." error={error("stateCode")}>
-            <NativeSelect name="stateCode" value={stateCode} onChange={(e) => setStateCode(e.target.value)} className="w-full">
-              {GST_STATES.map(([code, name]) => (
-                <NativeSelectOption key={code} value={code}>
-                  {code} · {name}
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
-          </Field>
+          <GstinStateFields gstin={v.gstin} stateCode={v.stateCode} error={error} />
         </div>
       </FormSection>
 
