@@ -8,7 +8,7 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
   Next.js app in web/ (App Router, TS, Tailwind, src/, alias @/*, pnpm); shadcn/ui init; Drizzle + postgres.js + drizzle-kit; create radhe_dev + radhe_test on local Postgres 16; Vitest wired to radhe_test (migrate before run); scripts dev / build / start / typecheck / lint / test / db:generate / db:migrate / db:seed; web/.env.example; fill the "Commands" section in CLAUDE.md.
   Done when: `pnpm dev` serves localhost:3000 · typecheck clean · one DB smoke test passes on radhe_test · migrations run on radhe_dev.
 
-- [ ] **T02 · Number, date & numbering helpers** — D13, D16, D23, A§4, A§6
+- [x] **T02 · Number, date & numbering helpers** — D13, D16, D23, A§4, A§6
   lib/num.ts: paise/milli parsing from strings (no floats), en-IN ₹ format, qty × rate with BigInt half-up, GST line calc (CGST+SGST vs IGST), invoice totals + round-off, amount in words (lakh/crore). lib/dates.ts: IST today, FY key "26-27", DD/MM/YYYY, period presets. counters table + nextNumber(tx, series, date) for every series in A§6.
   Done when: tests cover .5-paise rounding · same vs other state · round-off · ₹1,00,000.00 grouping · amount in words · FY boundary 31-Mar/1-Apr · two parallel transactions never get the same number.
 
@@ -21,7 +21,7 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
   Done when: Ronnie approves the look (reviewer tells him exactly what to open).
 
 - [ ] **T05 · Audit log, settings, attachments** — S22–S24, A§7, D08
-  audit_log + generic trigger (custom SQL migration) + write-transaction helper setting app.user_id; reusable History tab (who / when / old → new). Settings page (company profile, logo, bank, UPI, terms, discount limit, backdate days, default credit days). lib/storage.ts (local dev / Supabase prod); attachments table + upload (phone camera capture) + list/preview component with S24 kinds.
+  audit_log + generic trigger (custom SQL migration) + write-transaction helper setting app.user_id (also wrap T03's user writes); reusable History tab (who / when / old → new). Settings page (company profile, logo, bank, UPI, terms, discount limit, backdate days, default credit days). lib/storage.ts (local dev / Supabase prod); attachments table + upload (phone camera capture) + list/preview component with S24 kinds.
   Done when: test proves an app update writes an audit row with user + old/new · upload and view work locally · settings save.
 
 - [ ] **T06 · Ledger core** — D14, A§3
@@ -182,7 +182,7 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
 
 ## Phase 9 — Go-live
 - [ ] **T42 · Hardening**
-  Automated check that every server action / route has a permission check; approvals verified in all modules; indexes for slow queries; error/404 pages; PWA manifest (install on phone); phone check of key screens.
+  Automated check that every server action / route has a permission check; approvals verified in all modules; indexes for slow queries; error/404 pages (remove T04's "not built yet" catch-all); PWA manifest (install on phone); phone check of key screens.
   Done when: the permission check test passes · `pnpm build` clean · key screens OK at 390px.
 
 - [ ] **T43 · Opening data import** — Q5

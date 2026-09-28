@@ -35,6 +35,11 @@ To change one: Ronnie agrees → the reviewer adds a NEW dated entry below. Neve
 - **D29 Next agent files**: keep web/AGENTS.md + web/CLAUDE.md written by `next dev`; they point agents to the Next docs in node_modules/next/dist/docs (hard rule 10).
 - **D30 Rounding & display defaults**: half-up = half away from zero (negatives mirror positives, so reversals net to zero). Invoice round-off: 50 paise and above rounds up. Date presets: Week = Monday → today, Month = 1st → today. Amount in words: "Rupees One Lakh Twenty Thousand and Fifty Paise Only" (Indian system; match the client's invoice sample when Q3 arrives). — confirm presets at G1.
 
+## 2026-09-28 — T02 review
+- **D31 Numbering lock**: nextNumber = one `INSERT … ON CONFLICT DO UPDATE … RETURNING` inside the document's transaction (same row lock as SELECT … FOR UPDATE, and it creates a period's first row). Replaces the "SELECT … FOR UPDATE" wording in ARCHITECTURE §6.
+- **D32 Journal entry number**: journal_entries.number = the number of the document that posted it (the "voucher no" in the T36 accountant export); no journal series of its own. A reversal entry carries the same number as the entry it reverses (+ reverses_entry_id). Entries with no numbered document (opening balances) leave it null.
+- **D33 Two tasks per builder chat** (Ronnie, to go faster): from T03 a builder prompt may carry 2 linked tasks. Builder does them in order, runs checks and commits after each, and stops if the first fails. Reviewer reviews both commits together. Plan for Phase 0: T03 + T04 → T05 → T06 + T07.
+
 ## Open questions (reviewer: when answered, add a new decision above and strike the question)
 - **Q1** Print workflow per PC: machines list; CorelDRAW → Windows printer, or RIP software (Maintop / PhotoPrint / Onyx / Caldera / other)? Where are job files saved (local D:\ or shared drive)? — blocks T40.
 - **Q2** HSN/SAC + GST % per product category (from their CA). — before go-live; invoices work with blanks until then.
