@@ -12,15 +12,15 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
   lib/num.ts: paise/milli parsing from strings (no floats), en-IN ₹ format, qty × rate with BigInt half-up, GST line calc (CGST+SGST vs IGST), invoice totals + round-off, amount in words (lakh/crore). lib/dates.ts: IST today, FY key "26-27", DD/MM/YYYY, period presets. counters table + nextNumber(tx, series, date) for every series in A§6.
   Done when: tests cover .5-paise rounding · same vs other state · round-off · ₹1,00,000.00 grouping · amount in words · FY boundary 31-Mar/1-Apr · two parallel transactions never get the same number.
 
-- [ ] **T03 · Login, users, roles** — S21, D04, A§8
+- [x] **T03 · Login, users, roles** — S21, D04, A§8
   Better Auth (username + password); role + can_view_cost + active; login/logout; every app route requires login; lib/permissions.ts map + requireUser() / requirePermission(); seed owner from env; Users page (owner): create, role, can_view_cost, disable, reset password.
   Done when: tests for allowed/denied samples of each role · disabled user can't log in · unauthenticated → /login.
 
-- [ ] **T04 · App shell & design system** 🚦 — docs/DESIGN.md, R1, S19
+- [x] **T04 · App shell & design system** 🚦 — docs/DESIGN.md, R1, S19
   Sidebar (role-filtered), top bar (search placeholder, + New, bell placeholder, user menu), page header, DataTable (sort / filter / paginate / totals row), StatusBadge (all statuses), Money & Date components, form + line-items grid pattern, empty/loading states, toasts. Dashboard page with dummy data: the 8 numbers + S19 sections. Works at phone width.
   Done when: Ronnie approves the look (reviewer tells him exactly what to open).
 
-- [ ] **T05 · Audit log, settings, attachments** — S22–S24, A§7, D08
+- [x] **T05 · Audit log, settings, attachments** — S22–S24, A§7, D08
   audit_log + generic trigger (custom SQL migration) + write-transaction helper setting app.user_id (also wrap T03's user writes); reusable History tab (who / when / old → new). Settings page (company profile, logo, bank, UPI, terms, discount limit, backdate days, default credit days). lib/storage.ts (local driver; Supabase driver in T44 — D34); attachments table + upload (phone camera capture) + list/preview component with S24 kinds.
   Done when: test proves an app update writes an audit row with user + old/new · upload and view work locally · settings save.
 
@@ -70,7 +70,7 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
   Linked to the original invoice; reason; lines from the invoice (partial qty/amount); GST reversed; CN needs approval for non-owner; CN allocates to its invoice; DN adds receivable; PDFs.
   Done when: tests: CN reduces invoice open amount + GST output · DN increases them.
 
-- [ ] **🚦 G1 · Sales-flow demo** — Ronnie (and client) walk through quotation → job → invoice → receipt → ledger on real-looking data. Confirm D17, D19, D24, D25, D30. Reviewer records answers in DECISIONS.md.
+- [ ] **🚦 G1 · Sales-flow demo** — Ronnie (and client) walk through quotation → job → invoice → receipt → ledger on real-looking data. Confirm D17, D19, D24, D25, D30, D38, D41. Reviewer records answers in DECISIONS.md.
 
 ## Phase 3 — Purchase, expenses, stock
 - [ ] **T17 · Stock core** — S17, D20, A§9
@@ -167,7 +167,7 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
   Done when: tile numbers tie to print job data · report lists exactly unpaid/part/credit jobs.
 
 - [ ] **T39 · Agent API & device pairing** — A§11
-  print_devices; owner creates a pairing code → agent exchanges it for a device token; revoke; endpoints: bootstrap, create print job (idempotent by client_uuid), reprint check, thumbnail upload.
+  print_devices; owner creates a pairing code → agent exchanges it for a device token; revoke; proxy.ts must let /api/agent/* through (Bearer token, no cookie); endpoints: bootstrap, create print job (idempotent by client_uuid), reprint check, thumbnail upload.
   Done when: tests: same client_uuid twice → one print job · revoked token rejected · endpoints never accept user-session-only calls.
 
 - [ ] **T40 · Print agent: hold + popup + offline queue** — P1, P2, P8, P10 · needs Q1 answer
@@ -190,10 +190,27 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
   Done when: sample import round-trips · trial balance = 0 after import.
 
 - [ ] **T44 · Deploy** — D10
-  Supabase prod (Mumbai) + storage bucket + Supabase driver for lib/storage.ts (D34); Vercel project (root web/, region bom1) + env; migrations; seed owner; domain; nightly pg_dump; prod smoke test; admin guide. (Pushing to GitHub/Vercel only with Ronnie's OK.)
+  Supabase prod (Mumbai) + storage bucket + Supabase driver for lib/storage.ts (D34); Vercel project (root web/, region bom1) + env; migrations; seed owner; Better Auth rate-limit storage in the DB (D42); domain; nightly pg_dump; prod smoke test; admin guide. (Pushing to GitHub/Vercel only with Ronnie's OK.)
   Done when: prod URL works end-to-end · backup job ran once · restore tested.
 
 - [ ] **🚦 G3 · Client UAT & sign-off** — client uses it for real; reviewer converts feedback into fix tasks until sign-off.
+
+## Batch plan (D42) — one builder chat per line; the reviewer checks each batch before the next
+- ✅ B1 T01 · ✅ B2 T02 · ✅ B3 T03 + T04 + T05
+- B4 T06 + T07 + T08 + T09 → Phases 0–1 done
+- B5 T10 + T11 + T12
+- B6 T13 + T14 + T15 + T16 → 🚦 G1 demo
+- B7 T17 + T18 + T19 + T20
+- B8 T21 + T22 + T23
+- B9 T24 + T25 + T26
+- B10 T27 + T28 + T29
+- B11 T31 + T30 🚦
+- B12 T32 + T33 + T34
+- B13 T35 + T36
+- B14 T37 + T38 + T39
+- B15 T40 + T41 (needs Q1) → 🚦 G2
+- B16 T42 + T43
+- B17 T44 (push only with Ronnie's OK) → 🚦 G3
 
 ## Spec coverage (reviewer keeps this in sync)
 S1 T08, T15 · S2 T10–T12 · S3 T11, T27 · S4 T09, T10, T34 · S5 T12, T14 · S6 T13 · S7 T28 · S8 T29 · S9 T09, T18, T19 · S10 T09, T20 · S11 T21, T27 · S12 T14 · S13 T06, T25 · S14 T26 · S15 T15, T19 · S16 T16 · S17 T17, T21 · S18 T22, T23 · S19 T04, T30 · S20 T31–T34 · S21 T03 + every task · S22 T07 + modules · S23 T05 · S24 T05 + modules · S25 T29 · S26 T35 · S27 T31, T36, T44 · R0 all · R1 T30 · P1–P10 T37–T41
