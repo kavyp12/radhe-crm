@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { formAction, UserError, type FormState } from "@/lib/action";
 import { applyOnAccount } from "@/lib/allocations";
@@ -119,9 +118,7 @@ export async function applyOnAccountAction(
   checkId(customerId);
   checkId(sourceId);
   if (kind !== "receipt" && kind !== "credit_note") throw new Error("Bad source");
-  const state = await formAction(() =>
-    applyOnAccount(actor, customerId, { kind, id: sourceId }, String(form.get("allocations") ?? "")),
-  );
-  revalidatePath(`/customers/${customerId}`);
-  return state;
+  // No revalidatePath: it would re-render this apply page, whose source is now used up (404). The form goes back to
+  // the customer page itself, which renders fresh (dynamic).
+  return formAction(() => applyOnAccount(actor, customerId, { kind, id: sourceId }, String(form.get("allocations") ?? "")));
 }
