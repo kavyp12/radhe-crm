@@ -225,6 +225,20 @@
       "when": 1790675457561,
       "tag": "0031_vendor_payments_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790676171907,
+      "tag": "0032_expenses",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790676173140,
+      "tag": "0033_expenses_audit",
+      "breakpoints": true
     }
   ]
 }

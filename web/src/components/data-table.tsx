@@ -73,6 +73,8 @@ type Props<T extends RowData> = {
   date?: (row: T) => string;
   /** The row's status; turns on the status filter. */
   status?: (row: T) => string;
+  /** More pick-one filters (e.g. category, job): each lists the distinct values it finds. Keep the array stable. */
+  filters?: { label: string; value: (row: T) => string }[];
   onRowClick?: (row: T) => void;
   searchPlaceholder?: string;
   pageSize?: number;
@@ -85,6 +87,7 @@ export function DataTable<T extends RowData>({
   columns,
   date,
   status,
+  filters,
   onRowClick,
   searchPlaceholder = "Search",
   pageSize = 25,
@@ -93,16 +96,22 @@ export function DataTable<T extends RowData>({
   const [preset, setPreset] = useState<Period | "custom" | "">("");
   const [custom, setCustom] = useState<{ from: string | null; to: string | null }>({ from: null, to: null });
   const [statusFilter, setStatusFilter] = useState("");
+  const [picked, setPicked] = useState<Record<string, string>>({});
 
   const statuses = useMemo(() => (status ? [...new Set(data.map(status))].sort() : []), [data, status]);
+  const choices = useMemo(
+    () => (filters ?? []).map((f) => [...new Set(data.map(f.value))].filter(Boolean).sort()),
+    [data, filters],
+  );
   const rows = useMemo(() => {
     const range = preset === "custom" ? custom : preset ? periodRange(preset) : null;
     return data.filter(
       (row) =>
         (!range || !date || ((!range.from || date(row) >= range.from) && (!range.to || date(row) <= range.to))) &&
-        (!statusFilter || !status || status(row) === statusFilter),
+        (!statusFilter || !status || status(row) === statusFilter) &&
+        (filters ?? []).every((f) => !picked[f.label] || f.value(row) === picked[f.label]),
     );
-  }, [data, date, status, preset, custom, statusFilter]);
+  }, [data, date, status, filters, preset, custom, statusFilter, picked]);
 
   const table = useTable({
     features,
@@ -117,13 +126,14 @@ export function DataTable<T extends RowData>({
   const { pageIndex } = table.state.pagination;
   const first = filtered.length ? pageIndex * pageSize + 1 : 0;
   const last = Math.min((pageIndex + 1) * pageSize, filtered.length);
-  const filtersOn = !!(table.state.globalFilter || preset || statusFilter);
+  const filtersOn = !!(table.state.globalFilter || preset || statusFilter || Object.values(picked).some(Boolean));
 
   function clearFilters() {
     table.setGlobalFilter("");
     setPreset("");
     setCustom({ from: null, to: null });
     setStatusFilter("");
+    setPicked({});
   }
 
   if (!data.length && empty) {
@@ -178,6 +188,21 @@ export function DataTable<T extends RowData>({
             ))}
           </NativeSelect>
         )}
+        {(filters ?? []).map((f, i) => (
+          <NativeSelect
+            key={f.label}
+            aria-label={f.label}
+            value={picked[f.label] ?? ""}
+            onChange={(e) => setPicked((p) => ({ ...p, [f.label]: e.target.value }))}
+          >
+            <NativeSelectOption value="">{`All (${f.label.toLowerCase()})`}</NativeSelectOption>
+            {choices[i].map((v) => (
+              <NativeSelectOption key={v} value={v}>
+                {v}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        ))}
         {filtersOn && (
           <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={clearFilters}>
             Clear

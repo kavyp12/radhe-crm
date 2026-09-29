@@ -202,3 +202,39 @@ export const vendorAllocations = pgTable(
     check("vendor_allocations_amount_positive", sql`${t.amountPaise} > 0`),
   ],
 );
+
+export const EXPENSE_STATUSES = ["active", "cancelled"] as const;
+
+/**
+ * Expenses (S10, A§2, A§3, D51): paid straight from a money account, numbered EX/ and posted on save — Dr the
+ * category's expense account (with the job, if tagged) / Cr the money account. No GST split. Edit = reverse + repost,
+ * cancel = reverse on its date. Audited.
+ */
+export const expenses = pgTable(
+  "expenses",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    number: text("number").notNull().unique(),
+    date: date("date").notNull(),
+    categoryId: bigint("category_id", { mode: "number" })
+      .notNull()
+      .references(() => expenseCategories.id),
+    vendorId: bigint("vendor_id", { mode: "number" }).references(() => vendors.id),
+    jobId: bigint("job_id", { mode: "number" }).references(() => jobs.id),
+    amountPaise: bigint("amount_paise", { mode: "bigint" }).notNull(),
+    mode: text("mode", { enum: RECEIPT_MODES }).notNull(),
+    moneyAccountId: bigint("money_account_id", { mode: "number" })
+      .notNull()
+      .references(() => accounts.id),
+    notes: text("notes"),
+    status: text("status", { enum: EXPENSE_STATUSES }).notNull().default("active"),
+    ...stamps(),
+  },
+  (t) => [
+    index("expenses_category_idx").on(t.categoryId),
+    index("expenses_job_idx").on(t.jobId),
+    check("expenses_amount_positive", sql`${t.amountPaise} > 0`),
+    check("expenses_mode_check", sql`${t.mode} in ('cash', 'upi', 'bank', 'cheque')`),
+    check("expenses_status_check", sql`${t.status} in ('active', 'cancelled')`),
+  ],
+);
