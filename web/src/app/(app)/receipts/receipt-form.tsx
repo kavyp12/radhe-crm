@@ -18,7 +18,16 @@ import { moneyText, parseMoney } from "@/lib/num";
 import { MODE_ACCOUNT, RECEIPT_MODE, RECEIPT_MODES, type ReceiptMode } from "@/lib/receipt-modes";
 import { cn } from "@/lib/utils";
 
-export type OpenInvoice = { id: number; number: string; date: string; dueDate: string; total: bigint; open: bigint };
+/** An open receivable: an invoice or a debit note (T16). */
+export type OpenInvoice = {
+  target: "invoice" | "debit_note";
+  id: number;
+  number: string;
+  date: string;
+  dueDate: string;
+  total: bigint;
+  open: bigint;
+};
 /** A job that can take an advance (S12); `advance` = what it already holds from other receipts. */
 export type OpenJob = { id: number; number: string; date: string; status: Status; total: bigint; advance: bigint };
 export type OpenItems = { invoices: OpenInvoice[]; jobs: OpenJob[] };
@@ -109,7 +118,7 @@ export function ReceiptForm({
   // An edit starts from what is saved (even nothing), never from a fresh fill.
   const typed = receiptId !== undefined || advanceFor !== undefined || Object.keys(v.allocated).length > 0;
   const [invoiceRows, setInvoiceRows] = useState<InvoiceRow[]>(() => {
-    const start = open.invoices.map((o) => ({ ...o, amount: v.allocated[`invoice:${o.id}`] ?? "" }));
+    const start = open.invoices.map((o) => ({ ...o, amount: v.allocated[`${o.target}:${o.id}`] ?? "" }));
     return typed ? start : fill(start, paise(v.amount) ?? 0n);
   });
   const [jobRows, setJobRows] = useState<JobRow[]>(() => open.jobs.map((j) => ({ ...j, amount: v.allocated[`job:${j.id}`] ?? "" })));
@@ -150,7 +159,7 @@ export function ReceiptForm({
   const allocated = shares.reduce<bigint>((s, a) => s + (a ?? 0n), 0n);
   const over = total !== null && allocated > total;
   const json = JSON.stringify([
-    ...invoiceRows.map((r) => ({ target: "invoice", id: String(r.id), amount: r.amount })),
+    ...invoiceRows.map((r) => ({ target: r.target, id: String(r.id), amount: r.amount })),
     ...jobRows.map((r) => ({ target: "job", id: String(r.id), amount: r.amount })),
   ]);
   const amountInput = (label: string, value: string, bad: boolean, onChange: (text: string) => void) => (
@@ -248,13 +257,13 @@ export function ReceiptForm({
         ) : (
           <div className="grid gap-4">
             {invoiceRows.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No open invoices.</p>
+              <p className="text-sm text-muted-foreground">No open invoices or debit notes.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-140 border-separate border-spacing-0 text-[13px]">
                   <thead>
                     <tr>
-                      <th className={th}>Invoice</th>
+                      <th className={th}>Invoice / debit note</th>
                       <th className={th}>Date</th>
                       <th className={th}>Due</th>
                       <th className={`${th} text-right`}>Total</th>
@@ -264,7 +273,7 @@ export function ReceiptForm({
                   </thead>
                   <tbody>
                     {invoiceRows.map((r, i) => (
-                      <tr key={r.id}>
+                      <tr key={`${r.target}:${r.id}`}>
                         <td className={`${td} font-medium tabular-nums`}>{r.number}</td>
                         <td className={td}>
                           <DateText date={r.date} />
@@ -285,7 +294,7 @@ export function ReceiptForm({
                             invoiceShares[i] === null || (invoiceShares[i] ?? 0n) > r.open,
                             (text) => {
                               setManual(true);
-                              setInvoiceRows((rows) => rows.map((x) => (x.id === r.id ? { ...x, amount: text } : x)));
+                              setInvoiceRows((rows) => rows.map((x) => (x.id === r.id && x.target === r.target ? { ...x, amount: text } : x)));
                             },
                           )}
                         </td>

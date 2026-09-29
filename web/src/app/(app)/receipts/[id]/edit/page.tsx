@@ -40,7 +40,10 @@ export default async function EditReceiptPage({ params }: PageProps<"/receipts/[
           receivedBy: r.receivedBy ?? "",
           notes: r.notes ?? "",
           allocated: Object.fromEntries(
-            r.lines.map((l) => [l.jobId !== null ? `job:${l.jobId}` : `invoice:${l.invoiceId}`, moneyText(l.amount)]),
+            r.lines.map((l) => [
+              l.jobId !== null ? `job:${l.jobId}` : l.debitNoteId !== null ? `debit_note:${l.debitNoteId}` : `invoice:${l.invoiceId}`,
+              moneyText(l.amount),
+            ]),
           ),
         }}
         {...options}

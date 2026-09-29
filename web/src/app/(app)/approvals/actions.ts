@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/auth";
 
 // Modules that register approval executors (registerExecutor) are imported here, so approving can find them.
 import "@/lib/invoices";
+import "@/lib/notes";
 import "@/lib/quotations";
 import "@/lib/receipts";
 

@@ -61,10 +61,23 @@ export function lineCalc({ qty, rate, discount = 0n, gstBp }: LineInput, mode: G
     throw new Error("Discount must be between 0 and the line amount");
   }
   const taxable = amount - discount;
+  return { amount, taxable, ...gstOn(taxable, gstBp, mode) };
+}
+
+/** GST on a taxable amount (A§4): same state → CGST + SGST, each half-up; other state → IGST; estimate → none. */
+export function gstOn(taxable: bigint, gstBp: number, mode: GstMode) {
   const bp = BigInt(gstBp);
   const half = mode === "same_state" ? divRound(taxable * bp, 20000n) : 0n;
   const igst = mode === "other_state" ? divRound(taxable * bp, 10000n) : 0n;
-  return { amount, taxable, cgst: half, sgst: half, igst };
+  return { cgst: half, sgst: half, igst };
+}
+
+/** Credit / debit note totals (T16): GST per line on its taxable value, in the invoice's mode; no round-off (D49). */
+export function noteTotals(lines: { taxable: bigint; gstBp: number }[], mode: GstMode) {
+  const calc = lines.map((l) => ({ taxable: l.taxable, ...gstOn(l.taxable, l.gstBp, mode) }));
+  const sum = (k: "taxable" | "cgst" | "sgst" | "igst") => calc.reduce((s, l) => s + l[k], 0n);
+  const [taxable, cgst, sgst, igst] = [sum("taxable"), sum("cgst"), sum("sgst"), sum("igst")];
+  return { lines: calc, taxable, cgst, sgst, igst, roundOff: 0n, total: taxable + cgst + sgst + igst };
 }
 
 /** Sums the lines, then rounds to the nearest rupee (50 paise and above rounds up) as a separate roundOff. */

@@ -1,14 +1,15 @@
 import { and, asc, eq, inArray, isNotNull, notExists, sql, type SQL } from "drizzle-orm";
 import type { Status } from "@/components/status-badge";
 import { db, type Tx } from "@/db";
-import { allocations, invoices, jobs, receipts } from "@/db/schema";
+import { allocations, creditNotes, debitNotes, invoices, jobs, receipts } from "@/db/schema";
 import { UserError } from "@/lib/action";
 import { todayIST } from "@/lib/dates";
 import { PRODUCTION_STATUSES } from "@/lib/jobs";
 import { formatMoney, parseMoney } from "@/lib/num";
 
-// Allocations (A§2, A§5, D49): which money pays what — an invoice, or a job as an advance (S12). They never post.
-// Open amounts and payment statuses are computed from them on every read, never stored (hard rule 6).
+// Allocations (A§2, A§5, D49): which money (a receipt, a credit note) pays what — an invoice, a debit note, or a job
+// as an advance (S12). They never post. Open amounts and payment statuses are computed from them on every read,
+// never stored (hard rule 6).
 
 type Q = Tx | typeof db;
 
@@ -22,12 +23,18 @@ export const liveAllocation = (): SQL =>
         .from(receipts)
         .where(and(eq(receipts.id, allocations.receiptId), eq(receipts.status, "cancelled"))),
     ),
+    notExists(
+      db
+        .select({ one: sql`1` })
+        .from(creditNotes)
+        .where(and(eq(creditNotes.id, allocations.creditNoteId), eq(creditNotes.status, "cancelled"))),
+    ),
   )!;
 
 /** Σ live allocations per target id, leaving out one receipt's own (the receipt being edited). */
 async function sums(
   q: Q,
-  column: typeof allocations.invoiceId | typeof allocations.jobId,
+  column: typeof allocations.invoiceId | typeof allocations.jobId | typeof allocations.debitNoteId,
   ids: number[],
   exceptReceiptId?: number,
 ): Promise<Map<number, bigint>> {
@@ -54,6 +61,10 @@ export const paidTowards = (q: Q, invoiceIds: number[], exceptReceiptId?: number
 export const advancesOn = (q: Q, jobIds: number[], exceptReceiptId?: number) =>
   sums(q, allocations.jobId, jobIds, exceptReceiptId);
 
+/** Σ live allocations per debit note (a receivable of its own, T16). */
+export const paidTowardsDebitNotes = (q: Q, noteIds: number[], exceptReceiptId?: number) =>
+  sums(q, allocations.debitNoteId, noteIds, exceptReceiptId);
+
 /** Σ live allocations per invoice, as a subquery to join in lists. */
 export const paidByInvoice = () =>
   db
@@ -62,6 +73,15 @@ export const paidByInvoice = () =>
     .where(and(liveAllocation(), isNotNull(allocations.invoiceId)))
     .groupBy(allocations.invoiceId)
     .as("paid");
+
+/** Σ live allocations per debit note, as a subquery to join in lists. */
+export const paidByDebitNote = () =>
+  db
+    .select({ debitNoteId: allocations.debitNoteId, paise: sql<string>`sum(${allocations.amountPaise})`.as("dn_paid_paise") })
+    .from(allocations)
+    .where(and(liveAllocation(), isNotNull(allocations.debitNoteId)))
+    .groupBy(allocations.debitNoteId)
+    .as("dn_paid");
 
 export type PaymentStatus = Extract<Status, "Cancelled" | "Paid" | "Overdue" | "Part Payment" | "Unpaid">;
 
@@ -78,17 +98,39 @@ export function paymentStatus(
   return open < doc.totalPaise ? "Part Payment" : "Unpaid";
 }
 
-/** A customer's issued invoices with something still open, oldest first (D49: date, then number). */
+/**
+ * A customer's issued invoices and debit notes with something still open, oldest first (D49: date, then number) —
+ * the receivables a receipt can pay.
+ */
 export async function openInvoices(q: Q, customerId: number, exceptReceiptId?: number) {
-  const rows = await q
-    .select({ id: invoices.id, number: invoices.number, date: invoices.date, dueDate: invoices.dueDate, total: invoices.totalPaise })
-    .from(invoices)
-    .where(and(eq(invoices.customerId, customerId), eq(invoices.status, "issued")))
-    .orderBy(asc(invoices.date), asc(invoices.number));
-  const paid = await paidTowards(q, rows.map((r) => r.id), exceptReceiptId);
-  return rows
-    .map((r) => ({ ...r, number: r.number ?? "", open: r.total - (paid.get(r.id) ?? 0n) }))
-    .filter((r) => r.open > 0n);
+  const [invoiceRows, noteRows] = await Promise.all([
+    q
+      .select({ id: invoices.id, number: invoices.number, date: invoices.date, dueDate: invoices.dueDate, total: invoices.totalPaise })
+      .from(invoices)
+      .where(and(eq(invoices.customerId, customerId), eq(invoices.status, "issued"))),
+    q
+      .select({ id: debitNotes.id, number: debitNotes.number, date: debitNotes.date, dueDate: debitNotes.dueDate, total: debitNotes.totalPaise })
+      .from(debitNotes)
+      .where(and(eq(debitNotes.customerId, customerId), eq(debitNotes.status, "issued"))),
+  ]);
+  const [paid, notePaid] = await Promise.all([
+    paidTowards(q, invoiceRows.map((r) => r.id), exceptReceiptId),
+    paidTowardsDebitNotes(q, noteRows.map((r) => r.id), exceptReceiptId),
+  ]);
+  return [
+    ...invoiceRows.map((r) => ({ ...r, target: "invoice" as const, open: r.total - (paid.get(r.id) ?? 0n) })),
+    ...noteRows.map((r) => ({ ...r, target: "debit_note" as const, open: r.total - (notePaid.get(r.id) ?? 0n) })),
+  ]
+    .map((r) => ({ ...r, number: r.number ?? "", dueDate: r.dueDate ?? r.date }))
+    .filter((r) => r.open > 0n)
+    // Same date: invoices before debit notes (a note follows its invoice), then by number.
+    .sort((a, b) =>
+      a.date !== b.date
+        ? a.date < b.date ? -1 : 1
+        : a.target !== b.target
+          ? a.target === "invoice" ? -1 : 1
+          : a.number < b.number ? -1 : a.number > b.number ? 1 : 0,
+    );
 }
 
 /** A customer's jobs that can take an advance (not invoiced or cancelled, S12), with what they already hold. */
@@ -102,12 +144,12 @@ export async function openJobs(q: Q, customerId: number, exceptReceiptId?: numbe
   return rows.map((r) => ({ ...r, advance: held.get(r.id) ?? 0n }));
 }
 
-export type AllocationTarget = "invoice" | "job";
-/** One line of the allocation panel: an invoice, or a job (= an advance on it). */
+export type AllocationTarget = "invoice" | "debit_note" | "job";
+/** One line of the allocation panel: an invoice, a debit note, or a job (= an advance on it). */
 export type AllocationLine = { target: AllocationTarget; id: number; amount: bigint };
 
 /**
- * The allocation panel as typed (JSON of { target: "invoice" | "job", id, amount }) → lines. Blank / zero amounts
+ * The allocation panel as typed (JSON of { target: "invoice" | "debit_note" | "job", id, amount }) → lines. Blank / zero amounts
  * are skipped; each target once.
  */
 export function readAllocations(json: string): AllocationLine[] {
@@ -135,11 +177,11 @@ export function readAllocations(json: string): AllocationLine[] {
     if (amount < 0n) fail("An allocation can't be negative.");
     if (amount === 0n) continue;
     const id = Number(o.id);
-    const target = o.target === "invoice" || o.target === "job" ? o.target : null;
+    const target = o.target === "invoice" || o.target === "debit_note" || o.target === "job" ? o.target : null;
     if (!target || !Number.isSafeInteger(id) || id < 1) fail("The allocations couldn't be read: reload the page.");
     lines.push({ target: target!, id, amount });
   }
-  if (new Set(lines.map((l) => `${l.target}:${l.id}`)).size !== lines.length) fail("Put each invoice or job on one line only.");
+  if (new Set(lines.map((l) => `${l.target}:${l.id}`)).size !== lines.length) fail("Put each document on one line only.");
   return lines;
 }
 
@@ -150,9 +192,9 @@ const idsOf = (lines: AllocationLine[], target: AllocationTarget) =>
     .sort((a, b) => a - b);
 
 /**
- * Checks lines against what is open, locking the target invoices and then jobs (id order, as Issue does) so two
- * receipts can't both take the same open amount. Refuses a total over `available`, a line over its invoice's open
- * amount, or a job already invoiced / cancelled. Returns the lines with their document numbers.
+ * Checks lines against what is open, locking the target invoices, then debit notes, then jobs (id order, as Issue
+ * does) so two receipts can't both take the same open amount. Refuses a total over `available`, a line over its
+ * invoice's / debit note's open amount, or a job already invoiced / cancelled. Returns the lines with their numbers.
  */
 export async function checkAllocations(
   tx: Tx,
@@ -165,15 +207,28 @@ export async function checkAllocations(
   if (total > available) {
     throw new UserError(`${formatMoney(total)} allocated is more than the ${formatMoney(available)} received.`, "allocations");
   }
-  const [invoiceIds, jobIds] = [idsOf(lines, "invoice"), idsOf(lines, "job")];
+  const [invoiceIds, noteIds, jobIds] = [idsOf(lines, "invoice"), idsOf(lines, "debit_note"), idsOf(lines, "job")];
   const invoiceRows = invoiceIds.length
     ? await tx.select().from(invoices).where(inArray(invoices.id, invoiceIds)).orderBy(asc(invoices.id)).for("update")
+    : [];
+  const noteRows = noteIds.length
+    ? await tx.select().from(debitNotes).where(inArray(debitNotes.id, noteIds)).orderBy(asc(debitNotes.id)).for("update")
     : [];
   const jobRows = jobIds.length
     ? await tx.select().from(jobs).where(inArray(jobs.id, jobIds)).orderBy(asc(jobs.id)).for("update")
     : [];
-  const paid = await paidTowards(tx, invoiceIds, exceptReceiptId);
+  const [paid, notePaid] = [await paidTowards(tx, invoiceIds, exceptReceiptId), await paidTowardsDebitNotes(tx, noteIds, exceptReceiptId)];
   return lines.map((l) => {
+    if (l.target === "debit_note") {
+      const note = noteRows.find((n) => n.id === l.id);
+      if (!note || note.customerId !== customerId) throw new UserError("A debit note here isn't this customer's: reload the page.", "allocations");
+      if (note.status !== "issued") throw new UserError(`Debit note ${note.number ?? `#${note.id}`} isn't issued.`, "allocations");
+      const open = note.totalPaise - (notePaid.get(note.id) ?? 0n);
+      if (l.amount > open) {
+        throw new UserError(`${note.number}: ${formatMoney(l.amount)} is more than its open ${formatMoney(open)}.`, "allocations");
+      }
+      return { ...l, number: note.number! };
+    }
     if (l.target === "job") {
       const job = jobRows.find((j) => j.id === l.id);
       if (!job || job.customerId !== customerId) throw new UserError("A job here isn't this customer's: reload the page.", "allocations");
@@ -254,4 +309,22 @@ export async function advanceAdjusted(q: Q, invoiceId: number): Promise<bigint> 
     .from(allocations)
     .where(and(liveAllocation(), eq(allocations.invoiceId, invoiceId), isNotNull(allocations.fromJobId)));
   return BigInt(row.paise);
+}
+
+/** Credit note Issue (D49): it pays its own invoice up to the open amount; any excess stays as customer credit. */
+export async function allocateCreditNote(tx: Tx, noteId: number, invoiceId: number, total: bigint, by: string) {
+  const [inv] = await tx.select().from(invoices).where(eq(invoices.id, invoiceId)).for("update");
+  const open = inv.totalPaise - ((await paidTowards(tx, [invoiceId])).get(invoiceId) ?? 0n);
+  const amount = total < open ? total : open;
+  if (amount > 0n) await tx.insert(allocations).values({ creditNoteId: noteId, invoiceId, amountPaise: amount, createdBy: by });
+  return amount;
+}
+
+/** A cancelled credit note stops paying; a cancelled debit note's receipts go back on account (like an invoice, D49). */
+export async function releaseNote(tx: Tx, kind: "credit" | "debit", noteId: number) {
+  const rows = await tx
+    .select({ id: allocations.id })
+    .from(allocations)
+    .where(and(eq(kind === "credit" ? allocations.creditNoteId : allocations.debitNoteId, noteId), eq(allocations.active, true)));
+  await deactivate(tx, rows.map((r) => r.id));
 }

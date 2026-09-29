@@ -1,8 +1,18 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { Status } from "@/components/status-badge";
 import { db } from "@/db";
-import { allocations, invoiceLines, invoices, jobs, quotationLines, quotations, receipts } from "@/db/schema";
-import { paidTowards, paymentStatus } from "@/lib/allocations";
+import {
+  allocations,
+  creditNotes,
+  debitNotes,
+  invoiceLines,
+  invoices,
+  jobs,
+  quotationLines,
+  quotations,
+  receipts,
+} from "@/db/schema";
+import { paidTowards, paidTowardsDebitNotes, paymentStatus } from "@/lib/allocations";
 import { JOB_STATUS } from "@/lib/jobs";
 import { QUOTATION_STATUS } from "@/lib/quotations";
 
@@ -18,15 +28,22 @@ export type Chain = {
   quotations: Doc[];
   jobs: Doc[];
   invoices: (Doc & { total: bigint; open: bigint; payment: Status | null })[];
+  /** Credit / debit notes against its invoices (T16). */
+  notes: (Doc & { kind: "credit" | "debit"; total: bigint; payment: Status | null })[];
   payments: { receiptId: number; number: string; date: string; amount: bigint }[];
-  pending: bigint; // Σ open of its issued invoices
+  pending: bigint; // Σ open of its issued invoices and debit notes
 };
 
 /** Worst first: the label a chain with several issued invoices shows. */
 const PAYMENT_ORDER: Status[] = ["Overdue", "Unpaid", "Part Payment", "Paid"];
 
 export async function customerHistory(customerId: number): Promise<Chain[]> {
-  const [qs, js, invs, links, pays] = await Promise.all([
+  const noteRows = (t: typeof creditNotes) =>
+    db
+      .select({ id: t.id, number: t.number, date: t.date, dueDate: t.dueDate, status: t.status, totalPaise: t.totalPaise, invoiceId: t.invoiceId })
+      .from(t)
+      .where(eq(t.customerId, customerId));
+  const [qs, js, invs, links, pays, cns, dns] = await Promise.all([
     db
       .select({ id: quotations.id, number: quotations.number, date: quotations.date, status: quotations.status })
       .from(quotations)
@@ -64,6 +81,8 @@ export async function customerHistory(customerId: number): Promise<Chain[]> {
       .from(allocations)
       .innerJoin(receipts, eq(receipts.id, allocations.receiptId))
       .where(and(eq(receipts.customerId, customerId), eq(receipts.status, "active"), eq(allocations.active, true))),
+    noteRows(creditNotes),
+    noteRows(debitNotes as unknown as typeof creditNotes), // same columns (lib/notes.ts)
   ]);
 
   // Union-find over "q12" / "j5" / "i7".
@@ -83,12 +102,13 @@ export async function customerHistory(customerId: number): Promise<Chain[]> {
   }
 
   const paid = await paidTowards(db, invs.filter((i) => i.status === "issued").map((i) => i.id));
+  const dnPaid = await paidTowardsDebitNotes(db, dns.filter((n) => n.status === "issued").map((n) => n.id));
   const chains = new Map<string, Chain>();
   const chain = (k: string) => {
     const root = find(k);
     let c = chains.get(root);
     if (!c) {
-      c = { key: root, date: "", label: "Draft", quotations: [], jobs: [], invoices: [], payments: [], pending: 0n };
+      c = { key: root, date: "", label: "Draft", quotations: [], jobs: [], invoices: [], notes: [], payments: [], pending: 0n };
       chains.set(root, c);
     }
     return c;
@@ -115,6 +135,17 @@ export async function customerHistory(customerId: number): Promise<Chain[]> {
     c.pending += open;
     seen(c, i.date);
   }
+  for (const [kind, list] of [["credit", cns], ["debit", dns]] as const) {
+    for (const n of list) {
+      const c = chain(`i${n.invoiceId}`);
+      const open = kind === "debit" && n.status === "issued" ? n.totalPaise - (dnPaid.get(n.id) ?? 0n) : 0n;
+      const payment = kind === "debit" ? paymentStatus({ ...n, dueDate: n.dueDate ?? n.date }, open) : null;
+      const status: Status = n.status === "draft" ? "Draft" : n.status === "cancelled" ? "Cancelled" : "Issued";
+      c.notes.push({ id: n.id, kind, number: n.number ?? "Draft", date: n.date, status, total: n.totalPaise, payment });
+      c.pending += open;
+      seen(c, n.date);
+    }
+  }
   for (const p of pays) {
     // A receipt only pays its own customer's invoices and jobs (checkAllocations), so the node is here.
     const c = chain(p.invoiceId !== null ? `i${p.invoiceId}` : `j${p.jobId}`);
@@ -125,7 +156,8 @@ export async function customerHistory(customerId: number): Promise<Chain[]> {
   }
 
   for (const c of chains.values()) {
-    const issued = c.invoices.filter((i) => i.status === "Issued" && i.payment);
+    // Issued invoices and debit notes (receivables of their own) set the label.
+    const issued = [...c.invoices, ...c.notes].filter((i) => i.status === "Issued" && i.payment);
     const liveJob = c.jobs.filter((j) => j.status !== "Cancelled").at(-1);
     const liveQuote = c.quotations.filter((q) => q.status !== "Cancelled").at(-1);
     if (issued.length) c.label = PAYMENT_ORDER.find((s) => issued.some((i) => i.payment === s)) ?? "Paid";
@@ -140,15 +172,18 @@ export async function customerHistory(customerId: number): Promise<Chain[]> {
 
 /**
  * S1 "advance / on account": money received and not yet on an invoice — advances on the customer's open jobs, and the
- * unallocated rest of live receipts.
+ * unallocated rest of live receipts and issued credit notes (a note's excess stays as customer credit, D49).
  */
 export async function customerAdvance(customerId: number) {
-  const [row] = await db.execute<{ on_jobs: string; on_account: string }>(sql`
+  const [row] = await db.execute<{ on_jobs: string; on_account: string; credit: string }>(sql`
     select
       coalesce((select sum(a.amount_paise) from allocations a join receipts r on r.id = a.receipt_id
         where r.customer_id = ${customerId} and r.status = 'active' and a.active and a.job_id is not null), 0) as on_jobs,
       coalesce((select sum(r.amount_paise - coalesce((select sum(a.amount_paise) from allocations a
         where a.receipt_id = r.id and a.active), 0)) from receipts r
-        where r.customer_id = ${customerId} and r.status = 'active'), 0) as on_account`);
-  return { onJobs: BigInt(row.on_jobs), onAccount: BigInt(row.on_account) };
+        where r.customer_id = ${customerId} and r.status = 'active'), 0) as on_account,
+      coalesce((select sum(c.total_paise - coalesce((select sum(a.amount_paise) from allocations a
+        where a.credit_note_id = c.id and a.active), 0)) from credit_notes c
+        where c.customer_id = ${customerId} and c.status = 'issued'), 0) as credit`);
+  return { onJobs: BigInt(row.on_jobs), onAccount: BigInt(row.on_account) + BigInt(row.credit) };
 }

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { amountInWords, bpText, divRound, formatMoney, invoiceTotals, lineCalc, milliText, parseMoney, parsePercent, parseQty } from "./num";
+import { amountInWords, bpText, divRound, formatMoney, invoiceTotals, lineCalc, milliText, noteTotals, parseMoney, parsePercent, parseQty } from "./num";
 
 test("rounding is half away from zero", () => {
   // qty 1.500 × ₹0.33 = 49.5 paise
@@ -101,4 +101,13 @@ test("qty text and percentages", () => {
   expect(parsePercent("18")).toBe(1800);
   expect(parsePercent("12.5")).toBe(1250);
   expect(() => parsePercent("12.345")).toThrow();
+});
+
+test("note totals: GST per line on its taxable value, no round-off; a full-line note mirrors the invoice line", () => {
+  // ₹500.05 at 18%: CGST = SGST = round(45.0045) = ₹45.00 · IGST = round(90.009) = ₹90.01; total not rounded.
+  expect(noteTotals([{ taxable: 500_05n, gstBp: 1800 }], "same_state")).toMatchObject({ cgst: 45_00n, sgst: 45_00n, igst: 0n, roundOff: 0n, total: 590_05n });
+  expect(noteTotals([{ taxable: 500_05n, gstBp: 1800 }], "other_state")).toMatchObject({ igst: 90_01n, total: 590_06n });
+  expect(noteTotals([{ taxable: 500_05n, gstBp: 1800 }], "estimate")).toMatchObject({ cgst: 0n, igst: 0n, total: 500_05n });
+  const line = lineCalc({ qty: 3000n, rate: 333_33n, gstBp: 1800 }, "same_state");
+  expect(noteTotals([{ taxable: line.taxable, gstBp: 1800 }], "same_state").lines[0]).toEqual({ taxable: line.taxable, cgst: line.cgst, sgst: line.sgst, igst: 0n });
 });

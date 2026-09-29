@@ -2,7 +2,9 @@ import { and, asc, desc, eq, inArray, isNull, ne, notExists, sql } from "drizzle
 import type { Status } from "@/components/status-badge";
 import { db, writeTx, type Tx } from "@/db";
 import {
+  creditNotes,
   customers,
+  debitNotes,
   invoiceLines,
   invoices,
   jobLines,
@@ -20,7 +22,7 @@ import {
 import { formText, UserError } from "@/lib/action";
 import { advanceAdjusted, moveJobAdvances, paidByInvoice, paidTowards, paymentStatus, releaseInvoice } from "@/lib/allocations";
 import { registerExecutor, runOrRequest } from "@/lib/approvals";
-import { addDays, formatDate, todayIST } from "@/lib/dates";
+import { formatDate, todayIST } from "@/lib/dates";
 import { JOB_STATUS, liveJobFor, PRODUCTION_STATUSES } from "@/lib/jobs";
 import { checkBooksDate, post, reverse, systemAccountId, type PostLine } from "@/lib/ledger";
 import { gstMode, lineTotals } from "@/lib/lines";
@@ -32,6 +34,7 @@ import {
   checkVersion,
   companyState,
   customerFor,
+  dueDateFor,
   jobsOnInvoices,
   lineRow,
   newShareToken,
@@ -59,12 +62,6 @@ type Linked = Omit<SavedLine, "lineId"> & { jobId?: number | null; quotationLine
 function readKind(value: string): InvoiceKind {
   if (value === "tax" || value === "estimate") return value;
   throw new UserError("Pick Tax Invoice or Estimate.", "kind");
-}
-
-/** Invoice date + the customer's credit days (Settings default when blank; none = due the same day). */
-async function dueDate(tx: Tx, date: string, creditDays: number | null) {
-  const [s] = await tx.select({ days: settings.defaultCreditDays }).from(settings).where(eq(settings.id, 1));
-  return addDays(date, creditDays ?? s.days ?? 0);
 }
 
 async function figures(tx: Tx, kind: InvoiceKind, placeOfSupply: string, lines: Linked[]) {
@@ -98,7 +95,7 @@ async function newDraft(
       date: d.date,
       customerId: d.customer.id,
       placeOfSupply: d.customer.stateCode,
-      dueDate: await dueDate(tx, d.date, d.customer.creditDays),
+      dueDate: await dueDateFor(tx, d.date, d.customer.creditDays),
       totalPaise: totals.total,
       roundOffPaise: totals.roundOff,
       terms: d.terms,
@@ -216,7 +213,7 @@ export async function updateInvoice(actor: SessionUser, id: number, input: Invoi
         date,
         customerId: customer.id,
         placeOfSupply: customer.stateCode,
-        dueDate: await dueDate(tx, date, customer.creditDays),
+        dueDate: await dueDateFor(tx, date, customer.creditDays),
         totalPaise: totals.total,
         roundOffPaise: totals.roundOff,
         terms: formText(input.terms, "terms", 4000),
@@ -288,7 +285,7 @@ async function doIssue(tx: Tx, p: IssuePayload, by: SessionUser): Promise<string
       status: "issued",
       totalPaise: totals.total,
       roundOffPaise: totals.roundOff,
-      dueDate: await dueDate(tx, inv.date, customer.creditDays),
+      dueDate: await dueDateFor(tx, inv.date, customer.creditDays),
     })
     .where(eq(invoices.id, inv.id));
   for (const job of billed) {
@@ -368,10 +365,25 @@ export async function issueInvoice(actor: SessionUser, id: number): Promise<{ me
 
 type CancelPayload = { id: number };
 
+/** A credit / debit note in force against the invoice, if any: it must be cancelled first (T16). */
+async function liveNoteOn(q: Tx | typeof db, invoiceId: number): Promise<string | null> {
+  for (const t of [creditNotes, debitNotes]) {
+    const [note] = await q
+      .select({ number: t.number })
+      .from(t)
+      .where(and(eq(t.invoiceId, invoiceId), eq(t.status, "issued")))
+      .limit(1);
+    if (note) return note.number;
+  }
+  return null;
+}
+
 /** Issued → Cancelled: reverse the entry on the invoice's own date (D45), keep the number, jobs and advances back. */
 async function doCancelIssued(tx: Tx, p: CancelPayload, by: SessionUser) {
   const inv = await lock(tx, p.id);
   if (inv.status !== "issued") throw new UserError("Only an issued invoice can be cancelled this way.");
+  const note = await liveNoteOn(tx, inv.id);
+  if (note) throw new UserError(`Cancel ${note} first: it is against this invoice.`);
   const [entry] = await tx
     .select({ id: journalEntries.id })
     .from(journalEntries)
@@ -405,6 +417,8 @@ registerExecutor<CancelPayload>("invoice.cancel", {
   async describe(tx, p) {
     const { invoice: inv, customer } = await describeInvoice(tx, p.id);
     if (inv.status !== "issued") throw new UserError("Only an issued invoice can be cancelled this way.");
+    const note = await liveNoteOn(tx, inv.id);
+    if (note) throw new UserError(`Cancel ${note} first: it is against this invoice.`);
     return {
       summary: `Cancel ${INVOICE_KIND[inv.kind].toLowerCase()} ${inv.number} (${customer}, ${formatMoney(inv.totalPaise)})`,
       target: { type: "invoices", id: p.id },

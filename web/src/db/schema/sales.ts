@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, boolean, check, date, index, integer, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { type AnyPgColumn, bigint, boolean, check, date, index, integer, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { RECEIPT_MODES } from "../../lib/receipt-modes"; // relative: drizzle-kit does not read tsconfig paths
 import { users } from "./auth";
 import { accounts, customers, productCategories } from "./masters";
@@ -195,6 +195,76 @@ export const invoiceLines = pgTable(
   ],
 );
 
+export const NOTE_STATUSES = ["draft", "issued", "cancelled"] as const;
+
+/**
+ * The columns credit notes and debit notes share (S16, A§2): always against one issued invoice (its customer, its GST
+ * mode), with a reason. Numbered at Issue (CN/… · DN/…, A§6), which also posts; no round-off (D49). A debit note is a
+ * receivable of its own, so it gets a due date at Issue like an invoice. Audited.
+ */
+const noteTable = <N extends "credit_notes" | "debit_notes">(name: N) =>
+  pgTable(
+    name,
+    {
+      id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+      number: text("number").unique(), // null while a draft
+      date: date("date").notNull(),
+      invoiceId: bigint("invoice_id", { mode: "number" })
+        .notNull()
+        .references(() => invoices.id),
+      customerId: bigint("customer_id", { mode: "number" }) // the invoice's
+        .notNull()
+        .references(() => customers.id),
+      reason: text("reason").notNull(),
+      status: text("status", { enum: NOTE_STATUSES }).notNull().default("draft"),
+      dueDate: date("due_date"), // debit notes, set at Issue
+      totalPaise: bigint("total_paise", { mode: "bigint" }).notNull(), // taxable + GST
+      notes: text("notes"),
+      shareToken: text("share_token").notNull().unique(),
+      ...stamps(),
+    },
+    (t) => [
+      index(`${name}_invoice_idx`).on(t.invoiceId),
+      index(`${name}_customer_idx`).on(t.customerId),
+      check(`${name}_status_check`, sql`${t.status} in ('draft', 'issued', 'cancelled')`),
+      check(`${name}_number_when_issued`, sql`${t.status} = 'draft' or ${t.number} is not null`),
+    ],
+  );
+
+export const creditNotes = noteTable("credit_notes");
+export const debitNotes = noteTable("debit_notes");
+
+/**
+ * A note line corrects one line of the note's invoice: a quantity (returned / added) and / or a taxable amount, never
+ * more than the invoice line has left after earlier notes of the same kind (T16). GST % is the invoice line's.
+ */
+const noteLineTable = <N extends "credit_note_lines" | "debit_note_lines">(name: N, note: () => AnyPgColumn) =>
+  pgTable(
+    name,
+    {
+      id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+      noteId: bigint("note_id", { mode: "number" })
+        .notNull()
+        .references(note),
+      position: integer("position").notNull(),
+      invoiceLineId: bigint("invoice_line_id", { mode: "number" })
+        .notNull()
+        .references(() => invoiceLines.id),
+      qtyMilli: bigint("qty_milli", { mode: "bigint" }), // null = an amount-only correction
+      taxablePaise: bigint("taxable_paise", { mode: "bigint" }).notNull(),
+      gstBp: integer("gst_bp").notNull(),
+    },
+    (t) => [
+      index(`${name}_note_idx`).on(t.noteId),
+      index(`${name}_invoice_line_idx`).on(t.invoiceLineId),
+      check(`${name}_taxable_positive`, sql`${t.taxablePaise} > 0`),
+      check(`${name}_qty_positive`, sql`${t.qtyMilli} is null or ${t.qtyMilli} > 0`),
+    ],
+  );
+
+export const creditNoteLines = noteLineTable("credit_note_lines", () => creditNotes.id);
+export const debitNoteLines = noteLineTable("debit_note_lines", () => debitNotes.id);
+
 export const RECEIPT_STATUSES = ["active", "cancelled"] as const;
 
 /**
@@ -232,8 +302,8 @@ export const receipts = pgTable(
 );
 
 /**
- * Links money to what it pays (A§2): one source (a receipt) → one target (an invoice, or a job = an advance on it).
- * A receipt's unallocated remainder is on-account advance. Allocations never post (A§3) and are never deleted: a
+ * Links money to what it pays (A§2): one source (a receipt, or a credit note) → one target (an invoice, a debit note,
+ * or a job = an advance on it). A receipt's / credit note's unallocated remainder is on account. Allocations never post (A§3) and are never deleted: a
  * change deactivates the old rows and adds new ones (D49). Open amounts count only active rows from sources that
  * aren't cancelled. Audited.
  */
@@ -242,7 +312,9 @@ export const allocations = pgTable(
   {
     id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
     receiptId: bigint("receipt_id", { mode: "number" }).references(() => receipts.id),
+    creditNoteId: bigint("credit_note_id", { mode: "number" }).references(() => creditNotes.id),
     invoiceId: bigint("invoice_id", { mode: "number" }).references(() => invoices.id),
+    debitNoteId: bigint("debit_note_id", { mode: "number" }).references(() => debitNotes.id),
     jobId: bigint("job_id", { mode: "number" }).references(() => jobs.id),
     // An invoice row that carries a job's advance (moved at Issue, T14): the job it goes back to if the invoice is
     // cancelled (D49), and what the invoice shows as "Advance adjusted".
@@ -255,9 +327,11 @@ export const allocations = pgTable(
     index("allocations_receipt_idx").on(t.receiptId),
     index("allocations_invoice_idx").on(t.invoiceId),
     index("allocations_job_idx").on(t.jobId),
+    index("allocations_credit_note_idx").on(t.creditNoteId),
+    index("allocations_debit_note_idx").on(t.debitNoteId),
     check("allocations_amount_positive", sql`${t.amountPaise} > 0`),
-    check("allocations_one_source", sql`num_nonnulls(${t.receiptId}) = 1`),
-    check("allocations_one_target", sql`num_nonnulls(${t.invoiceId}, ${t.jobId}) = 1`),
+    check("allocations_one_source", sql`num_nonnulls(${t.receiptId}, ${t.creditNoteId}) = 1`),
+    check("allocations_one_target", sql`num_nonnulls(${t.invoiceId}, ${t.jobId}, ${t.debitNoteId}) = 1`),
     check("allocations_from_job_on_invoice", sql`${t.fromJobId} is null or ${t.invoiceId} is not null`),
   ],
 );

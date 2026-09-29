@@ -52,8 +52,13 @@ export default async function ReceiptPage({ params }: PageProps<"/receipts/[id]"
   const active = r.status === "active";
   const isOwner = can(user, "approvals", "approve");
   /** An invoice, or a job the money is an advance for (S12). */
-  const target = (l: { invoiceId: number | null; jobId: number | null; number: string }) => {
-    const [href, area] = l.jobId !== null ? [`/jobs/${l.jobId}`, "jobs" as const] : [`/invoices/${l.invoiceId}`, "invoices" as const];
+  const target = (l: { invoiceId: number | null; debitNoteId: number | null; jobId: number | null; number: string }) => {
+    const [href, area] =
+      l.jobId !== null
+        ? [`/jobs/${l.jobId}`, "jobs" as const]
+        : l.debitNoteId !== null
+          ? [`/credit-debit-notes/dn/${l.debitNoteId}`, "invoices" as const]
+          : [`/invoices/${l.invoiceId}`, "invoices" as const];
     const number = can(user, area, "view") ? (
       <Link href={href} className="font-medium text-primary tabular-nums hover:underline">
         {l.number}

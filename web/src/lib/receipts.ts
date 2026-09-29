@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, writeTx, type Tx } from "@/db";
-import { accounts, allocations, customers, invoices, jobs, receipts, users } from "@/db/schema";
+import { accounts, allocations, customers, debitNotes, invoices, jobs, receipts, users } from "@/db/schema";
 import { formMoney, formText, UserError } from "@/lib/action";
 import {
   activeAllocationsOf,
@@ -28,7 +28,7 @@ import { checkVersion, customerFor, readDate } from "@/lib/sales";
 
 type Receipt = typeof receipts.$inferSelect;
 
-/** The form as typed. allocations = JSON of { target: "invoice" | "job", id, amount }[]. */
+/** The form as typed. allocations = JSON of { target: "invoice" | "debit_note" | "job", id, amount }[]. */
 export type ReceiptInput = {
   customerId: string;
   date: string;
@@ -126,6 +126,7 @@ const insertAllocations = (
         lines.map((l) => ({
           receiptId,
           invoiceId: l.target === "invoice" ? l.id : null,
+          debitNoteId: l.target === "debit_note" ? l.id : null,
           jobId: l.target === "job" ? l.id : null,
           fromJobId: l.target === "invoice" ? (fromJob.get(l.id) ?? null) : null,
           amountPaise: l.amount,
@@ -207,22 +208,25 @@ async function currentLines(tx: Tx, receiptId: number) {
     .select({
       id: allocations.id,
       invoiceId: allocations.invoiceId,
+      debitNoteId: allocations.debitNoteId,
       jobId: allocations.jobId,
       fromJobId: allocations.fromJobId,
       amount: allocations.amountPaise,
       invoice: invoices.number,
+      debitNote: debitNotes.number,
       job: jobs.number,
     })
     .from(allocations)
     .leftJoin(invoices, eq(invoices.id, allocations.invoiceId))
+    .leftJoin(debitNotes, eq(debitNotes.id, allocations.debitNoteId))
     .leftJoin(jobs, eq(jobs.id, allocations.jobId))
     .where(and(eq(allocations.receiptId, receiptId), eq(allocations.active, true)))
     .orderBy(asc(allocations.id));
   return rows.map((r) => ({
     ...r,
-    target: (r.jobId !== null ? "job" : "invoice") as AllocationTarget,
-    targetId: r.jobId ?? r.invoiceId!,
-    number: r.job ?? r.invoice ?? "",
+    target: (r.jobId !== null ? "job" : r.debitNoteId !== null ? "debit_note" : "invoice") as AllocationTarget,
+    targetId: r.jobId ?? r.debitNoteId ?? r.invoiceId!,
+    number: r.job ?? r.debitNote ?? r.invoice ?? "",
   }));
 }
 
@@ -403,6 +407,7 @@ export async function getReceipt(id: number) {
       .select({
         id: allocations.id,
         invoiceId: allocations.invoiceId,
+        debitNoteId: allocations.debitNoteId,
         jobId: allocations.jobId,
         fromJobId: allocations.fromJobId,
         amount: allocations.amountPaise,
@@ -411,26 +416,31 @@ export async function getReceipt(id: number) {
         invoice: invoices.number,
         invoiceDate: invoices.date,
         invoiceTotal: invoices.totalPaise,
+        debitNote: debitNotes.number,
+        debitNoteDate: debitNotes.date,
+        debitNoteTotal: debitNotes.totalPaise,
         job: jobs.number,
         jobDate: jobs.date,
         jobTotal: jobs.totalPaise,
       })
       .from(allocations)
       .leftJoin(invoices, eq(invoices.id, allocations.invoiceId))
+      .leftJoin(debitNotes, eq(debitNotes.id, allocations.debitNoteId))
       .leftJoin(jobs, eq(jobs.id, allocations.jobId))
       .where(eq(allocations.receiptId, id))
       .orderBy(asc(allocations.id))
   ).map((l) => ({
     id: l.id,
     invoiceId: l.invoiceId,
+    debitNoteId: l.debitNoteId,
     jobId: l.jobId,
     fromJobId: l.fromJobId,
     amount: l.amount,
     active: l.active,
     changedAt: l.changedAt,
-    number: l.job ?? l.invoice ?? "",
-    date: (l.jobDate ?? l.invoiceDate)!,
-    total: (l.jobTotal ?? l.invoiceTotal)!,
+    number: l.job ?? l.debitNote ?? l.invoice ?? "",
+    date: (l.jobDate ?? l.debitNoteDate ?? l.invoiceDate)!,
+    total: (l.jobTotal ?? l.debitNoteTotal ?? l.invoiceTotal)!,
   }));
   const lines = all.filter((l) => l.active);
   const allocated = lines.reduce((s, l) => s + l.amount, 0n);
@@ -462,6 +472,15 @@ export const invoicePayments = (invoiceId: number) =>
     .innerJoin(receipts, eq(receipts.id, allocations.receiptId))
     .leftJoin(jobs, eq(jobs.id, allocations.fromJobId))
     .where(and(eq(allocations.invoiceId, invoiceId), eq(allocations.active, true), eq(receipts.status, "active")))
+    .orderBy(asc(receipts.date), asc(receipts.id));
+
+/** The receipts paying a debit note (T16), oldest first. */
+export const debitNotePayments = (noteId: number) =>
+  db
+    .select({ receiptId: receipts.id, number: receipts.number, date: receipts.date, mode: receipts.mode, amount: allocations.amountPaise })
+    .from(allocations)
+    .innerJoin(receipts, eq(receipts.id, allocations.receiptId))
+    .where(and(eq(allocations.debitNoteId, noteId), eq(allocations.active, true), eq(receipts.status, "active")))
     .orderBy(asc(receipts.date), asc(receipts.id));
 
 /** A job's advances in force (S12): which receipts, how much. */

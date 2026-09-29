@@ -69,6 +69,8 @@ function DocLink({ href, number, status, allowed }: { href: string; number: stri
 function docHref(docType: string, docId: number): string | null {
   if (docType === "invoices") return `/invoices/${docId}`;
   if (docType === "receipts") return `/receipts/${docId}`;
+  if (docType === "credit_notes") return `/credit-debit-notes/cn/${docId}`;
+  if (docType === "debit_notes") return `/credit-debit-notes/dn/${docId}`;
   return null;
 }
 
@@ -127,6 +129,17 @@ function Timeline({ chains, user }: { chains: Chain[]; user: SessionUser }) {
                     </span>
                   ))
                 : none}
+              {c.notes.map((n) => (
+                <span key={`${n.kind}:${n.id}`} className="inline-flex items-center gap-1.5">
+                  <DocLink
+                    href={`/credit-debit-notes/${n.kind === "credit" ? "cn" : "dn"}/${n.id}`}
+                    number={n.number}
+                    status={n.status}
+                    allowed={can(user, "invoices", "view")}
+                  />
+                  <Money paise={n.kind === "credit" ? -n.total : n.total} className="text-xs text-muted-foreground" />
+                </span>
+              ))}
             </Step>
             <Step label="Payment">
               {c.payments.length
@@ -138,7 +151,9 @@ function Timeline({ chains, user }: { chains: Chain[]; user: SessionUser }) {
                   ))
                 : none}
             </Step>
-            <Step label="Pending">{c.invoices.some((i) => i.status === "Issued") ? <Money paise={c.pending} /> : none}</Step>
+            <Step label="Pending">
+              {[...c.invoices, ...c.notes].some((i) => i.status === "Issued") ? <Money paise={c.pending} /> : none}
+            </Step>
           </dl>
         </li>
       ))}

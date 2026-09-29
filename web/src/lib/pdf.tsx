@@ -3,20 +3,21 @@ import { Document, Font, Image, Page, renderToBuffer, StyleSheet, Text, View } f
 import { eq } from "drizzle-orm";
 import type { ReactNode } from "react";
 import { db } from "@/db";
-import { attachments, invoices, quotations } from "@/db/schema";
+import { attachments, creditNotes, debitNotes, invoices, quotations } from "@/db/schema";
 import { getCustomer } from "@/lib/customers";
 import { formatDate, todayIST } from "@/lib/dates";
 import { stateName } from "@/lib/gstin";
 import { lineTotals, sizeText } from "@/lib/lines";
-import { amountInWords, bpText, formatMoney, milliText, type GstMode } from "@/lib/num";
+import { getNote, NOTE_KIND, type NoteKind } from "@/lib/notes";
+import { amountInWords, bpText, formatMoney, milliText, noteTotals, type GstMode } from "@/lib/num";
 import { getInvoice, INVOICE_KIND } from "@/lib/invoices";
 import { getQuotation } from "@/lib/quotations";
 import { getSettings } from "@/lib/settings";
 import { customerLedger, drCr, entryLabel, rangeText, statementLink, type Range } from "@/lib/statements";
 import { storage } from "@/lib/storage";
 
-// The one A4 layout for quotations, invoices and statements (D06, DESIGN "PDFs"), rendered on the server with
-// @react-pdf/renderer: the same letterhead, customer block and footer; a lines table or a ledger table below.
+// The one A4 layout for quotations, invoices, credit / debit notes and statements (D06, DESIGN "PDFs"), rendered with
+// @react-pdf/renderer on the server: the same letterhead, customer block and footer; a lines table or a ledger table.
 // Built-in Helvetica has no ₹ and no Gujarati, so everything is set in Noto Sans with Noto Sans Gujarati as the
 // fallback for Gujarati letters (fonts committed under src/assets/fonts, OFL; next.config traces them into the build).
 
@@ -50,8 +51,11 @@ export type PdfLine = {
   gstBp: number;
 };
 
+/** A credit / debit note line: the invoice line's description, a qty if one was given, the taxable value (T16). */
+export type PdfNoteLine = Omit<PdfLine, "qtyMilli" | "ratePaise" | "discountPaise"> & { qtyMilli: bigint | null; taxablePaise: bigint };
+
 export type PdfDoc = {
-  title: string; // "Quotation", "Tax Invoice", "Estimate"
+  title: string; // "Quotation", "Tax Invoice", "Estimate", "Credit Note", "Debit Note"
   number: string;
   date: string;
   dueDate?: string | null;
@@ -64,6 +68,8 @@ export type PdfDoc = {
   payment: boolean; // bank details + UPI (invoices)
   /** Under the total: an invoice's Advance adjusted and Balance (S5). */
   after?: [string, bigint][];
+  /** A credit / debit note: its lines instead of `lines` (no rate / discount, no round-off), the invoice and the reason. */
+  note?: { lines: PdfNoteLine[]; against: string; reason: string };
 };
 
 const GREY = "#6b7280";
@@ -93,9 +99,17 @@ const s = StyleSheet.create({
 });
 
 type Column = { label: string; width: number | "flex"; numeric?: boolean; cell: (l: Computed, i: number) => ReactNode };
-type Computed = PdfLine & { taxable: bigint; cgst: bigint; sgst: bigint; igst: bigint };
+type Computed = Omit<PdfLine, "qtyMilli" | "ratePaise" | "discountPaise"> & {
+  qtyMilli: bigint | null;
+  ratePaise?: bigint;
+  discountPaise?: bigint;
+  taxable: bigint;
+  cgst: bigint;
+  sgst: bigint;
+  igst: bigint;
+};
 
-function columns(mode: GstMode): Column[] {
+function columns(mode: GstMode, note: boolean): Column[] {
   const money = (v: bigint) => formatMoney(v);
   const lead: Column[] = [
     { label: "#", width: 16, cell: (_, i) => String(i + 1) },
@@ -110,11 +124,19 @@ function columns(mode: GstMode): Column[] {
       ),
     },
   ];
-  const priced: Column[] = [
-    { label: "Qty", width: 52, numeric: true, cell: (l) => `${milliText(l.qtyMilli)} ${l.unit}` },
-    { label: "Rate", width: 60, numeric: true, cell: (l) => money(l.ratePaise) },
-    { label: "Disc.", width: 48, numeric: true, cell: (l) => (l.discountPaise ? money(l.discountPaise) : "—") },
-  ];
+  const qty: Column = {
+    label: "Qty",
+    width: 52,
+    numeric: true,
+    cell: (l) => (l.qtyMilli === null ? "—" : `${milliText(l.qtyMilli)} ${l.unit}`),
+  };
+  const priced: Column[] = note
+    ? [qty]
+    : [
+        qty,
+        { label: "Rate", width: 60, numeric: true, cell: (l) => money(l.ratePaise!) },
+        { label: "Disc.", width: 48, numeric: true, cell: (l) => (l.discountPaise ? money(l.discountPaise) : "—") },
+      ];
   if (mode === "estimate") return [...lead, ...priced, { label: "Amount", width: 66, numeric: true, cell: (l) => money(l.taxable) }];
   const tax: Column[] =
     mode === "same_state"
@@ -219,9 +241,12 @@ function PageChrome({ mark, footer }: { mark?: string | null; footer: string }) 
 export async function renderPdf(doc: PdfDoc): Promise<Buffer> {
   const b = await brand();
   const { co, company, signature } = b;
-  const totals = lineTotals(doc.lines, doc.mode);
-  const lines: Computed[] = doc.lines.map((l, i) => ({ ...l, ...totals.lines[i] }));
-  const cols = columns(doc.mode);
+  const note = doc.note;
+  const totals = note
+    ? noteTotals(note.lines.map((l) => ({ taxable: l.taxablePaise, gstBp: l.gstBp })), doc.mode)
+    : lineTotals(doc.lines, doc.mode);
+  const lines: Computed[] = (note ? note.lines : doc.lines).map((l, i) => ({ ...l, ...totals.lines[i] }));
+  const cols = columns(doc.mode, !!note);
   const totalRows: [string, bigint][] = [
     [doc.mode === "estimate" ? "Sub total" : "Taxable value", totals.taxable],
     ...(doc.mode === "same_state"
@@ -229,7 +254,7 @@ export async function renderPdf(doc: PdfDoc): Promise<Buffer> {
       : doc.mode === "other_state"
         ? ([["IGST", totals.igst]] as [string, bigint][])
         : []),
-    ["Round off", totals.roundOff],
+    ...(note ? [] : ([["Round off", totals.roundOff]] as [string, bigint][])), // notes have none (D49)
   ];
 
   return renderToBuffer(
@@ -239,7 +264,12 @@ export async function renderPdf(doc: PdfDoc): Promise<Buffer> {
         <Letterhead
           b={b}
           title={doc.title}
-          facts={[`No. ${doc.number}`, `Date ${formatDate(doc.date)}`, ...(doc.dueDate ? [`Due ${formatDate(doc.dueDate)}`] : [])]}
+          facts={[
+            `No. ${doc.number}`,
+            `Date ${formatDate(doc.date)}`,
+            ...(note ? [note.against] : []),
+            ...(doc.dueDate ? [`Due ${formatDate(doc.dueDate)}`] : []),
+          ]}
         />
         <Party label={doc.title === "Quotation" ? "To" : "Bill to"} c={doc.customer}>
           {doc.placeOfSupply && (
@@ -305,6 +335,12 @@ export async function renderPdf(doc: PdfDoc): Promise<Buffer> {
                 <Text style={s.bold}>Bank details</Text>
                 {co.bankDetails && <Text>{co.bankDetails}</Text>}
                 {co.upiId && <Text>UPI: {co.upiId}</Text>}
+              </View>
+            )}
+            {note && (
+              <View>
+                <Text style={s.bold}>Reason</Text>
+                <Text>{note.reason}</Text>
               </View>
             )}
             {doc.terms && (
@@ -435,6 +471,32 @@ export async function invoicePdf(id: number) {
   return { bytes, fileName: pdfFileName(inv.number ?? `draft-invoice-${inv.id}`) };
 }
 
+/** A credit / debit note: "Credit Note — against invoice RDS/…" (T16). */
+export async function notePdf(kind: NoteKind, id: number) {
+  const n = await getNote(kind, id);
+  if (!n) return null;
+  const number = n.number ?? "Draft";
+  const bytes = await renderPdf({
+    title: NOTE_KIND[kind].title,
+    number,
+    date: n.date,
+    dueDate: n.dueDate,
+    mark: n.status === "draft" ? "DRAFT" : n.status === "cancelled" ? "CANCELLED" : null,
+    customer: n.customer,
+    placeOfSupply: n.invoice.kind === "tax" ? n.invoice.placeOfSupply : null,
+    mode: n.mode,
+    lines: [],
+    terms: null,
+    payment: kind === "debit",
+    note: {
+      lines: n.lines,
+      against: `Against invoice ${n.invoice.number} (${formatDate(n.invoice.date)})`,
+      reason: n.reason,
+    },
+  });
+  return { bytes, fileName: pdfFileName(n.number ?? `draft-${NOTE_KIND[kind].path}-${n.id}`) };
+}
+
 /** A customer's statement for the range (S15), figures straight from the journal. */
 export async function statementPdf(customerId: number, range: Range) {
   const customer = await getCustomer(customerId);
@@ -460,6 +522,10 @@ export async function pdfForToken(token: string) {
   if (q) return quotationPdf(q.id);
   const [inv] = await db.select({ id: invoices.id }).from(invoices).where(eq(invoices.shareToken, token));
   if (inv) return invoicePdf(inv.id);
+  for (const [kind, t] of [["credit", creditNotes], ["debit", debitNotes]] as const) {
+    const [note] = await db.select({ id: t.id }).from(t).where(eq(t.shareToken, token));
+    if (note) return notePdf(kind, note.id);
+  }
   const statement = await statementLink(token);
   return statement ? statementPdf(statement.customerId, { from: statement.fromDate, to: statement.toDate }) : null;
 }

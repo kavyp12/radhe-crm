@@ -169,6 +169,20 @@
       "when": 1790663016815,
       "tag": "0023_statement_links_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790664979975,
+      "tag": "0024_credit_debit_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790665010618,
+      "tag": "0025_credit_debit_notes_audit",
+      "breakpoints": true
     }
   ]
 }

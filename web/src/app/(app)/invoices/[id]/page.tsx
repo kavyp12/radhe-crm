@@ -8,6 +8,7 @@ import { DocFacts, DocShare } from "@/components/doc-share";
 import { History } from "@/components/history";
 import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
+import { DocNumber, StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { db } from "@/db";
@@ -17,6 +18,7 @@ import { requirePermission } from "@/lib/auth";
 import { formatDate } from "@/lib/dates";
 import { stateName } from "@/lib/gstin";
 import { creditWarning, getInvoice, INVOICE_KIND, INVOICE_STATUS, type InvoiceKind, type InvoiceStatus } from "@/lib/invoices";
+import { NOTE_KIND, NOTE_STATUS, notesOfInvoice } from "@/lib/notes";
 import { can } from "@/lib/permissions";
 import { RECEIPT_MODE } from "@/lib/receipt-modes";
 import { invoicePayments } from "@/lib/receipts";
@@ -43,12 +45,13 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
   const id = Number((await params).id);
   const inv = Number.isSafeInteger(id) ? await getInvoice(id) : undefined;
   if (!inv) notFound();
-  const [files, settings, names, warning, payments] = await Promise.all([
+  const [files, settings, names, warning, payments, notes] = await Promise.all([
     listAttachments("invoice", id),
     getSettings(),
     db.select({ id: customers.id, name: customers.name }).from(customers),
     inv.status === "draft" ? creditWarning(inv.customerId, inv.totalPaise) : null,
     invoicePayments(id),
+    notesOfInvoice(db, id),
   ]);
   const c = inv.customer;
   const title = inv.number ?? `Draft ${INVOICE_KIND[inv.kind].toLowerCase()}`;
@@ -90,6 +93,16 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
           <Button asChild>
             <Link href={`/receipts/new?customer=${inv.customerId}&invoice=${id}`}>Record payment</Link>
           </Button>
+        )}
+        {inv.status === "issued" && can(user, "invoices", "create") && (
+          <>
+            <Button asChild variant="outline">
+              <Link href={`/credit-debit-notes/new?invoice=${id}&kind=credit`}>Credit note</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href={`/credit-debit-notes/new?invoice=${id}&kind=debit`}>Debit note</Link>
+            </Button>
+          </>
         )}
         {inv.status === "draft" && can(user, "invoices", "edit") && (
           <>
@@ -148,7 +161,7 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
       <Tabs defaultValue="details" className="gap-4">
         <TabsList variant="line">
           <TabsTrigger value="details">Details</TabsTrigger>
-          {inv.status !== "draft" && <TabsTrigger value="payments">Payments ({payments.length})</TabsTrigger>}
+          {inv.status !== "draft" && <TabsTrigger value="payments">Payments ({payments.length + notes.length})</TabsTrigger>}
           <TabsTrigger value="attachments">Attachments ({files.length})</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
@@ -234,6 +247,40 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
                       </td>
                       <td className="border-b px-3 py-2 text-right">
                         <Money paise={p.amount} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {notes.length > 0 && (
+            <div className="overflow-x-auto rounded-lg border bg-card">
+              <table className="w-full min-w-120 text-[13px]">
+                <thead>
+                  <tr className="text-left text-xs text-muted-foreground">
+                    <th className="h-9 border-b px-3 font-medium">Credit / debit note</th>
+                    <th className="h-9 border-b px-3 font-medium">Date</th>
+                    <th className="h-9 border-b px-3 font-medium">Status</th>
+                    <th className="h-9 border-b px-3 text-right font-medium">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {notes.map((n) => (
+                    <tr key={`${n.kind}:${n.id}`}>
+                      <td className="border-b px-3 py-2">
+                        <Link href={`/credit-debit-notes/${NOTE_KIND[n.kind].path}/${n.id}`} className="text-primary hover:underline">
+                          <DocNumber number={n.number ?? `Draft ${NOTE_KIND[n.kind].title.toLowerCase()}`} status={NOTE_STATUS[n.status]} />
+                        </Link>
+                      </td>
+                      <td className="border-b px-3 py-2">
+                        <DateText date={n.date} />
+                      </td>
+                      <td className="border-b px-3 py-2">
+                        <StatusBadge status={NOTE_STATUS[n.status]} />
+                      </td>
+                      <td className="border-b px-3 py-2 text-right">
+                        <Money paise={n.kind === "credit" ? -n.total : n.total} />
                       </td>
                     </tr>
                   ))}

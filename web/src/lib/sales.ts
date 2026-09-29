@@ -4,7 +4,7 @@ import { db, type Tx } from "@/db";
 import { customers, invoiceLines, invoices, productCategories, quotationLines, settings } from "@/db/schema";
 import { UserError } from "@/lib/action";
 import { discountNeedsApproval, needsBackdateApproval } from "@/lib/approvals";
-import { formatDate, parseDate } from "@/lib/dates";
+import { addDays, formatDate, parseDate } from "@/lib/dates";
 import { LINE_KEYS, readLine, type Line, type LineText } from "@/lib/lines";
 import { divRound, formatMoney } from "@/lib/num";
 
@@ -72,6 +72,12 @@ export async function customerFor(tx: Tx, input: string, isNew: boolean) {
   if (!c) throw new UserError("Pick the customer.", "customerId");
   if (isNew && !c.active) throw new UserError("This customer is inactive.", "customerId");
   return c;
+}
+
+/** A document date + the customer's credit days (Settings default when blank; none = due the same day). */
+export async function dueDateFor(tx: Tx, date: string, creditDays: number | null) {
+  const [s] = await tx.select({ days: settings.defaultCreditDays }).from(settings).where(eq(settings.id, 1));
+  return addDays(date, creditDays ?? s.days ?? 0);
 }
 
 /** The company's own state code (Settings), for CGST + SGST vs IGST (A§4). */
