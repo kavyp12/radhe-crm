@@ -1,7 +1,8 @@
 import { sql } from "drizzle-orm";
-import { bigint, check, date, index, integer, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, date, index, integer, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { RECEIPT_MODES } from "../../lib/receipt-modes"; // relative: drizzle-kit does not read tsconfig paths
 import { users } from "./auth";
-import { customers, productCategories } from "./masters";
+import { accounts, customers, productCategories } from "./masters";
 
 // Sales documents (A§2): quotation → job → invoice. Lines copy from one to the next (R0); every line has the same
 // columns (A§2 quotation_lines). Amount = qty × rate − discount (A§4, D46); W × H is the board size, printed only.
@@ -191,5 +192,65 @@ export const invoiceLines = pgTable(
     index("invoice_lines_doc_idx").on(t.invoiceId),
     index("invoice_lines_job_idx").on(t.jobId),
     index("invoice_lines_quotation_line_idx").on(t.quotationLineId),
+  ],
+);
+
+export const RECEIPT_STATUSES = ["active", "cancelled"] as const;
+
+/**
+ * Money received from a customer (S6, A§2). Numbered RC/… on save (A§6) and posted in the same transaction:
+ * Dr money account / Cr ar (A§3). A cancel reverses the entry on the receipt's date (D45). Audited.
+ */
+export const receipts = pgTable(
+  "receipts",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    number: text("number").notNull().unique(),
+    date: date("date").notNull(),
+    customerId: bigint("customer_id", { mode: "number" })
+      .notNull()
+      .references(() => customers.id),
+    amountPaise: bigint("amount_paise", { mode: "bigint" }).notNull(),
+    mode: text("mode", { enum: RECEIPT_MODES }).notNull(),
+    moneyAccountId: bigint("money_account_id", { mode: "number" })
+      .notNull()
+      .references(() => accounts.id),
+    reference: text("reference"), // UTR / transaction id
+    chequeNo: text("cheque_no"),
+    chequeDate: date("cheque_date"),
+    receivedBy: text("received_by").references(() => users.id),
+    notes: text("notes"),
+    status: text("status", { enum: RECEIPT_STATUSES }).notNull().default("active"),
+    ...stamps(),
+  },
+  (t) => [
+    index("receipts_customer_idx").on(t.customerId),
+    check("receipts_amount_positive", sql`${t.amountPaise} > 0`),
+    check("receipts_mode_check", sql`${t.mode} in ('cash', 'upi', 'bank', 'cheque')`),
+    check("receipts_status_check", sql`${t.status} in ('active', 'cancelled')`),
+  ],
+);
+
+/**
+ * Links money to what it pays (A§2): one source (a receipt) → one target (an invoice). A receipt's unallocated
+ * remainder is on-account advance. Allocations never post (A§3) and are never deleted: a change deactivates the old
+ * rows and adds new ones (D49). Open amounts count only active rows from sources that aren't cancelled. Audited.
+ */
+export const allocations = pgTable(
+  "allocations",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    receiptId: bigint("receipt_id", { mode: "number" }).references(() => receipts.id),
+    invoiceId: bigint("invoice_id", { mode: "number" }).references(() => invoices.id),
+    amountPaise: bigint("amount_paise", { mode: "bigint" }).notNull(),
+    active: boolean("active").notNull().default(true),
+    ...stamps(),
+  },
+  (t) => [
+    index("allocations_receipt_idx").on(t.receiptId),
+    index("allocations_invoice_idx").on(t.invoiceId),
+    check("allocations_amount_positive", sql`${t.amountPaise} > 0`),
+    check("allocations_one_source", sql`num_nonnulls(${t.receiptId}) = 1`),
+    check("allocations_one_target", sql`num_nonnulls(${t.invoiceId}) = 1`),
   ],
 );

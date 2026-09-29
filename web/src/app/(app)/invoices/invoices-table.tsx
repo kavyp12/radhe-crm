@@ -15,7 +15,10 @@ export type InvoiceRow = {
   dueDate: string;
   customer: string;
   status: Status;
+  /** Issued invoices: Unpaid / Part Payment / Paid / Overdue (computed, A§5). */
+  payment: Status | null;
   total: bigint;
+  open: bigint;
 };
 
 const col = tableColumns<InvoiceRow>();
@@ -25,9 +28,23 @@ const columns = [
   col.accessor("date", { header: "Date", cell: (c) => <DateText date={c.getValue()} />, enableGlobalFilter: false }),
   col.accessor("customer", { header: "Customer" }),
   col.accessor("status", { header: "Status", cell: (c) => <StatusBadge status={c.getValue()} />, enableGlobalFilter: false }),
+  col.accessor("payment", {
+    header: "Payment",
+    cell: (c) => {
+      const payment = c.getValue();
+      return payment && payment !== "Cancelled" ? <StatusBadge status={payment} /> : null;
+    },
+    enableGlobalFilter: false,
+  }),
   col.accessor("dueDate", { header: "Due", cell: (c) => <DateText date={c.getValue()} />, enableGlobalFilter: false }),
   col.accessor("total", {
     header: "Total",
+    cell: (c) => <Money paise={c.getValue()} />,
+    meta: { numeric: true, total: true },
+    enableGlobalFilter: false,
+  }),
+  col.accessor("open", {
+    header: "Open",
     cell: (c) => <Money paise={c.getValue()} />,
     meta: { numeric: true, total: true },
     enableGlobalFilter: false,
@@ -41,7 +58,7 @@ export function InvoicesTable({ rows, newButton }: { rows: InvoiceRow[]; newButt
       data={rows}
       columns={columns}
       date={(r) => r.date}
-      status={(r) => r.status}
+      status={(r) => (r.payment && r.payment !== "Cancelled" ? r.payment : r.status)}
       searchPlaceholder="Search number, kind or customer"
       onRowClick={(r) => router.push(`/invoices/${r.id}`)}
       empty={{ title: "No invoices yet.", action: newButton }}

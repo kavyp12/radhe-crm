@@ -17,6 +17,7 @@ const ENTITY_AREA: Record<string, Area> = {
   quotation: "quotations",
   job: "jobs",
   invoice: "invoices",
+  receipt: "payments",
 };
 
 /** Entity types whose files anyone who can see the record may add (D48: production uploads installation photos). */

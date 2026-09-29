@@ -8,6 +8,7 @@ import { requirePermission } from "@/lib/auth";
 // Modules that register approval executors (registerExecutor) are imported here, so approving can find them.
 import "@/lib/invoices";
 import "@/lib/quotations";
+import "@/lib/receipts";
 
 export async function decideAction(id: number, _: FormState, form: FormData): Promise<FormState> {
   const owner = await requirePermission("approvals", "approve");

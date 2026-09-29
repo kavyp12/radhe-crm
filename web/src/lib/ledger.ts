@@ -153,6 +153,12 @@ function liveEntries(tx: Tx, where?: SQL) {
     .where(and(isNull(journalEntries.reversesEntryId), isNull(reversal.id), where));
 }
 
+/** A document's entry in force (posted and not reversed), or undefined. */
+export async function liveEntry(tx: Tx, docType: string, docId: number) {
+  const [entry] = await liveEntries(tx, and(eq(journalEntries.docType, docType), eq(journalEntries.docId, docId)));
+  return entry;
+}
+
 // Opening balances (A§3, D40) are posted by the master row itself: doc_type = its table, doc_id = its id.
 const OPENING_DOCS = ["accounts", "customers", "vendors"] as const;
 

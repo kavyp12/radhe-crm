@@ -20,7 +20,7 @@ export default async function InvoicesPage() {
     <div className="grid grid-cols-1 gap-5">
       <PageHeader
         title="Invoices"
-        description="Tax invoices and estimates. Payment status comes with receipts."
+        description="Tax invoices and estimates. Payment status comes from the receipts allocated to them."
         action={
           create && (
             <div className="flex gap-2">
@@ -41,7 +41,9 @@ export default async function InvoicesPage() {
           dueDate: r.dueDate,
           customer: r.firmName ? `${r.customer} · ${r.firmName}` : r.customer,
           status: INVOICE_STATUS[r.status],
+          payment: r.payment,
           total: r.total,
+          open: r.open,
         }))}
         newButton={newButton}
       />

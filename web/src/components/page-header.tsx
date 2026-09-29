@@ -8,7 +8,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/compon
 type Props = {
   title: ReactNode;
   description?: ReactNode;
-  status?: Status;
+  /** One badge, or several (an invoice: Issued + its payment status). */
+  status?: Status | Status[];
   back?: { href: string; label: string };
   /** The primary action (usually one Button). */
   action?: ReactNode;
@@ -31,7 +32,9 @@ export function PageHeader({ title, description, status, back, action, menu }: P
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <div className="flex min-w-0 items-center gap-2.5">
           <h1 className="truncate text-xl leading-8 font-medium tracking-tight">{title}</h1>
-          {status && <StatusBadge status={status} />}
+          {[status ?? []].flat().map((s) => (
+            <StatusBadge key={s} status={s} />
+          ))}
         </div>
         {(action || menu) && (
           <div className="flex items-center gap-2">

@@ -1,0 +1,56 @@
+import { notFound, redirect } from "next/navigation";
+import { PageHeader } from "@/components/page-header";
+import { db } from "@/db";
+import { openInvoices } from "@/lib/allocations";
+import { requirePermission } from "@/lib/auth";
+import { moneyText } from "@/lib/num";
+import { can } from "@/lib/permissions";
+import { getReceipt, receiptFormOptions } from "@/lib/receipts";
+import { openItemsAction, updateReceiptAction } from "../../actions";
+import { ReceiptForm } from "../../receipt-form";
+
+export default async function EditReceiptPage({ params }: PageProps<"/receipts/[id]/edit">) {
+  const user = await requirePermission("payments", "edit");
+  const id = Number((await params).id);
+  const r = Number.isSafeInteger(id) ? await getReceipt(id) : undefined;
+  if (!r) notFound();
+  if (r.status !== "active") redirect(`/receipts/${id}`);
+  const [options, open] = await Promise.all([receiptFormOptions(r.customerId), openInvoices(db, r.customerId, id)]);
+  const isOwner = can(user, "approvals", "approve");
+
+  return (
+    <div className="grid grid-cols-1 gap-5">
+      <PageHeader
+        back={{ href: `/receipts/${id}`, label: r.number }}
+        title={`Edit ${r.number}`}
+        description={
+          isOwner
+            ? "A change to the date, amount, customer or account reverses the entry and posts it again."
+            : "The owner approves changes to a receipt before they are made."
+        }
+      />
+      <ReceiptForm
+        values={{
+          customerId: String(r.customerId),
+          date: r.date,
+          amount: moneyText(r.amountPaise),
+          mode: r.mode,
+          moneyAccountId: String(r.moneyAccountId),
+          reference: r.reference ?? "",
+          chequeNo: r.chequeNo ?? "",
+          chequeDate: r.chequeDate ?? "",
+          receivedBy: r.receivedBy ?? "",
+          notes: r.notes ?? "",
+          allocated: Object.fromEntries(r.lines.map((l) => [l.invoiceId!, moneyText(l.amount)])),
+        }}
+        {...options}
+        open={open}
+        receiptId={id}
+        askReason={!isOwner}
+        submitLabel={isOwner ? "Save changes" : "Ask the owner"}
+        action={updateReceiptAction.bind(null, id)}
+        loadOpen={openItemsAction}
+      />
+    </div>
+  );
+}

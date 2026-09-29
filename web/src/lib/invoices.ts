@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, isNull, ne, notExists, sql } from "drizzle
 import type { Status } from "@/components/status-badge";
 import { db, writeTx, type Tx } from "@/db";
 import {
+  allocations,
   customers,
   invoiceLines,
   invoices,
@@ -18,6 +19,7 @@ import {
   type INVOICE_STATUSES,
 } from "@/db/schema";
 import { formText, UserError } from "@/lib/action";
+import { deactivate, paidByInvoice, paidTowards, paymentStatus } from "@/lib/allocations";
 import { registerExecutor, runOrRequest } from "@/lib/approvals";
 import { addDays, formatDate, todayIST } from "@/lib/dates";
 import { JOB_STATUS, liveJobFor, PRODUCTION_STATUSES } from "@/lib/jobs";
@@ -42,7 +44,8 @@ import {
 
 // Invoices (S5, A§2–§7): tax invoices and estimates. Drafts may hold anything (D44); Issue gives the number, posts
 // the A§3 entry in the same transaction and marks the jobs Invoiced; after that the invoice is frozen. Cancel reverses
-// the entry on the invoice's own date (D45), keeps the number and puts the jobs back. Payment status is T13's.
+// the entry on the invoice's own date (D45), keeps the number and puts the jobs back. Payment status is computed from
+// allocations (lib/allocations.ts), never stored.
 
 export type InvoiceKind = (typeof INVOICE_KINDS)[number];
 export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
@@ -375,6 +378,12 @@ async function doCancelIssued(tx: Tx, p: CancelPayload) {
   if (!entry) throw new Error(`Issued invoice ${inv.id} has no journal entry`);
   await reverse(tx, entry.id, inv.date);
   await tx.update(invoices).set({ status: "cancelled" }).where(eq(invoices.id, inv.id));
+  // Money allocated to it goes back on account (D49).
+  const paid = await tx
+    .select({ id: allocations.id })
+    .from(allocations)
+    .where(and(eq(allocations.invoiceId, inv.id), eq(allocations.active, true)));
+  await deactivate(tx, paid.map((a) => a.id));
 
   // Each job goes back to the status it had when this invoice was issued.
   const jobIds = [...new Set((await linesOf(tx, inv.id)).flatMap((l) => (l.jobId === null ? [] : [l.jobId])))];
@@ -403,6 +412,7 @@ registerExecutor<CancelPayload>("invoice.cancel", {
       changes: [
         { label: "Status", old: "Issued", new: "Cancelled (number kept)" },
         { label: "Journal", old: null, new: `Entry reversed on ${formatDate(inv.date)}` },
+        { label: "Payments", old: null, new: "Any allocated to it go back on account" },
       ],
     };
   },
@@ -432,8 +442,10 @@ export async function cancelInvoice(actor: SessionUser, id: number, reason: stri
 
 // ---- Loaders
 
-export const listInvoices = () =>
-  db
+/** Every invoice with its open amount and computed payment status (A§5). */
+export async function listInvoices() {
+  const paid = paidByInvoice();
+  const rows = await db
     .select({
       id: invoices.id,
       kind: invoices.kind,
@@ -442,12 +454,19 @@ export const listInvoices = () =>
       dueDate: invoices.dueDate,
       status: invoices.status,
       total: invoices.totalPaise,
+      paid: paid.paise,
       customer: customers.name,
       firmName: customers.firmName,
     })
     .from(invoices)
     .innerJoin(customers, eq(customers.id, invoices.customerId))
+    .leftJoin(paid, eq(paid.invoiceId, invoices.id))
     .orderBy(desc(invoices.id));
+  return rows.map((r) => {
+    const open = r.status === "issued" ? r.total - BigInt(r.paid ?? 0) : 0n;
+    return { ...r, open, payment: paymentStatus({ ...r, totalPaise: r.total }, open) };
+  });
+}
 
 /** The invoice with its customer, lines (+ category, job number) and totals, or undefined. */
 export async function getInvoice(id: number) {
@@ -468,7 +487,18 @@ export async function getInvoice(id: number) {
   ).map((r) => ({ ...r.line, category: r.category, job: r.job }));
   const inv = row.invoice;
   const mode = gstMode(inv.placeOfSupply, await companyState(db), inv.kind === "estimate");
-  return { ...inv, customer: row.customer, lines, mode, totals: lineTotals(lines, mode) };
+  const paid = inv.status === "issued" ? ((await paidTowards(db, [id])).get(id) ?? 0n) : 0n;
+  const open = inv.status === "issued" ? inv.totalPaise - paid : 0n;
+  return {
+    ...inv,
+    customer: row.customer,
+    lines,
+    mode,
+    totals: lineTotals(lines, mode),
+    paid,
+    open,
+    payment: paymentStatus(inv, open),
+  };
 }
 
 const onLiveInvoice = (jobId: typeof jobs.id) =>

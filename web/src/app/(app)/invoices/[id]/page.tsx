@@ -6,6 +6,7 @@ import { ActionDialog } from "@/components/doc-actions";
 import { DocLines } from "@/components/doc-lines";
 import { DocFacts, DocShare } from "@/components/doc-share";
 import { History } from "@/components/history";
+import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -17,6 +18,8 @@ import { formatDate } from "@/lib/dates";
 import { stateName } from "@/lib/gstin";
 import { creditWarning, getInvoice, INVOICE_KIND, INVOICE_STATUS, type InvoiceKind, type InvoiceStatus } from "@/lib/invoices";
 import { can } from "@/lib/permissions";
+import { RECEIPT_MODE } from "@/lib/receipt-modes";
+import { invoicePayments } from "@/lib/receipts";
 import { getSettings } from "@/lib/settings";
 import { shareMessage, shareUrl, whatsappLink } from "@/lib/share";
 import { cancelInvoiceAction, emailInvoiceAction, issueInvoiceAction } from "../actions";
@@ -40,11 +43,12 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
   const id = Number((await params).id);
   const inv = Number.isSafeInteger(id) ? await getInvoice(id) : undefined;
   if (!inv) notFound();
-  const [files, settings, names, warning] = await Promise.all([
+  const [files, settings, names, warning, payments] = await Promise.all([
     listAttachments("invoice", id),
     getSettings(),
     db.select({ id: customers.id, name: customers.name }).from(customers),
     inv.status === "draft" ? creditWarning(inv.customerId, inv.totalPaise) : null,
+    invoicePayments(id),
   ]);
   const c = inv.customer;
   const title = inv.number ?? `Draft ${INVOICE_KIND[inv.kind].toLowerCase()}`;
@@ -64,7 +68,7 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
       <PageHeader
         back={{ href: "/invoices", label: "Invoices" }}
         title={title}
-        status={INVOICE_STATUS[inv.status]}
+        status={inv.payment && inv.status === "issued" ? [INVOICE_STATUS[inv.status], inv.payment] : INVOICE_STATUS[inv.status]}
         description={`${INVOICE_KIND[inv.kind]} · ${c.firmName ? `${c.name} · ${c.firmName}` : c.name}`}
       />
       <div className="flex flex-wrap gap-2">
@@ -82,6 +86,11 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
               : undefined
           }
         />
+        {inv.status === "issued" && inv.open > 0n && can(user, "payments", "create") && (
+          <Button asChild>
+            <Link href={`/receipts/new?customer=${inv.customerId}&invoice=${id}`}>Record payment</Link>
+          </Button>
+        )}
         {inv.status === "draft" && can(user, "invoices", "edit") && (
           <>
             <Button asChild variant="outline">
@@ -115,8 +124,9 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
                 "The draft stays on record, marked Cancelled. Its jobs can be billed again."
               ) : (
                 <>
-                  The journal entry is reversed on the invoice date ({formatDate(inv.date)}), the number stays and its jobs go
-                  back to their status. After that month&apos;s GST return has been filed, use a credit note instead.
+                  The journal entry is reversed on the invoice date ({formatDate(inv.date)}), the number stays, its jobs go
+                  back to their status and payments allocated to it go back on account. After that month&apos;s GST return
+                  has been filed, use a credit note instead.
                   {!isOwner && " This goes to the owner for approval."}
                 </>
               )
@@ -137,6 +147,7 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
       <Tabs defaultValue="details" className="gap-4">
         <TabsList variant="line">
           <TabsTrigger value="details">Details</TabsTrigger>
+          {inv.status !== "draft" && <TabsTrigger value="payments">Payments ({payments.length})</TabsTrigger>}
           <TabsTrigger value="attachments">Attachments ({files.length})</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
@@ -167,6 +178,53 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
             ]}
           />
           <DocLines lines={inv.lines} totals={inv.totals} mode={inv.mode} />
+        </TabsContent>
+
+        <TabsContent value="payments" className="grid grid-cols-1 gap-4">
+          <DocFacts
+            facts={[
+              ["Total", <Money key="t" paise={inv.totalPaise} />],
+              ["Received", <Money key="r" paise={inv.paid} />],
+              ["Open", <Money key="o" paise={inv.open} />],
+              ["Due date", <DateText key="due" date={inv.dueDate} />],
+            ]}
+          />
+          {payments.length > 0 && (
+            <div className="overflow-x-auto rounded-lg border bg-card">
+              <table className="w-full min-w-120 text-[13px]">
+                <thead>
+                  <tr className="text-left text-xs text-muted-foreground">
+                    <th className="h-9 border-b px-3 font-medium">Receipt</th>
+                    <th className="h-9 border-b px-3 font-medium">Date</th>
+                    <th className="h-9 border-b px-3 font-medium">Mode</th>
+                    <th className="h-9 border-b px-3 text-right font-medium">Allocated here</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payments.map((p) => (
+                    <tr key={p.receiptId}>
+                      <td className="border-b px-3 py-2 font-medium tabular-nums">
+                        {can(user, "payments", "view") ? (
+                          <Link href={`/receipts/${p.receiptId}`} className="text-primary hover:underline">
+                            {p.number}
+                          </Link>
+                        ) : (
+                          p.number
+                        )}
+                      </td>
+                      <td className="border-b px-3 py-2">
+                        <DateText date={p.date} />
+                      </td>
+                      <td className="border-b px-3 py-2">{RECEIPT_MODE[p.mode]}</td>
+                      <td className="border-b px-3 py-2 text-right">
+                        <Money paise={p.amount} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="attachments">

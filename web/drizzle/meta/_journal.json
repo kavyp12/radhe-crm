@@ -134,6 +134,20 @@
       "when": 1790621908391,
       "tag": "0018_invoices_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790658945806,
+      "tag": "0019_receipts",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790658976157,
+      "tag": "0020_receipts_audit",
+      "breakpoints": true
     }
   ]
 }
