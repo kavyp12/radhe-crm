@@ -73,19 +73,19 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
 - [ ] **🚦 G1 · Sales-flow demo** — Ronnie (and client) walk through quotation → job → invoice → receipt → ledger on real-looking data. Confirm D17, D19, D24, D25, D30, D38, D41, D45. Reviewer records answers in DECISIONS.md.
 
 ## Phase 3 — Purchase, expenses, stock
-- [ ] **T17 · Stock core** — S17, D20, A§9
+- [x] **T17 · Stock core** — S17, D20, A§9
   Stock items (name, unit, category, HSN, GST %); stock_moves; weighted average; opening stock (→ journal); stock adjustment via approval; item stock card; current stock list.
   Done when: tests: avg cost after several ins · issue beyond stock blocked · adjustment posts correctly.
 
-- [ ] **T18 · Purchase bills** — S9, S24, A§3
+- [x] **T18 · Purchase bills** — S9, S24, A§3
   Vendor bill (vendor bill no unique per vendor, bill date, due date, lines = stock item or expense category + qty + rate + GST, optional job per line); bill photo; posting + stock-in; cancel via approval.
   Done when: posting tests (stock line, expense line, GST input) · stock qty/avg updated · duplicate vendor bill no blocked.
 
-- [ ] **T19 · Vendor payments & vendor ledger** — S9, S15
+- [x] **T19 · Vendor payments & vendor ledger** — S9, S15
   Payment + allocation to bills (FIFO) + on-account; posting; bill status (derived); vendor ledger + statement PDF.
   Done when: tests: allocation + bill status · vendor ledger closing = AP balance.
 
-- [ ] **T20 · Expenses** — S10, S24
+- [x] **T20 · Expenses** — S10, S24
   Entry per S10; posts Dr category account / Cr money account; optional job tag; bill photo; list with filters; edit = reverse + repost, audited.
   Done when: posting test · job-tagged expense visible in job cost data · edit leaves reversal trail.
 
@@ -200,7 +200,7 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
 - ✅ B4 T06 + T07 + T08 + T09 → Phases 0–1 done
 - ✅ B5 T10 + T11 + T12
 - ✅ B6 T13 + T14 + T15 + T16 → 🚦 G1 demo (open)
-- B7 T17 + T18 + T19 + T20
+- ✅ B7 T17 + T18 + T19 + T20
 - B8 T21 + T22 + T23
 - B9 T24 + T25 + T26
 - B10 T27 + T28 + T29
