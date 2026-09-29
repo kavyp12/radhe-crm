@@ -42,15 +42,15 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
   Done when: seeds are idempotent · vendor opening shows in AP ledger.
 
 ## Phase 2 — Sales flow
-- [ ] **T10 · Quotations** — S2, S4, S5, A§4
+- [x] **T10 · Quotations** — S2, S4, S5, A§4
   Line grid (category required, description, HSN/SAC, W × H ft optional, qty, unit, rate, discount, GST %); live totals (CGST+SGST or IGST, round-off); terms; statuses Draft / Sent / Approved / Cancelled; discount over limit → approval; duplicate; PDF (A4, ₹ + Gujarati fonts) + print + WhatsApp share link (public token) + email; list with filters.
   Done when: totals tests · PDF renders ₹ and a Gujarati name · status rules enforced on the server.
 
-- [ ] **T11 · Jobs (work orders)** — S2, S3, S26
+- [x] **T11 · Jobs (work orders)** — S2, S3, S26
   Create from an approved quotation (lines copied, nothing retyped) or blank; number RDS-YYYY-NNNNN; site address, site reference, vehicle no, sales person, target date; statuses In Production → Ready → Delivered with who/when; production board; production role gets no money fields (stripped on server); cancel.
   Done when: test: production user's job data has no rate/amount fields · status history recorded · quotation → job copies lines.
 
-- [ ] **T12 · Invoices** — S5, S2, A§3–§6
+- [x] **T12 · Invoices** — S5, S2, A§3–§6
   From job(s) / quotation / blank; kind Tax Invoice or Estimate; place of supply auto; due date = date + credit days; Issue → number + journal post, then frozen; cancel via approval (reversal, number kept); credit-limit warning; jobs → Invoiced; PDF (amount in words, bank, terms) + print + WhatsApp + email.
   Done when: posting tests (same state, other state, estimate) · cancel reverses · issued invoice can't be edited · PDF correct.
 
@@ -198,7 +198,7 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
 ## Batch plan (D42) — one builder chat per line; the reviewer checks each batch before the next
 - ✅ B1 T01 · ✅ B2 T02 · ✅ B3 T03 + T04 + T05
 - ✅ B4 T06 + T07 + T08 + T09 → Phases 0–1 done
-- B5 T10 + T11 + T12
+- ✅ B5 T10 + T11 + T12
 - B6 T13 + T14 + T15 + T16 → 🚦 G1 demo
 - B7 T17 + T18 + T19 + T20
 - B8 T21 + T22 + T23
