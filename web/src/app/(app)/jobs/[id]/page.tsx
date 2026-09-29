@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { db } from "@/db";
 import { users } from "@/db/schema";
-import { listAttachments } from "@/lib/attachments";
+import { canAttach, listAttachments } from "@/lib/attachments";
 import { requirePermission } from "@/lib/auth";
 import { todayIST } from "@/lib/dates";
 import { getJob, JOB_STATUS, type JobStatus } from "@/lib/jobs";
@@ -161,7 +161,7 @@ export default async function JobPage({ params }: PageProps<"/jobs/[id]">) {
             entityType="job"
             entityId={id}
             items={files}
-            canUpload={can(user, "jobs", "edit")}
+            canUpload={canAttach(user, "job", "edit")}
             defaultKind="installation_photo"
           />
         </TabsContent>

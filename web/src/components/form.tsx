@@ -1,6 +1,6 @@
 "use client";
 
-import { cloneElement, startTransition, useActionState, useId, type ReactElement } from "react";
+import { cloneElement, isValidElement, startTransition, useActionState, useId, type ReactElement } from "react";
 import { Label } from "@/components/ui/label";
 import type { FormState } from "@/lib/action";
 import { cn } from "@/lib/utils";
@@ -82,10 +82,13 @@ export function Field({
     <div className={cn("grid content-start gap-1.5", className)}>
       <Label className="grid gap-1.5">
         {label}
-        {cloneElement(children, {
-          "aria-invalid": error ? true : undefined,
-          "aria-describedby": note ? noteId : undefined,
-        })}
+        {/* From a server page the child can arrive still lazy (not an element yet): render it as it is then. */}
+        {isValidElement(children)
+          ? cloneElement(children, {
+              "aria-invalid": error ? true : undefined,
+              "aria-describedby": note ? noteId : undefined,
+            })
+          : children}
       </Label>
       {note && (
         <p id={noteId} className={cn("text-xs", error ? "text-destructive" : "text-muted-foreground")}>

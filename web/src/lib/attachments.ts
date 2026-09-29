@@ -7,7 +7,7 @@ import { todayIST } from "@/lib/dates";
 import { can, type Action, type Area, type SessionUser } from "@/lib/permissions";
 import { storage } from "@/lib/storage";
 
-// Files attached to records (S24). Uploading needs "edit" on the record's area, viewing needs "view".
+// Files attached to records (S24). Uploading needs "edit" on the record's area (a job: "view", D48), viewing needs "view".
 
 /** The permission area behind each entity type's files. Each module adds its entity when it gets attachments. */
 const ENTITY_AREA: Record<string, Area> = {
@@ -19,9 +19,13 @@ const ENTITY_AREA: Record<string, Area> = {
   invoice: "invoices",
 };
 
+/** Entity types whose files anyone who can see the record may add (D48: production uploads installation photos). */
+const UPLOAD_ON_VIEW = new Set(["job"]);
+
+/** "edit" = may upload. */
 export function canAttach(user: SessionUser, entityType: string, action: Extract<Action, "view" | "edit">) {
   const area = ENTITY_AREA[entityType];
-  return !!area && can(user, area, action);
+  return !!area && can(user, area, action === "edit" && UPLOAD_ON_VIEW.has(entityType) ? "view" : action);
 }
 
 const EXTENSION = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "application/pdf": "pdf" } as const;

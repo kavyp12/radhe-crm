@@ -77,3 +77,13 @@ test("a role without access to the record can't upload to it or read its files",
   expect((await upload(new File([PDF], "a.pdf"), cookie)).status).toBe(403);
   expect((await GET(new NextRequest(`${url}/${id}`, { headers: cookie }), context(String(id)))).status).toBe(404);
 });
+
+test("anyone who can see a job may attach to it (D48): production uploads a photo, but not to a quotation", async () => {
+  await createUser(owner, { name: "Prod", username: "prod.files", role: "production", canViewCost: false, password: "prod-pass-12" });
+  const cookie = await signedIn("prod.files", "prod-pass-12");
+  const res = await upload(new File([JPEG], "site.jpg"), cookie, "job");
+  expect(res.status).toBe(201);
+  const { id } = await res.json();
+  expect((await GET(new NextRequest(`${url}/${id}`, { headers: cookie }), context(String(id)))).status).toBe(200);
+  expect((await upload(new File([JPEG], "site.jpg"), cookie, "quotation")).status).toBe(403);
+});

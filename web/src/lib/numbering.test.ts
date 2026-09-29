@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { beforeEach, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { db } from "@/db";
 import { counters } from "@/db/schema";
 import { nextNumber, type Series } from "./numbering";
@@ -7,7 +7,16 @@ import { nextNumber, type Series } from "./numbering";
 const DAY = "2026-09-28";
 const take = (series: Series, date = DAY) => db.transaction((tx) => nextNumber(tx, series, date));
 
-// Every test starts from fresh periods.
+// Every test starts from fresh periods. The other test files' documents share this DB, so their counters are put
+// back afterwards (otherwise a file running later reuses numbers that exist).
+let saved: (typeof counters.$inferSelect)[] = [];
+beforeAll(async () => {
+  saved = await db.select().from(counters);
+});
+afterAll(async () => {
+  await db.delete(counters);
+  if (saved.length) await db.insert(counters).values(saved);
+});
 beforeEach(async () => {
   await db.delete(counters);
 });

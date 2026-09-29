@@ -125,6 +125,7 @@ export function LineItemsGrid({ columns, rows, onChange, newRow, amount, minWidt
                 {amount && <td className="border-b px-2 text-right whitespace-nowrap tabular-nums">{amount(row)}</td>}
                 <td className="border-b px-1 text-right">
                   <Button
+                    type="button"
                     variant="ghost"
                     size="icon-sm"
                     aria-label={`Remove line ${i + 1}`}
@@ -149,7 +150,7 @@ export function LineItemsGrid({ columns, rows, onChange, newRow, amount, minWidt
           </datalist>
         ))}
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-        <Button variant="ghost" size="sm" onClick={() => addAfter(rows.length - 1)}>
+        <Button type="button" variant="ghost" size="sm" onClick={() => addAfter(rows.length - 1)}>
           <Plus />
           Add line
         </Button>
