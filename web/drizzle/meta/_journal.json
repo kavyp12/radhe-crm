@@ -211,6 +211,20 @@
       "when": 1790674161184,
       "tag": "0029_purchase_bills_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1790675435128,
+      "tag": "0030_vendor_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790675457561,
+      "tag": "0031_vendor_payments_audit",
+      "breakpoints": true
     }
   ]
 }

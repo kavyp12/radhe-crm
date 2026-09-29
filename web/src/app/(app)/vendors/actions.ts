@@ -1,11 +1,15 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { formAction, type FormState } from "@/lib/action";
+import { formAction, UserError, type FormState } from "@/lib/action";
 import { requirePermission } from "@/lib/auth";
 import { vendors } from "@/db/schema";
 import { duplicateText, findDuplicates } from "@/lib/customers";
-import { createVendor, updateVendor, type VendorInput } from "@/lib/vendors";
+import { vendorStatementPdf } from "@/lib/pdf";
+import { getSettings } from "@/lib/settings";
+import { readMail, sendPdfMail, shareUrl, whatsappLink } from "@/lib/share";
+import { createVendorStatementLink, readRange, statementMessage, vendorLedger } from "@/lib/statements";
+import { createVendor, getVendor, updateVendor, type VendorInput } from "@/lib/vendors";
 
 /** The form as typed. Opening balance / active only when the form showed them. */
 function input(form: FormData): VendorInput {
@@ -45,4 +49,45 @@ export async function vendorDuplicatesAction(exceptId: number | null, gstin: str
   await requirePermission("vendors", "view");
   const found = await findDuplicates(vendors, String(gstin), String(mobile), exceptId ?? undefined);
   return duplicateText(found, "vendor");
+}
+
+const checkId = (id: number) => {
+  if (!Number.isSafeInteger(id)) throw new Error("Bad vendor id");
+};
+
+/** WhatsApp the vendor's statement (S15, like customers): a new public link wrapped in a wa.me link with the message. */
+export async function vendorStatementShareAction(vendorId: number, period: string, from: string, to: string) {
+  const actor = await requirePermission("vendors", "view");
+  checkId(vendorId);
+  const { range, error } = readRange(period, from, to);
+  if (error) return { error };
+  const v = await getVendor(vendorId);
+  if (!v) return { error: "That vendor doesn't exist." };
+  const [token, { closing }, { companyName }] = await Promise.all([
+    createVendorStatementLink(actor, vendorId, range),
+    vendorLedger(vendorId, range),
+    getSettings(),
+  ]);
+  const link = shareUrl(token);
+  return { url: whatsappLink(v.mobile, statementMessage({ name: v.name, range, closing, link, company: companyName })), link };
+}
+
+/** Email the vendor's statement PDF. */
+export async function emailVendorStatementAction(
+  vendorId: number,
+  period: string,
+  from: string,
+  to: string,
+  _: FormState,
+  form: FormData,
+): Promise<FormState> {
+  await requirePermission("vendors", "view");
+  checkId(vendorId);
+  return formAction(async () => {
+    const { range, error } = readRange(period, from, to);
+    if (error) throw new UserError(error);
+    const pdf = await vendorStatementPdf(vendorId, range);
+    if (!pdf) throw new UserError("That vendor doesn't exist.");
+    await sendPdfMail({ ...readMail(form), fileName: pdf.fileName, pdf: pdf.bytes });
+  });
 }

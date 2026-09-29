@@ -51,10 +51,13 @@ export function rangeText({ from, to }: Range): string {
 
 const DOC_LABEL: Record<string, string> = {
   customers: "Opening balance",
+  vendors: "Opening balance",
   invoices: "Invoice",
   receipts: "Receipt",
   credit_notes: "Credit note",
   debit_notes: "Debit note",
+  purchase_bills: "Purchase bill",
+  vendor_payments: "Payment",
 };
 
 /** What a ledger line is: "Invoice", "Estimate", "Receipt", "Receipt (cancelled)" … */
@@ -94,12 +97,29 @@ export function withoutReversed<R extends LedgerRow>(l: { opening: bigint; rows:
   return { opening: l.opening, rows, closing: balance, debit: sum("debit"), credit: sum("credit") };
 }
 
+/** The vendor's AP ledger for the range (S15), with Dr / Cr totals. Balance − = Cr = we owe them. */
+export async function vendorLedger(vendorId: number, range: Range) {
+  const l = await ledger({ account: "ap", vendorId }, range.from ?? undefined, range.to ?? undefined);
+  const sum = (side: "debit" | "credit") => l.rows.reduce((s, r) => s + r[side], 0n);
+  return { ...l, debit: sum("debit"), credit: sum("credit") };
+}
+
 /** A public link to this statement (D49): a new token row; the PDF is built from the journal each time it is opened. */
 export async function createStatementLink(actor: SessionUser, customerId: number, range: Range): Promise<string> {
   if (!can(actor, "customers", "money")) throw new Error("Not allowed");
+  return insertLink(actor, { customerId }, range);
+}
+
+/** The same for a vendor's statement (T19). */
+export async function createVendorStatementLink(actor: SessionUser, vendorId: number, range: Range): Promise<string> {
+  if (!can(actor, "vendors", "view")) throw new Error("Not allowed");
+  return insertLink(actor, { vendorId }, range);
+}
+
+async function insertLink(actor: SessionUser, party: { customerId: number } | { vendorId: number }, range: Range) {
   const token = newShareToken();
   await writeTx(actor, (tx) =>
-    tx.insert(statementLinks).values({ token, customerId, fromDate: range.from, toDate: range.to, createdBy: actor.id }),
+    tx.insert(statementLinks).values({ token, ...party, fromDate: range.from, toDate: range.to, createdBy: actor.id }),
   );
   return token;
 }

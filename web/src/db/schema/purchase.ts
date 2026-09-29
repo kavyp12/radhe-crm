@@ -1,7 +1,8 @@
 import { sql } from "drizzle-orm";
 import { type AnyPgColumn, bigint, boolean, check, date, index, integer, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { RECEIPT_MODES } from "../../lib/receipt-modes"; // relative: drizzle-kit does not read tsconfig paths
 import { users } from "./auth";
-import { expenseCategories, stockItems, vendors } from "./masters";
+import { accounts, expenseCategories, stockItems, vendors } from "./masters";
 import { jobs } from "./sales";
 
 // Purchase / stock (A§2): stock moves and adjustments; purchase bills, vendor payments and expenses follow.
@@ -138,5 +139,66 @@ export const purchaseBillLines = pgTable(
     check("purchase_bill_lines_qty_positive", sql`${t.qtyMilli} > 0`),
     check("purchase_bill_lines_rate_check", sql`${t.ratePaise} >= 0`),
     check("purchase_bill_lines_gst_check", sql`${t.gstBp} between 0 and 10000`),
+  ],
+);
+
+export const VENDOR_PAYMENT_STATUSES = ["active", "cancelled"] as const;
+
+/**
+ * Vendor payments (S9, A§3): money paid to a vendor, numbered VP/ and posted on save (Dr ap / Cr money account). The
+ * mode picks the money account as for receipts (D49). Edit / cancel: the owner at once, anyone else through approval
+ * (A§7). Audited.
+ */
+export const vendorPayments = pgTable(
+  "vendor_payments",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    number: text("number").notNull().unique(),
+    date: date("date").notNull(),
+    vendorId: bigint("vendor_id", { mode: "number" })
+      .notNull()
+      .references(() => vendors.id),
+    amountPaise: bigint("amount_paise", { mode: "bigint" }).notNull(),
+    mode: text("mode", { enum: RECEIPT_MODES }).notNull(),
+    moneyAccountId: bigint("money_account_id", { mode: "number" })
+      .notNull()
+      .references(() => accounts.id),
+    reference: text("reference"), // UTR / transaction id
+    chequeNo: text("cheque_no"),
+    chequeDate: date("cheque_date"),
+    notes: text("notes"),
+    status: text("status", { enum: VENDOR_PAYMENT_STATUSES }).notNull().default("active"),
+    ...stamps(),
+  },
+  (t) => [
+    index("vendor_payments_vendor_idx").on(t.vendorId),
+    check("vendor_payments_amount_positive", sql`${t.amountPaise} > 0`),
+    check("vendor_payments_mode_check", sql`${t.mode} in ('cash', 'upi', 'bank', 'cheque')`),
+    check("vendor_payments_status_check", sql`${t.status} in ('active', 'cancelled')`),
+  ],
+);
+
+/**
+ * Which payment pays which bill (A§2, D49, D51): never posted, never deleted — a change deactivates the old rows and
+ * adds new ones. What a payment doesn't allocate is on account. Audited.
+ */
+export const vendorAllocations = pgTable(
+  "vendor_allocations",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    paymentId: bigint("payment_id", { mode: "number" })
+      .notNull()
+      .references(() => vendorPayments.id),
+    purchaseBillId: bigint("purchase_bill_id", { mode: "number" })
+      .notNull()
+      .references(() => purchaseBills.id),
+    amountPaise: bigint("amount_paise", { mode: "bigint" }).notNull(),
+    active: boolean("active").notNull().default(true),
+    ...stamps(),
+  },
+  (t) => [
+    index("vendor_allocations_payment_idx").on(t.paymentId),
+    index("vendor_allocations_bill_idx").on(t.purchaseBillId),
+    check("vendor_allocations_amount_positive", sql`${t.amountPaise} > 0`),
   ],
 );

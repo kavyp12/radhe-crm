@@ -19,7 +19,7 @@ export default async function PurchaseBillsPage() {
     <div className="grid grid-cols-1 gap-5">
       <PageHeader title="Purchase bills" description="Vendors' bills: material into stock, expenses to their category (and job)." action={newButton} />
       <BillsTable
-        rows={rows.map((r) => ({ ...r, status: r.status === "cancelled" ? "Cancelled" : "Active" }))}
+        rows={rows.map((r) => ({ ...r, status: r.payment }))}
         newButton={newButton}
       />
     </div>

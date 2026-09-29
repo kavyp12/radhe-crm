@@ -64,17 +64,20 @@ export const journalLines = pgTable(
 );
 
 /**
- * A public statement link (D49): the random token opens this customer's statement for the range as a PDF, and nothing
- * else (/share/<token>). The figures are read from the journal when it is opened. Audited.
+ * A public statement link (D49): the random token opens this customer's (or vendor's, T19) statement for the range as
+ * a PDF, and nothing else (/share/<token>). The figures are read from the journal when it is opened. Audited.
  */
-export const statementLinks = pgTable("statement_links", {
-  id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
-  token: text("token").notNull().unique(),
-  customerId: bigint("customer_id", { mode: "number" })
-    .notNull()
-    .references(() => customers.id),
-  fromDate: date("from_date"), // null = from the first entry
-  toDate: date("to_date"), // null = up to the day it is opened
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  createdBy: text("created_by").references(() => users.id),
-});
+export const statementLinks = pgTable(
+  "statement_links",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    token: text("token").notNull().unique(),
+    customerId: bigint("customer_id", { mode: "number" }).references(() => customers.id),
+    vendorId: bigint("vendor_id", { mode: "number" }).references(() => vendors.id),
+    fromDate: date("from_date"), // null = from the first entry
+    toDate: date("to_date"), // null = up to the day it is opened
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdBy: text("created_by").references(() => users.id),
+  },
+  (t) => [check("statement_links_one_party", sql`num_nonnulls(${t.customerId}, ${t.vendorId}) = 1`)],
+);

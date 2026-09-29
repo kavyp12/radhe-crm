@@ -19,6 +19,7 @@ const ENTITY_AREA: Record<string, Area> = {
   invoice: "invoices",
   receipt: "payments",
   purchase_bill: "books",
+  vendor_payment: "payments",
 };
 
 /** Entity types whose files show purchase rates: only for can_view_cost users (D51). */

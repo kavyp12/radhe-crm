@@ -19,6 +19,7 @@ import {
 } from "@/lib/purchase-lines";
 import { checkVersion, companyState, readDate } from "@/lib/sales";
 import { addMove, checkNotNegative, liveMoves, lockItems, reverseMoves } from "@/lib/stock-moves";
+import { billStatus, paidByBill, paidTowardsBills, releaseBill } from "@/lib/vendor-payments";
 
 // Purchase bills (S9, S24, A§2, A§3, D51): a vendor's bill, numbered PB/ and posted when saved:
 //   Dr stock (stock lines) / category expense accounts (expense lines, with their job) + gst_in_*, round_off ±,
@@ -297,6 +298,14 @@ async function planEdit(tx: Tx, p: EditPayload) {
     throw new UserError("A bill can't move to another financial year: cancel it and enter it again.", "date");
   }
   await checkDuplicate(tx, r.vendor.id, r.values.vendorBillNo, current.id);
+  // Payments already on the bill stay valid: same vendor, total not below them (T19).
+  const paid = (await paidTowardsBills(tx, [current.id])).get(current.id) ?? 0n;
+  if (paid > 0n && r.vendor.id !== current.vendorId) {
+    throw new UserError("Payments are allocated to this bill: take them off it before changing the vendor.", "vendorId");
+  }
+  if (r.values.totalPaise < paid) {
+    throw new UserError(`${formatMoney(paid)} is already paid against this bill: the total can't go below it.`, "lines");
+  }
   const old = await activeLines(tx, current.id);
   const asSaved = (l: PurchaseLine) => ({
     stockItemId: l.itemId,
@@ -389,6 +398,7 @@ async function doCancel(tx: Tx, p: CancelPayload) {
   await reverseMoves(tx, "purchase", b.id);
   await checkNotNegative(tx, items);
   await tx.update(purchaseBills).set({ status: "cancelled" }).where(eq(purchaseBills.id, b.id));
+  await releaseBill(tx, b.id); // its payments go back on account (D49)
 }
 
 registerExecutor<CancelPayload>("purchase_bill.cancel", {
@@ -402,6 +412,7 @@ registerExecutor<CancelPayload>("purchase_bill.cancel", {
       changes: [
         { label: "Status", old: "Active", new: "Cancelled (number kept)" },
         { label: "Journal and stock", old: null, new: `Reversed on ${formatDate(b.date)}` },
+        { label: "Payments", old: null, new: "Allocations to it removed: they go back on account" },
       ],
     };
   },
@@ -419,8 +430,10 @@ export async function cancelPurchaseBill(actor: SessionUser, id: number, reason:
 
 // ---- Loaders (callers have checked books + can_view_cost)
 
-export async function listPurchaseBills() {
-  return db
+/** Bills with paid / open and the computed payment status (A§5). */
+export async function listPurchaseBills(vendorId?: number) {
+  const paid = paidByBill();
+  const rows = await db
     .select({
       id: purchaseBills.id,
       number: purchaseBills.number,
@@ -429,12 +442,20 @@ export async function listPurchaseBills() {
       dueDate: purchaseBills.dueDate,
       status: purchaseBills.status,
       total: purchaseBills.totalPaise,
+      paid: paid.paise,
       vendorId: purchaseBills.vendorId,
       vendor: vendors.name,
     })
     .from(purchaseBills)
     .innerJoin(vendors, eq(vendors.id, purchaseBills.vendorId))
+    .leftJoin(paid, eq(paid.billId, purchaseBills.id))
+    .where(vendorId === undefined ? undefined : eq(purchaseBills.vendorId, vendorId))
     .orderBy(desc(purchaseBills.id));
+  return rows.map((r) => {
+    const paidPaise = r.status === "active" ? BigInt(r.paid ?? 0) : 0n;
+    const open = r.status === "active" ? r.total - paidPaise : 0n;
+    return { ...r, paid: paidPaise, open, payment: billStatus({ ...r, totalPaise: r.total }, open) };
+  });
 }
 
 export async function getPurchaseBill(id: number) {
@@ -458,11 +479,17 @@ export async function getPurchaseBill(id: number) {
     mode,
     row.bill.roundOffPaise,
   );
+  const active = row.bill.status === "active";
+  const paid = active ? ((await paidTowardsBills(db, [id])).get(id) ?? 0n) : 0n;
+  const open = active ? row.bill.totalPaise - paid : 0n;
   return {
     ...row.bill,
     vendor: row.vendor,
     mode,
     totals,
+    paid,
+    open,
+    payment: billStatus(row.bill, open),
     lines: lines.map((l) => ({ ...l.line, what: l.item ?? l.category ?? "", unit: l.unit, job: l.job })),
   };
 }

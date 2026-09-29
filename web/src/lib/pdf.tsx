@@ -13,8 +13,9 @@ import { amountInWords, bpText, formatMoney, milliText, noteTotals, type GstMode
 import { getInvoice, INVOICE_KIND } from "@/lib/invoices";
 import { getQuotation } from "@/lib/quotations";
 import { getSettings } from "@/lib/settings";
-import { customerLedger, drCr, entryLabel, rangeText, statementLink, withoutReversed, type Range } from "@/lib/statements";
+import { customerLedger, drCr, entryLabel, rangeText, statementLink, vendorLedger, withoutReversed, type Range } from "@/lib/statements";
 import { storage } from "@/lib/storage";
+import { getVendor } from "@/lib/vendors";
 
 // The one A4 layout for quotations, invoices, credit / debit notes and statements (D06, DESIGN "PDFs"), rendered with
 // @react-pdf/renderer on the server: the same letterhead, customer block and footer; a lines table or a ledger table.
@@ -370,8 +371,9 @@ export async function renderPdf(doc: PdfDoc): Promise<Buffer> {
 
 type StatementRow = { date: string; number: string | null; label: string; debit: bigint; credit: bigint; balance: bigint };
 
-/** A customer statement (S15): opening, the ledger lines with a running balance, totals and closing, Dr / Cr. */
+/** A customer / vendor statement (S15): opening, the ledger lines with a running balance, totals and closing, Dr / Cr. */
 async function renderStatement(d: {
+  party: "Customer" | "Vendor";
   customer: PdfDoc["customer"];
   range: Range;
   opening: bigint;
@@ -398,7 +400,7 @@ async function renderStatement(d: {
       <Page size="A4" style={s.page}>
         <PageChrome footer={`Statement of account · ${name}`} />
         <Letterhead b={b} title="Statement of Account" facts={[rangeText(d.range), `Made ${formatDate(todayIST())}`]} />
-        <Party label="Customer" c={d.customer}>
+        <Party label={d.party} c={d.customer}>
           <Text style={s.muted}>Closing balance</Text>
           <Text style={[s.bold, { fontSize: 11 }]}>{drCr(d.closing)}</Text>
         </Party>
@@ -417,7 +419,11 @@ async function renderStatement(d: {
         ))}
         {line(["", "", "Total", formatMoney(d.debit), formatMoney(d.credit), ""], true)}
         {line([formatDate(d.range.to ?? todayIST()), "", "Closing balance", "", "", drCr(d.closing)], true)}
-        <Text style={[s.muted, { marginTop: 10 }]}>Balance: Dr = due to {b.company}, Cr = in the customer&apos;s favour.</Text>
+        <Text style={[s.muted, { marginTop: 10 }]}>
+          {d.party === "Customer"
+            ? `Balance: Dr = due to ${b.company}, Cr = in the customer's favour.`
+            : `Balance: Cr = due to the vendor from ${b.company}, Dr = in ${b.company}'s favour.`}
+        </Text>
       </Page>
     </Document>,
   );
@@ -503,6 +509,7 @@ export async function statementPdf(customerId: number, range: Range) {
   if (!customer) return null;
   const l = withoutReversed(await customerLedger(customerId, range));
   const bytes = await renderStatement({
+    party: "Customer",
     customer,
     range,
     opening: l.opening,
@@ -513,6 +520,24 @@ export async function statementPdf(customerId: number, range: Range) {
   });
   // ASCII only: the name goes into a header, and customer names may be Gujarati.
   return { bytes, fileName: `statement-${customerId}-${range.to ?? todayIST()}.pdf` };
+}
+
+/** A vendor's statement (S15): their AP lines, reversed pairs left out (D50). Cr = we owe them. */
+export async function vendorStatementPdf(vendorId: number, range: Range) {
+  const v = await getVendor(vendorId);
+  if (!v) return null;
+  const l = withoutReversed(await vendorLedger(vendorId, range));
+  const bytes = await renderStatement({
+    party: "Vendor",
+    customer: { name: v.name, firmName: null, billingAddress: v.address, gstin: v.gstin, stateCode: v.stateCode },
+    range,
+    opening: l.opening,
+    rows: l.rows.map((r) => ({ date: r.date, number: r.number, label: entryLabel(r), debit: r.debit, credit: r.credit, balance: r.balance })),
+    debit: l.debit,
+    credit: l.credit,
+    closing: l.closing,
+  });
+  return { bytes, fileName: `vendor-statement-${vendorId}-${range.to ?? todayIST()}.pdf` };
 }
 
 /** The PDF behind a public share link (/share/<token>), or null for an unknown token. */
@@ -527,7 +552,9 @@ export async function pdfForToken(token: string) {
     if (note) return notePdf(kind, note.id);
   }
   const statement = await statementLink(token);
-  return statement ? statementPdf(statement.customerId, { from: statement.fromDate, to: statement.toDate }) : null;
+  if (!statement) return null;
+  const range = { from: statement.fromDate, to: statement.toDate };
+  return statement.customerId !== null ? statementPdf(statement.customerId, range) : vendorStatementPdf(statement.vendorId!, range);
 }
 
 /** A PDF as an inline HTTP response (opens in the browser's viewer: read, print, download). */

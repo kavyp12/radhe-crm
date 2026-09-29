@@ -14,8 +14,9 @@ export type BillRow = {
   date: string;
   dueDate: string;
   vendor: string;
-  status: Status | "Active";
+  status: Status; // the computed payment status (A§5)
   total: bigint;
+  open: bigint;
 };
 
 const col = tableColumns<BillRow>();
@@ -28,13 +29,15 @@ const columns = [
   col.accessor("date", { header: "Bill date", cell: (c) => <DateText date={c.getValue()} />, enableGlobalFilter: false }),
   col.accessor("vendor", { header: "Vendor" }),
   col.accessor("dueDate", { header: "Due", cell: (c) => <DateText date={c.getValue()} />, enableGlobalFilter: false }),
-  col.accessor("status", {
-    header: "Status",
-    cell: (c) => (c.getValue() === "Active" ? "Active" : <StatusBadge status={c.getValue() as Status} />),
-    enableGlobalFilter: false,
-  }),
+  col.accessor("status", { header: "Payment", cell: (c) => <StatusBadge status={c.getValue()} />, enableGlobalFilter: false }),
   col.accessor("total", {
     header: "Total",
+    cell: (c) => <Money paise={c.getValue()} />,
+    meta: { numeric: true, total: true },
+    enableGlobalFilter: false,
+  }),
+  col.accessor("open", {
+    header: "Open",
     cell: (c) => <Money paise={c.getValue()} />,
     meta: { numeric: true, total: true },
     enableGlobalFilter: false,

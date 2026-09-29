@@ -19,6 +19,8 @@ import { stateName } from "@/lib/gstin";
 import { amountInWords, bpText, milliText } from "@/lib/num";
 import { can } from "@/lib/permissions";
 import { getPurchaseBill } from "@/lib/purchase-bills";
+import { RECEIPT_MODE } from "@/lib/receipt-modes";
+import { billPayments } from "@/lib/vendor-payments";
 import { cancelBillAction } from "../actions";
 
 const LABELS = {
@@ -42,9 +44,10 @@ export default async function PurchaseBillPage({ params }: PageProps<"/purchase-
   const id = Number((await params).id);
   const b = Number.isSafeInteger(id) ? await getPurchaseBill(id) : undefined;
   if (!b) notFound();
-  const [files, names] = await Promise.all([
+  const [files, names, payments] = await Promise.all([
     listAttachments("purchase_bill", id),
     db.select({ id: vendors.id, name: vendors.name }).from(vendors),
+    billPayments(id),
   ]);
   const isOwner = can(user, "approvals", "approve");
   const active = b.status === "active";
@@ -55,10 +58,15 @@ export default async function PurchaseBillPage({ params }: PageProps<"/purchase-
       <PageHeader
         back={{ href: "/purchase-bills", label: "Purchase bills" }}
         title={b.number}
-        status={active ? undefined : "Cancelled"}
+        status={b.payment}
         description={`${b.vendor.name} · bill ${b.vendorBillNo}`}
       />
       <div className="flex flex-wrap gap-2">
+        {active && b.open > 0n && can(user, "payments", "create") && (
+          <Button asChild>
+            <Link href={`/vendor-payments/new?vendor=${b.vendorId}&bill=${id}`}>Record payment</Link>
+          </Button>
+        )}
         {active && can(user, "books", "edit") && (
           <Button asChild variant="outline">
             <Link href={`/purchase-bills/${id}/edit`}>Edit</Link>
@@ -71,8 +79,8 @@ export default async function PurchaseBillPage({ params }: PageProps<"/purchase-
             title={`Cancel ${b.number}?`}
             description={
               <>
-                Its journal entry and its stock are reversed on the bill date ({formatDate(b.date)}); the number stays. Refused
-                if stock from it has already been used.
+                Its journal entry and its stock are reversed on the bill date ({formatDate(b.date)}); the number stays and
+                payments on it go back on account. Refused if stock from it has already been used.
                 {!isOwner && " This goes to the owner for approval."}
               </>
             }
@@ -87,6 +95,7 @@ export default async function PurchaseBillPage({ params }: PageProps<"/purchase-
       <Tabs defaultValue="details" className="gap-4">
         <TabsList variant="line">
           <TabsTrigger value="details">Details</TabsTrigger>
+          <TabsTrigger value="payments">Payments ({payments.length})</TabsTrigger>
           <TabsTrigger value="attachments">Bill photo ({files.length})</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
@@ -179,6 +188,53 @@ export default async function PurchaseBillPage({ params }: PageProps<"/purchase-
               words={amountInWords(t.total)}
             />
           </div>
+        </TabsContent>
+
+        <TabsContent value="payments" className="grid grid-cols-1 gap-4">
+          <DocFacts
+            facts={[
+              ["Total", <Money key="t" paise={b.totalPaise} />],
+              ["Paid", <Money key="p" paise={b.paid} />],
+              ["Open", <Money key="o" paise={b.open} />],
+              ["Due date", <DateText key="due" date={b.dueDate} />],
+            ]}
+          />
+          {payments.length > 0 && (
+            <div className="overflow-x-auto rounded-lg border bg-card">
+              <table className="w-full min-w-120 text-[13px]">
+                <thead>
+                  <tr className="text-left text-xs text-muted-foreground">
+                    <th className="h-9 border-b px-3 font-medium">Payment</th>
+                    <th className="h-9 border-b px-3 font-medium">Date</th>
+                    <th className="h-9 border-b px-3 font-medium">Mode</th>
+                    <th className="h-9 border-b px-3 text-right font-medium">Allocated here</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payments.map((p) => (
+                    <tr key={p.paymentId}>
+                      <td className="border-b px-3 py-2 font-medium tabular-nums">
+                        {can(user, "payments", "view") ? (
+                          <Link href={`/vendor-payments/${p.paymentId}`} className="text-primary hover:underline">
+                            {p.number}
+                          </Link>
+                        ) : (
+                          p.number
+                        )}
+                      </td>
+                      <td className="border-b px-3 py-2">
+                        <DateText date={p.date} />
+                      </td>
+                      <td className="border-b px-3 py-2">{RECEIPT_MODE[p.mode]}</td>
+                      <td className="border-b px-3 py-2 text-right">
+                        <Money paise={p.amount} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="attachments">
