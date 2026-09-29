@@ -4,16 +4,19 @@ import { eq } from "drizzle-orm";
 import type { ReactNode } from "react";
 import { db } from "@/db";
 import { attachments, invoices, quotations } from "@/db/schema";
-import { formatDate } from "@/lib/dates";
+import { getCustomer } from "@/lib/customers";
+import { formatDate, todayIST } from "@/lib/dates";
 import { stateName } from "@/lib/gstin";
 import { lineTotals, sizeText } from "@/lib/lines";
 import { amountInWords, bpText, formatMoney, milliText, type GstMode } from "@/lib/num";
 import { getInvoice, INVOICE_KIND } from "@/lib/invoices";
 import { getQuotation } from "@/lib/quotations";
 import { getSettings } from "@/lib/settings";
+import { customerLedger, drCr, entryLabel, rangeText, statementLink, type Range } from "@/lib/statements";
 import { storage } from "@/lib/storage";
 
-// The one A4 layout for quotations and invoices (D06, DESIGN "PDFs"), rendered on the server with @react-pdf/renderer.
+// The one A4 layout for quotations, invoices and statements (D06, DESIGN "PDFs"), rendered on the server with
+// @react-pdf/renderer: the same letterhead, customer block and footer; a lines table or a ledger table below.
 // Built-in Helvetica has no ₹ and no Gujarati, so everything is set in Noto Sans with Noto Sans Gujarati as the
 // fallback for Gujarati letters (fonts committed under src/assets/fonts, OFL; next.config traces them into the build).
 
@@ -143,14 +146,82 @@ async function settingsImage(id: number | null): Promise<PdfImage | null> {
   return bytes ? { data: Buffer.from(bytes), format: format! } : null;
 }
 
-export async function renderPdf(doc: PdfDoc): Promise<Buffer> {
+type Brand = { co: Awaited<ReturnType<typeof getSettings>>; company: string; logo: PdfImage | null; signature: PdfImage | null };
+
+async function brand(): Promise<Brand> {
   const co = await getSettings();
   const [logo, signature] = await Promise.all([settingsImage(co.logoAttachmentId), settingsImage(co.signatureAttachmentId)]);
+  return { co, company: co.companyName ?? "[Company name — set in Settings]", logo, signature };
+}
+
+/** The company on the left; the document's title and facts (No., Date …) on the right. */
+function Letterhead({ b, title, facts }: { b: Brand; title: string; facts: string[] }) {
+  return (
+    <>
+      <View style={[s.row, { gap: 10 }]}>
+        {/* eslint-disable-next-line jsx-a11y/alt-text -- react-pdf Image, not an HTML img */}
+        {b.logo && <Image src={b.logo} style={{ width: 56, height: 56, objectFit: "contain" }} />}
+        <View style={{ flex: 1 }}>
+          <Text style={s.company}>{b.company}</Text>
+          <Text>{b.co.address ?? "[Address — set in Settings]"}</Text>
+          {b.co.gstin && <Text>GSTIN: {b.co.gstin}</Text>}
+          <Text>{[b.co.phone && `Phone: ${b.co.phone}`, b.co.email].filter(Boolean).join("  ·  ")}</Text>
+        </View>
+        <View style={{ alignItems: "flex-end" }}>
+          <Text style={s.h1}>{title}</Text>
+          {facts.map((f) => (
+            <Text key={f}>{f}</Text>
+          ))}
+        </View>
+      </View>
+      <View style={s.rule} />
+    </>
+  );
+}
+
+/** The customer ("To" / "Bill to" / "Customer"), with an optional block on the right. */
+function Party({ label, c, children }: { label: string; c: PdfDoc["customer"]; children?: ReactNode }) {
+  return (
+    <View style={[s.row, { gap: 16, marginBottom: 10 }]}>
+      <View style={{ flex: 1 }}>
+        <Text style={s.muted}>{label}</Text>
+        <Text style={s.bold}>{c.firmName ?? c.name}</Text>
+        {c.firmName && <Text>{c.name}</Text>}
+        {c.billingAddress && <Text>{c.billingAddress}</Text>}
+        <Text>GSTIN: {c.gstin ?? "Unregistered"}</Text>
+        <Text>
+          State: {c.stateCode} · {stateName(c.stateCode) ?? ""}
+        </Text>
+      </View>
+      {children && <View style={{ width: 170 }}>{children}</View>}
+    </View>
+  );
+}
+
+/** On every page: the DRAFT / CANCELLED mark (under the content) and the footer. */
+function PageChrome({ mark, footer }: { mark?: string | null; footer: string }) {
+  return (
+    <>
+      {mark && (
+        <Text fixed style={s.mark}>
+          {mark}
+        </Text>
+      )}
+      <Text
+        fixed
+        style={{ position: "absolute", bottom: 20, left: 32, right: 32, textAlign: "center", color: GREY, fontSize: 7 }}
+        render={({ pageNumber, totalPages }) => `${footer} · Page ${pageNumber} of ${totalPages}`}
+      />
+    </>
+  );
+}
+
+export async function renderPdf(doc: PdfDoc): Promise<Buffer> {
+  const b = await brand();
+  const { co, company, signature } = b;
   const totals = lineTotals(doc.lines, doc.mode);
   const lines: Computed[] = doc.lines.map((l, i) => ({ ...l, ...totals.lines[i] }));
   const cols = columns(doc.mode);
-  const company = co.companyName ?? "[Company name — set in Settings]";
-  const c = doc.customer;
   const totalRows: [string, bigint][] = [
     [doc.mode === "estimate" ? "Sub total" : "Taxable value", totals.taxable],
     ...(doc.mode === "same_state"
@@ -164,50 +235,22 @@ export async function renderPdf(doc: PdfDoc): Promise<Buffer> {
   return renderToBuffer(
     <Document title={`${doc.title} ${doc.number}`} author={company}>
       <Page size="A4" style={s.page}>
-        {doc.mark && (
-          <Text fixed style={s.mark}>
-            {doc.mark}
-          </Text>
-        )}
-
-        <View style={[s.row, { gap: 10 }]}>
-          {/* eslint-disable-next-line jsx-a11y/alt-text -- react-pdf Image, not an HTML img */}
-          {logo && <Image src={logo} style={{ width: 56, height: 56, objectFit: "contain" }} />}
-          <View style={{ flex: 1 }}>
-            <Text style={s.company}>{company}</Text>
-            <Text>{co.address ?? "[Address — set in Settings]"}</Text>
-            {co.gstin && <Text>GSTIN: {co.gstin}</Text>}
-            <Text>{[co.phone && `Phone: ${co.phone}`, co.email].filter(Boolean).join("  ·  ")}</Text>
-          </View>
-          <View style={{ alignItems: "flex-end" }}>
-            <Text style={s.h1}>{doc.title}</Text>
-            <Text>No. {doc.number}</Text>
-            <Text>Date {formatDate(doc.date)}</Text>
-            {doc.dueDate && <Text>Due {formatDate(doc.dueDate)}</Text>}
-          </View>
-        </View>
-        <View style={s.rule} />
-
-        <View style={[s.row, { gap: 16, marginBottom: 10 }]}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.muted}>{doc.title === "Quotation" ? "To" : "Bill to"}</Text>
-            <Text style={s.bold}>{c.firmName ?? c.name}</Text>
-            {c.firmName && <Text>{c.name}</Text>}
-            {c.billingAddress && <Text>{c.billingAddress}</Text>}
-            <Text>GSTIN: {c.gstin ?? "Unregistered"}</Text>
-            <Text>
-              State: {c.stateCode} · {stateName(c.stateCode) ?? ""}
-            </Text>
-          </View>
+        <PageChrome mark={doc.mark} footer={`${doc.title} ${doc.number}`} />
+        <Letterhead
+          b={b}
+          title={doc.title}
+          facts={[`No. ${doc.number}`, `Date ${formatDate(doc.date)}`, ...(doc.dueDate ? [`Due ${formatDate(doc.dueDate)}`] : [])]}
+        />
+        <Party label={doc.title === "Quotation" ? "To" : "Bill to"} c={doc.customer}>
           {doc.placeOfSupply && (
-            <View style={{ width: 170 }}>
+            <>
               <Text style={s.muted}>Place of supply</Text>
               <Text>
                 {doc.placeOfSupply} · {stateName(doc.placeOfSupply) ?? ""}
               </Text>
-            </View>
+            </>
           )}
-        </View>
+        </Party>
 
         <View style={[s.row, s.th]}>
           {cols.map((col) => (
@@ -283,11 +326,62 @@ export async function renderPdf(doc: PdfDoc): Promise<Buffer> {
           </View>
         </View>
 
-        <Text
-          fixed
-          style={{ position: "absolute", bottom: 20, left: 32, right: 32, textAlign: "center", color: GREY, fontSize: 7 }}
-          render={({ pageNumber, totalPages }) => `${doc.title} ${doc.number} · Page ${pageNumber} of ${totalPages}`}
-        />
+      </Page>
+    </Document>,
+  );
+}
+
+
+type StatementRow = { date: string; number: string | null; label: string; debit: bigint; credit: bigint; balance: bigint };
+
+/** A customer statement (S15): opening, the ledger lines with a running balance, totals and closing, Dr / Cr. */
+async function renderStatement(d: {
+  customer: PdfDoc["customer"];
+  range: Range;
+  opening: bigint;
+  rows: StatementRow[];
+  debit: bigint;
+  credit: bigint;
+  closing: bigint;
+}): Promise<Buffer> {
+  const b = await brand();
+  const widths = [54, 88, 0, 72, 72, 84]; // 0 = the rest
+  const numeric = [false, false, false, true, true, true];
+  const line = (cells: string[], bold = false) => (
+    <View style={[s.row, s.td]} wrap={false}>
+      {cells.map((text, i) => (
+        <Text key={i} style={[s.cell, widths[i] ? { width: widths[i] } : { flex: 1 }, numeric[i] ? s.num : {}, bold ? s.bold : {}]}>
+          {text}
+        </Text>
+      ))}
+    </View>
+  );
+  const name = d.customer.firmName ?? d.customer.name;
+  return renderToBuffer(
+    <Document title={`Statement of account ${name}`} author={b.company}>
+      <Page size="A4" style={s.page}>
+        <PageChrome footer={`Statement of account · ${name}`} />
+        <Letterhead b={b} title="Statement of Account" facts={[rangeText(d.range), `Made ${formatDate(todayIST())}`]} />
+        <Party label="Customer" c={d.customer}>
+          <Text style={s.muted}>Closing balance</Text>
+          <Text style={[s.bold, { fontSize: 11 }]}>{drCr(d.closing)}</Text>
+        </Party>
+        <View style={[s.row, s.th]} fixed>
+          {["Date", "Document", "Particulars", "Debit", "Credit", "Balance"].map((label, i) => (
+            <Text key={label} style={[s.cell, widths[i] ? { width: widths[i] } : { flex: 1 }, numeric[i] ? s.num : {}]}>
+              {label}
+            </Text>
+          ))}
+        </View>
+        {line([d.range.from ? formatDate(d.range.from) : "", "", "Brought forward", "", "", drCr(d.opening)], true)}
+        {d.rows.map((r, i) => (
+          <View key={i}>
+            {line([formatDate(r.date), r.number ?? "", r.label, r.debit ? formatMoney(r.debit) : "", r.credit ? formatMoney(r.credit) : "", drCr(r.balance)])}
+          </View>
+        ))}
+        {line(["", "", "Total", formatMoney(d.debit), formatMoney(d.credit), ""], true)}
+        {line([formatDate(d.range.to ?? todayIST()), "", "Closing balance", "", "", drCr(d.closing)], true)}
+        <Text style={[s.muted, { marginTop: 10 }]}>Balance: Dr = due to {b.company}, Cr = in the customer&apos;s favour.</Text>
       </Page>
     </Document>,
   );
@@ -341,13 +435,33 @@ export async function invoicePdf(id: number) {
   return { bytes, fileName: pdfFileName(inv.number ?? `draft-invoice-${inv.id}`) };
 }
 
+/** A customer's statement for the range (S15), figures straight from the journal. */
+export async function statementPdf(customerId: number, range: Range) {
+  const customer = await getCustomer(customerId);
+  if (!customer) return null;
+  const l = await customerLedger(customerId, range);
+  const bytes = await renderStatement({
+    customer,
+    range,
+    opening: l.opening,
+    rows: l.rows.map((r) => ({ date: r.date, number: r.number, label: entryLabel(r), debit: r.debit, credit: r.credit, balance: r.balance })),
+    debit: l.debit,
+    credit: l.credit,
+    closing: l.closing,
+  });
+  // ASCII only: the name goes into a header, and customer names may be Gujarati.
+  return { bytes, fileName: `statement-${customerId}-${range.to ?? todayIST()}.pdf` };
+}
+
 /** The PDF behind a public share link (/share/<token>), or null for an unknown token. */
 export async function pdfForToken(token: string) {
   if (!/^[\w-]{43}$/.test(token)) return null; // 32 bytes, base64url
   const [q] = await db.select({ id: quotations.id }).from(quotations).where(eq(quotations.shareToken, token));
   if (q) return quotationPdf(q.id);
   const [inv] = await db.select({ id: invoices.id }).from(invoices).where(eq(invoices.shareToken, token));
-  return inv ? invoicePdf(inv.id) : null;
+  if (inv) return invoicePdf(inv.id);
+  const statement = await statementLink(token);
+  return statement ? statementPdf(statement.customerId, { from: statement.fromDate, to: statement.toDate }) : null;
 }
 
 /** A PDF as an inline HTTP response (opens in the browser's viewer: read, print, download). */

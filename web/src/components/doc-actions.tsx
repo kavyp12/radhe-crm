@@ -140,3 +140,31 @@ export function EmailDialog({
     </ActionDialog>
   );
 }
+
+/**
+ * WhatsApp for something whose share link is made on click (a statement, D49): the tab opens at once — while the
+ * click still counts, so no popup blocker — and goes to the wa.me link when the server has made it.
+ */
+export function WhatsAppButton({ share }: { share: () => Promise<{ url?: string; error?: string }> }) {
+  const [pending, setPending] = useState(false);
+  async function onClick() {
+    const tab = window.open("", "_blank");
+    if (tab) tab.opener = null;
+    setPending(true);
+    try {
+      const { url, error } = await share();
+      if (!url) {
+        tab?.close();
+        toast.error(error ?? "The link couldn't be made.");
+      } else if (tab) tab.location.href = url;
+      else window.location.href = url;
+    } finally {
+      setPending(false);
+    }
+  }
+  return (
+    <Button type="button" variant="outline" onClick={() => void onClick()} disabled={pending}>
+      {pending ? "Working…" : "WhatsApp"}
+    </Button>
+  );
+}

@@ -36,6 +36,12 @@ export function fyKey(date: string): string {
   return `${yy(start)}-${yy(start + 1)}`;
 }
 
+/** The 1 April the financial year of `date` starts on: '2027-03-31' → '2026-04-01'. */
+export function fyStart(date: string): string {
+  const [y, m] = dateParts(date);
+  return `${m >= 4 ? y : y - 1}-04-01`;
+}
+
 /** '2026-09-28' → "28/09/2026". */
 export function formatDate(date: string): string {
   dateParts(date);

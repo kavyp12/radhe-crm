@@ -1,10 +1,11 @@
 import { expect, test } from "vitest";
-import { formatDate, formatDateTime, fyKey, parseDate, periodRange, todayIST } from "./dates";
+import { formatDate, formatDateTime, fyKey, fyStart, parseDate, periodRange, todayIST } from "./dates";
 
 test("financial year boundary", () => {
   expect(fyKey("2027-03-31")).toBe("26-27");
   expect(fyKey("2027-04-01")).toBe("27-28");
   expect(fyKey("2099-04-01")).toBe("99-00");
+  expect([fyStart("2027-03-31"), fyStart("2027-04-01"), fyStart("2026-09-29")]).toEqual(["2026-04-01", "2027-04-01", "2026-04-01"]);
 });
 
 test("today is the IST date, whatever the server's zone", () => {

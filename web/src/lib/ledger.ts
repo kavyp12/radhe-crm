@@ -264,6 +264,7 @@ export async function ledger(filter: LedgerFilter, from?: string, to?: string) {
       docType: journalEntries.docType,
       docId: journalEntries.docId,
       narration: journalEntries.narration,
+      reverses: journalEntries.reversesEntryId, // not null = a reversal (a cancel / edit)
       account: accounts.name,
       debit: journalLines.debitPaise,
       credit: journalLines.creditPaise,

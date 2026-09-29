@@ -1,10 +1,21 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { formAction, type FormState } from "@/lib/action";
+import { formAction, UserError, type FormState } from "@/lib/action";
 import { requirePermission } from "@/lib/auth";
 import { customers } from "@/db/schema";
-import { createCustomer, duplicateText, findDuplicates, updateCustomer, type CustomerInput } from "@/lib/customers";
+import {
+  createCustomer,
+  duplicateText,
+  findDuplicates,
+  getCustomer,
+  updateCustomer,
+  type CustomerInput,
+} from "@/lib/customers";
+import { statementPdf } from "@/lib/pdf";
+import { getSettings } from "@/lib/settings";
+import { readMail, sendPdfMail, shareUrl, whatsappLink } from "@/lib/share";
+import { createStatementLink, customerLedger, readRange, statementMessage } from "@/lib/statements";
 
 /** The form as typed. Opening balance / active only when the form showed them (owner / accountant). */
 function input(form: FormData): CustomerInput {
@@ -51,4 +62,45 @@ export async function customerDuplicatesAction(exceptId: number | null, gstin: s
   await requirePermission("customers", "view");
   const found = await findDuplicates(customers, String(gstin), String(mobile), exceptId ?? undefined);
   return duplicateText(found, "customer");
+}
+
+const checkId = (id: number) => {
+  if (!Number.isSafeInteger(id)) throw new Error("Bad customer id");
+};
+
+/** WhatsApp a statement (D49): a new public link for customer + range, wrapped in a wa.me link with the message. */
+export async function statementShareAction(customerId: number, period: string, from: string, to: string) {
+  const actor = await requirePermission("customers", "money");
+  checkId(customerId);
+  const { range, error } = readRange(period, from, to);
+  if (error) return { error };
+  const c = await getCustomer(customerId);
+  if (!c) return { error: "That customer doesn't exist." };
+  const [token, { closing }, { companyName }] = await Promise.all([
+    createStatementLink(actor, customerId, range),
+    customerLedger(customerId, range),
+    getSettings(),
+  ]);
+  const link = shareUrl(token);
+  return { url: whatsappLink(c.mobile, statementMessage({ name: c.name, range, closing, link, company: companyName })), link };
+}
+
+/** Email the statement PDF. */
+export async function emailStatementAction(
+  customerId: number,
+  period: string,
+  from: string,
+  to: string,
+  _: FormState,
+  form: FormData,
+): Promise<FormState> {
+  await requirePermission("customers", "money");
+  checkId(customerId);
+  return formAction(async () => {
+    const { range, error } = readRange(period, from, to);
+    if (error) throw new UserError(error);
+    const pdf = await statementPdf(customerId, range);
+    if (!pdf) throw new UserError("That customer doesn't exist.");
+    await sendPdfMail({ ...readMail(form), fileName: pdf.fileName, pdf: pdf.bytes });
+  });
 }
