@@ -54,19 +54,19 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
   From job(s) / quotation / blank; kind Tax Invoice or Estimate; place of supply auto; due date = date + credit days; Issue → number + journal post, then frozen; cancel via approval (reversal, number kept); credit-limit warning; jobs → Invoiced; PDF (amount in words, bank, terms) + print + WhatsApp + email.
   Done when: posting tests (same state, other state, estimate) · cancel reverses · issued invoice can't be edited · PDF correct.
 
-- [ ] **T13 · Receipts & allocation** — S6, A§2, A§5
+- [x] **T13 · Receipts & allocation** — S6, A§2, A§5
   Receipt (customer, date, amount, mode → money account, cheque no/date, reference, received by, notes, screenshot attachment); allocation panel (open invoices, FIFO auto-fill, remainder = advance); posts Dr money / Cr AR; invoice status view (Unpaid / Part / Paid / Overdue); edit/cancel via approval.
   Done when: test reproduces the S6 example (50,000 → 20,000 + 25,000 + 5,000 advance) · over-allocation blocked · statuses update.
 
-- [ ] **T14 · Advances auto-adjust** — S12, S5
+- [x] **T14 · Advances auto-adjust** — S12, S5
   Receipt allocated to a job as advance; on invoice issue the job's advances move to the invoice automatically (up to invoice total); invoice shows Advance Adjustment + Balance.
   Done when: test: 10,000 advance on job → 25,000 invoice → balance 15,000 · extra advance stays as advance.
 
-- [ ] **T15 · Customer 360 & ledger** — S1, S15
+- [x] **T15 · Customer 360 & ledger** — S1, S15
   Customer History timeline (quotation → job → invoice → payment → pending, all linked, derived pipeline status); Customer Ledger (date range, opening, running Dr/Cr); statement PDF / print / WhatsApp.
   Done when: ledger closing = AR balance · statement PDF correct.
 
-- [ ] **T16 · Credit & debit notes** — S16, S22
+- [x] **T16 · Credit & debit notes** — S16, S22
   Linked to the original invoice; reason; lines from the invoice (partial qty/amount); GST reversed; CN needs approval for non-owner; CN allocates to its invoice; DN adds receivable; PDFs.
   Done when: tests: CN reduces invoice open amount + GST output · DN increases them.
 
@@ -199,7 +199,7 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
 - ✅ B1 T01 · ✅ B2 T02 · ✅ B3 T03 + T04 + T05
 - ✅ B4 T06 + T07 + T08 + T09 → Phases 0–1 done
 - ✅ B5 T10 + T11 + T12
-- B6 T13 + T14 + T15 + T16 → 🚦 G1 demo
+- ✅ B6 T13 + T14 + T15 + T16 → 🚦 G1 demo (open)
 - B7 T17 + T18 + T19 + T20
 - B8 T21 + T22 + T23
 - B9 T24 + T25 + T26
