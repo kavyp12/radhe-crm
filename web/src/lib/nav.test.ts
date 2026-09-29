@@ -1,8 +1,9 @@
 import { expect, test } from "vitest";
 import { navFor, navItemFor, newMenuFor } from "@/lib/nav";
-import type { Role } from "@/lib/permissions";
+import { DEFAULT_CAN_VIEW_COST, type Role } from "@/lib/permissions";
 
-const labels = (role: Role) => navFor({ role }).flatMap((group) => group.items.map((item) => item.label));
+const user = (role: Role, canViewCost = DEFAULT_CAN_VIEW_COST[role]) => ({ role, canViewCost });
+const labels = (role: Role, canViewCost?: boolean) => navFor(user(role, canViewCost)).flatMap((group) => group.items.map((item) => item.label));
 
 test("owner sees every item", () => {
   expect(labels("owner")).toHaveLength(26);
@@ -33,17 +34,24 @@ test("sales: customers, quotations, jobs, invoices, follow-ups, reports — no m
 
 test("production: jobs and shop-floor stock only, no dashboard", () => {
   expect(labels("production")).toEqual(["Jobs", "Print Jobs", "Material Requests", "Items", "Issue to Job"]); // items: view only (D36)
-  expect(navFor({ role: "production" }).map((group) => group.label)).toEqual(["Sales", "Purchase", "Stock"]);
+  expect(navFor(user("production")).map((group) => group.label)).toEqual(["Sales", "Purchase", "Stock"]);
 });
 
 test("+ New lists only what the role may create", () => {
-  expect(newMenuFor({ role: "sales" }).map((item) => item.label)).toEqual([
+  expect(newMenuFor(user("sales")).map((item) => item.label)).toEqual([
     "Customer",
     "Quotation",
     "Job",
     "Follow-up",
   ]);
-  expect(newMenuFor({ role: "production" }).map((item) => item.label)).toEqual(["Material Request"]);
+  expect(newMenuFor(user("production")).map((item) => item.label)).toEqual(["Material Request"]);
+});
+
+test("cost-only pages (purchase rates) are hidden without can_view_cost (D52)", () => {
+  expect(labels("accountant")).toContain("Purchase Bills");
+  expect(labels("accountant", false)).not.toContain("Purchase Bills");
+  expect(labels("accountant", false)).toContain("Expenses");
+  expect(newMenuFor(user("accountant", false)).map((item) => item.label)).not.toContain("Purchase Bill");
 });
 
 test("a path maps to its module", () => {

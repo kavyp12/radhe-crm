@@ -14,19 +14,21 @@ import {
   blankLine,
   PURCHASE_LINE_KEYS,
   readPurchaseLine,
+  taxableOf,
   type PurchaseLine,
   type PurchaseLineText,
 } from "@/lib/purchase-lines";
 import { checkVersion, companyState, readDate } from "@/lib/sales";
-import { addMove, checkNotNegative, liveMoves, lockItems, reverseMoves } from "@/lib/stock-moves";
+import { addMove, checkNothingOutSince, checkNotNegative, liveMoves, lockItems, reverseMoves } from "@/lib/stock-moves";
 import { billStatus, paidByBill, paidTowardsBills, releaseBill } from "@/lib/vendor-payments";
 
 // Purchase bills (S9, S24, A§2, A§3, D51): a vendor's bill, numbered PB/ and posted when saved:
 //   Dr stock (stock lines) / category expense accounts (expense lines, with their job) + gst_in_*, round_off ±,
 //   Cr ap (vendor). Stock lines add stock moves at their taxable value (excl. GST).
 // Edit = reverse + repost, cancel = reverse on the bill date (D45); both by the owner at once, anyone else through an
-// approval request (A§7); neither may leave an item below zero stock. A backdated save by a non-owner is a request
-// too. Purchase rates are cost: every entry point needs can_view_cost (D51).
+// approval request (A§7); neither may leave an item below zero stock, nor take back stock of an item that has gone
+// out since (D52). A backdated save by a non-owner is a request too. Purchase rates are cost: every entry point
+// needs can_view_cost (D51).
 
 type Bill = typeof purchaseBills.$inferSelect;
 type BillLine = typeof purchaseBillLines.$inferSelect;
@@ -339,12 +341,27 @@ async function planEdit(tx: Tx, p: EditPayload) {
   diff("Notes", current.notes, v.notes);
   if (!sameLines) diff("Lines", await linesText(tx, old), await linesText(tx, r.lines.map(asSaved)));
   const reposts = !sameLines || v.vendorId !== current.vendorId || v.date !== current.date || v.roundOffPaise !== current.roundOffPaise || v.vendorStateCode !== current.vendorStateCode;
-  return { current, r, old, sameLines, changes, reposts };
+  // D52: items whose stock (qty or value) this edit changes; the others go back in exactly as they were.
+  const before = stockByItem(old.map((o) => ({ itemId: o.stockItemId, qty: o.qtyMilli, value: taxableOf(o) })));
+  const after = stockByItem(r.lines.map((l, i) => ({ itemId: l.itemId, qty: l.qtyMilli, value: r.totals.lines[i].taxable })));
+  const stockChanged = [...new Set([...before.keys(), ...after.keys()])].filter((id) => before.get(id) !== after.get(id));
+  return { current, r, old, sameLines, changes, reposts, stockChanged };
+}
+
+/** Item → "qty/value" of its stock lines. */
+function stockByItem(lines: { itemId: number | null; qty: bigint; value: bigint }[]) {
+  const sums = new Map<number, [bigint, bigint]>();
+  for (const l of lines) {
+    if (l.itemId === null) continue;
+    const [qty, value] = sums.get(l.itemId) ?? [0n, 0n];
+    sums.set(l.itemId, [qty + l.qty, value + l.value]);
+  }
+  return new Map([...sums].map(([id, [qty, value]]) => [id, `${qty}/${value}`]));
 }
 
 /** Edit = reverse + repost (books and stock) when a posted figure changed; the old lines stay, deactivated. */
 async function doEdit(tx: Tx, p: EditPayload) {
-  const { current, r, old, sameLines, changes, reposts } = await planEdit(tx, p);
+  const { current, r, old, sameLines, changes, reposts, stockChanged } = await planEdit(tx, p);
   if (!changes.length) return current.number;
   await tx.update(purchaseBills).set(r.values).where(eq(purchaseBills.id, current.id));
   if (!sameLines) {
@@ -354,6 +371,7 @@ async function doEdit(tx: Tx, p: EditPayload) {
   if (reposts) {
     const items = [...itemsOf(old.map((o) => ({ itemId: o.stockItemId }))), ...itemsOf(r.lines)];
     await lockItems(tx, items);
+    await checkNothingOutSince(tx, "purchase", current.id, stockChanged, "bill");
     const entry = await liveEntry(tx, "purchase_bills", current.id);
     if (!entry) throw new Error(`Purchase bill ${current.id} has no journal entry in force`);
     await reverse(tx, entry.id, current.date);
@@ -367,8 +385,9 @@ async function doEdit(tx: Tx, p: EditPayload) {
 
 registerExecutor<EditPayload>("purchase_bill.edit", {
   async describe(tx, p) {
-    const { current, changes } = await planEdit(tx, p);
+    const { current, changes, stockChanged } = await planEdit(tx, p);
     if (!changes.length) throw new UserError("Nothing was changed.");
+    await checkNothingOutSince(tx, "purchase", current.id, stockChanged, "bill"); // refused now rather than at approval
     return { summary: `Change purchase bill ${current.number}`, target: { type: "purchase_bills", id: p.id }, changes };
   },
   run: (tx, _owner, p) => doEdit(tx, p),
@@ -386,7 +405,10 @@ export async function updatePurchaseBill(actor: SessionUser, id: number, input: 
 
 type CancelPayload = { id: number };
 
-/** Reverse the entry and the stock on the bill date (D45); refused if that leaves an item below zero (D51). */
+/**
+ * Reverse the entry and the stock on the bill date (D45); refused if that leaves an item below zero (D51) or any of
+ * its items has gone out since the bill (D52).
+ */
 async function doCancel(tx: Tx, p: CancelPayload) {
   const b = await lock(tx, p.id);
   if (b.status !== "active") throw new UserError("This bill is already cancelled.");
@@ -394,6 +416,7 @@ async function doCancel(tx: Tx, p: CancelPayload) {
   if (!entry) throw new Error(`Purchase bill ${b.id} has no journal entry in force`);
   const items = ids((await liveMoves(tx, "purchase", b.id)).map((m) => m.itemId));
   await lockItems(tx, items);
+  await checkNothingOutSince(tx, "purchase", b.id, items, "bill");
   await reverse(tx, entry.id, b.date);
   await reverseMoves(tx, "purchase", b.id);
   await checkNotNegative(tx, items);
@@ -406,6 +429,7 @@ registerExecutor<CancelPayload>("purchase_bill.cancel", {
     const [b] = await tx.select().from(purchaseBills).where(eq(purchaseBills.id, p.id));
     if (!b) throw new UserError("That bill doesn't exist.");
     if (b.status !== "active") throw new UserError("This bill is already cancelled.");
+    await checkNothingOutSince(tx, "purchase", b.id, (await liveMoves(tx, "purchase", b.id)).map((m) => m.itemId), "bill");
     return {
       summary: `Cancel purchase bill ${b.number} (${b.vendorBillNo}, ${formatMoney(b.totalPaise)})`,
       target: { type: "purchase_bills", id: p.id },

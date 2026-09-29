@@ -14,12 +14,14 @@ import { saveBooks } from "@/lib/settings";
 import { createVendorStatementLink, readRange, vendorLedger, withoutReversed } from "@/lib/statements";
 import { createUser } from "@/lib/users";
 import {
+  applyVendorOnAccount,
   billStatus,
   cancelVendorPayment,
   createVendorPayment,
   getVendorPayment,
   openBills,
   updateVendorPayment,
+  vendorOnAccount,
   type VendorPaymentInput,
 } from "@/lib/vendor-payments";
 import { createVendor, vendorOverview } from "@/lib/vendors";
@@ -175,3 +177,28 @@ test("the vendor ledger's closing = the vendor's AP balance; the statement leave
   const res = await shareRoute(new Request(`http://x/share/${token}`), { params: Promise.resolve({ token }) });
   expect([res.status, res.headers.get("content-type")]).toEqual([200, "application/pdf"]);
 }, 30_000);
+
+test("apply on-account (D52): a payment's rest goes on open bills without approval; over-apply refused; amounts on one bill merge", async () => {
+  const v = await vendor("VP apply vendor");
+  const older = await bill(v, "AP-1", "1000", addDays(today, -3));
+  const newer = await bill(v, "AP-2", "2000");
+  const p = await pay(owner, payment(v, "2500", [[older, "400"]]));
+  const { number } = (await getVendorPayment(p))!;
+  expect(await vendorOnAccount(db, v)).toEqual([{ id: p, number, date: today, rest: 2100_00n }]);
+  const apply = (actor: SessionUser, lines: [number, string][]) =>
+    applyVendorOnAccount(actor, v, p, JSON.stringify(lines.map(([id, amount]) => ({ id: String(id), amount }))));
+  await expect(apply(owner, [[newer, "2200"]])).rejects.toThrow(`₹2,200.00 is more than the ₹2,100.00 ${number} has on account.`);
+  await expect(apply(owner, [[older, "700"]])).rejects.toThrow("is more than its open ₹600.00");
+  const before = await apOwed(v);
+
+  // The accountant applies it directly (no approval): ₹600 more on the older bill (one row of ₹1,000 now), ₹1,500 on the newer.
+  expect(await apply(accountant, [[older, "600"], [newer, "1500"]])).toEqual({ message: `Applied ₹2,100.00 from ${number}.` });
+  expect(await status(older)).toBe("Paid");
+  expect(await status(newer)).toBe("Part Payment");
+  const after = (await getVendorPayment(p))!;
+  expect(after.lines.map((l) => [l.billId, l.amount])).toEqual([[older, 1000_00n], [newer, 1500_00n]]);
+  expect(after.removed.map((l) => l.amount)).toEqual([400_00n]);
+  expect(await vendorOnAccount(db, v)).toEqual([]);
+  expect(await apOwed(v)).toBe(before); // allocations never post
+  await expect(apply(owner, [[newer, "1"]])).rejects.toThrow("is more than the ₹0.00");
+});

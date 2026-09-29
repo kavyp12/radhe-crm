@@ -80,7 +80,8 @@ export default async function PurchaseBillPage({ params }: PageProps<"/purchase-
             description={
               <>
                 Its journal entry and its stock are reversed on the bill date ({formatDate(b.date)}); the number stays and
-                payments on it go back on account. Refused if stock from it has already been used.
+                payments on it go back on account. Refused once any of its items has been used or issued since (use a
+                stock adjustment then).
                 {!isOwner && " This goes to the owner for approval."}
               </>
             }

@@ -16,7 +16,7 @@ import { checkVersion, readDate } from "@/lib/sales";
 // Cr money account). Vendor allocations link it to the vendor's purchase bills, oldest bill first; what isn't
 // allocated is on account. Allocations never post and are never deleted. Bill statuses are computed from them
 // (A§5), never stored. Edit / cancel: the owner at once, anyone else through approval; a backdated save by a
-// non-owner is a request too.
+// non-owner is a request too. What is on account is put on bills later for free (applyVendorOnAccount, D52).
 
 type Q = Tx | typeof db;
 type Payment = typeof vendorPayments.$inferSelect;
@@ -405,6 +405,54 @@ export async function cancelVendorPayment(actor: SessionUser, id: number, reason
   if (p.status !== "active") throw new UserError("This payment is already cancelled.");
   const outcome = await runOrRequest(actor, "vendor_payment.cancel", { id } satisfies CancelPayload, reason);
   return { message: outcome.done ? `Cancelled ${p.number}; its entry is reversed.` : outcome.message };
+}
+
+// ---- Apply on-account (D52, as D50 for customers)
+
+/** A vendor's live payments with an unallocated rest, oldest first. */
+export async function vendorOnAccount(q: Q, vendorId: number) {
+  // The subquery names the outer row in full: drizzle leaves columns unqualified in a one-table select.
+  const rows = await q
+    .select({
+      id: vendorPayments.id,
+      number: vendorPayments.number,
+      date: vendorPayments.date,
+      amount: vendorPayments.amountPaise,
+      used: sql<string>`coalesce((select sum(a.amount_paise) from vendor_allocations a where a.payment_id = "vendor_payments"."id" and a.active), 0)`,
+    })
+    .from(vendorPayments)
+    .where(and(eq(vendorPayments.vendorId, vendorId), eq(vendorPayments.status, "active")))
+    .orderBy(asc(vendorPayments.date), asc(vendorPayments.number));
+  return rows.map((r) => ({ id: r.id, number: r.number, date: r.date, rest: r.amount - BigInt(r.used) })).filter((r) => r.rest > 0n);
+}
+
+/**
+ * Puts a payment's unallocated rest on the vendor's open bills. Only adds (free for owner / accountant, no approval);
+ * changing existing allocations stays a payment edit. An amount on a bill the payment already pays merges into that
+ * row (the old row deactivated, D49), so each bill keeps one line.
+ */
+export async function applyVendorOnAccount(actor: SessionUser, vendorId: number, paymentId: number, json: string) {
+  if (!can(actor, "payments", "create")) throw new Error("Not allowed");
+  const lines = readBillAllocations(json);
+  if (!lines.length) throw new UserError("Enter an amount on at least one bill.", "allocations");
+  return writeTx(actor, async (tx) => {
+    const p = await lock(tx, paymentId); // two applies of the same money queue
+    if (p.vendorId !== vendorId) throw new UserError("That payment isn't this vendor's: reload the page.");
+    if (p.status !== "active") throw new UserError(`${p.number} is cancelled.`);
+    const own = await currentLines(tx, p.id);
+    const rest = p.amountPaise - own.reduce((s, l) => s + l.amount, 0n);
+    const total = lines.reduce((s, l) => s + l.amount, 0n);
+    if (total > rest) {
+      throw new UserError(`${formatMoney(total)} is more than the ${formatMoney(rest)} ${p.number} has on account.`, "allocations");
+    }
+    await checkBillAllocations(tx, vendorId, rest, lines);
+    for (const l of lines) {
+      const same = own.find((o) => o.billId === l.billId);
+      if (same) await deactivate(tx, [same.id]);
+      await insertAllocations(tx, p.id, [{ billId: l.billId, amount: l.amount + (same?.amount ?? 0n) }], actor);
+    }
+    return { message: `Applied ${formatMoney(total)} from ${p.number}.` };
+  });
 }
 
 // ---- Loaders

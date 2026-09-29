@@ -160,9 +160,35 @@ test("cancel reverses the entry and the stock on the bill date; refused once the
 
   const used = await save(owner, bill(local, "C-2", [itemLine(item, "10", "200")]));
   await createStockAdjustment(owner, { itemId: String(item), date: formatDate(today), qty: "-8", rate: "", reason: "Used on a job" });
-  await expect(cancelPurchaseBill(owner, used, "")).rejects.toThrow("PB acrylic 5mm would go below zero stock");
+  await expect(cancelPurchaseBill(owner, used, "")).rejects.toThrow("PB acrylic 5mm has been used or issued since this bill was entered");
   expect((await getPurchaseBill(used))!.status).toBe("active");
   expect(await stockOf(item)).toEqual([2_000n, 400_00n, 200_00n]);
+});
+
+test("D52: once stock went out after a bill, its stock can't be taken back (no value left on zero qty); other edits still work", async () => {
+  const item = await acrylic("PB acrylic 6mm");
+  const first = await save(owner, bill(local, "D52-1", [itemLine(item, "10", "100")]));
+  const second = await save(owner, bill(local, "D52-2", [itemLine(item, "10", "200"), expenseLine("1", "500", "5")]));
+  // 20 sheets worth ₹3,000 (average ₹150); 10 go out at ₹1,500.
+  await createStockAdjustment(owner, { itemId: String(item), date: formatDate(today), qty: "-10", rate: "", reason: "Used" });
+  expect(await stockOf(item)).toEqual([10_000n, 1500_00n, 150_00n]);
+  // Before D52 this cancel went through and left 0 sheets worth −₹500.
+  await expect(cancelPurchaseBill(owner, second, "")).rejects.toThrow("has been used or issued since this bill was entered");
+  await expect(cancelPurchaseBill(owner, first, "")).rejects.toThrow("stock adjustment instead");
+  const edit = (lines: PurchaseLineText[], patch: Partial<BillInput> = {}) =>
+    updatePurchaseBill(owner, second, bill(local, "D52-2", lines, patch), "");
+  await expect(edit([itemLine(item, "8", "200"), expenseLine("1", "500", "5")])).rejects.toThrow("stock adjustment instead");
+  await expect(edit([itemLine(item, "10", "210"), expenseLine("1", "500", "5")])).rejects.toThrow("stock adjustment instead");
+  // The stock lines unchanged: the expense line, notes and even the date may change (the moves go back in as they were).
+  await edit([itemLine(item, "10", "200"), expenseLine("1", "650", "5")], { notes: "Transport corrected", date: formatDate(addDays(today, -1)) });
+  expect((await getPurchaseBill(second))!.totalPaise).toBe(3043_00n); // ₹2,000 + ₹360 GST + ₹650 + ₹32.50, rounded
+  expect(await stockOf(item)).toEqual([10_000n, 1500_00n, 150_00n]);
+  // Re-entered moves still count from the bill's first entry: the cancel stays refused.
+  await expect(cancelPurchaseBill(owner, second, "")).rejects.toThrow("stock adjustment instead");
+  // A bill entered after the stock went out can be cancelled.
+  const later = await save(owner, bill(local, "D52-3", [itemLine(item, "5", "300")]));
+  await cancelPurchaseBill(owner, later, "Wrong item");
+  expect(await stockOf(item)).toEqual([10_000n, 1500_00n, 150_00n]);
 });
 
 test("edit = reverse + repost (books and stock); the accountant's edit and cancel wait for the owner", async () => {

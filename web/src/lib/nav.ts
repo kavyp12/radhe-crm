@@ -36,7 +36,8 @@ export const SIDEBAR_COOKIE = "sidebar_collapsed";
 
 /** Counts shown next to an item (placeholders until T07 / T29 fill them). */
 export type NavCount = "approvals" | "followUps";
-export type NavItem = { label: string; href: string; area: Area; icon: LucideIcon; count?: NavCount };
+/** cost: the page shows purchase rates, so only can_view_cost users get the item (D52); the page checks it too. */
+export type NavItem = { label: string; href: string; area: Area; icon: LucideIcon; count?: NavCount; cost?: true };
 export type NavGroup = { label?: string; items: NavItem[] };
 
 export const NAV: NavGroup[] = [
@@ -70,7 +71,7 @@ export const NAV: NavGroup[] = [
       { label: "Material Requests", href: "/material-requests", area: "materialRequests", icon: ClipboardList },
       { label: "Purchase Orders", href: "/purchase-orders", area: "purchaseOrders", icon: ShoppingCart },
       { label: "Material Receive", href: "/material-receive", area: "goodsReceipts", icon: PackageCheck },
-      { label: "Purchase Bills", href: "/purchase-bills", area: "books", icon: FileSpreadsheet },
+      { label: "Purchase Bills", href: "/purchase-bills", area: "books", icon: FileSpreadsheet, cost: true },
     ],
   },
   {
@@ -93,7 +94,7 @@ export const NAV: NavGroup[] = [
 ];
 
 /** The "+ New" menu: documents entered every day. */
-export const NEW_MENU: { label: string; href: string; area: Area }[] = [
+export const NEW_MENU: { label: string; href: string; area: Area; cost?: true }[] = [
   { label: "Customer", href: "/customers/new", area: "customers" },
   { label: "Quotation", href: "/quotations/new", area: "quotations" },
   { label: "Job", href: "/jobs/new", area: "jobs" },
@@ -101,19 +102,22 @@ export const NEW_MENU: { label: string; href: string; area: Area }[] = [
   { label: "Receipt", href: "/receipts/new", area: "payments" },
   { label: "Follow-up", href: "/follow-ups/new", area: "followUps" },
   { label: "Expense", href: "/expenses/new", area: "books" },
-  { label: "Purchase Bill", href: "/purchase-bills/new", area: "books" },
+  { label: "Purchase Bill", href: "/purchase-bills/new", area: "books", cost: true },
   { label: "Material Request", href: "/material-requests/new", area: "materialRequests" },
 ];
 
-/** The sidebar for this user: only the areas their role can open, empty groups dropped. */
-export function navFor(user: Pick<SessionUser, "role">): NavGroup[] {
-  return NAV.map((group) => ({ ...group, items: group.items.filter((item) => can(user, item.area)) })).filter(
+type NavUser = Pick<SessionUser, "role" | "canViewCost">;
+const costOk = (user: NavUser, item: { cost?: true }) => !item.cost || user.canViewCost;
+
+/** The sidebar for this user: only the areas their role can open (cost-only pages need can_view_cost), empty groups dropped. */
+export function navFor(user: NavUser): NavGroup[] {
+  return NAV.map((group) => ({ ...group, items: group.items.filter((item) => can(user, item.area) && costOk(user, item)) })).filter(
     (group) => group.items.length > 0,
   );
 }
 
-export function newMenuFor(user: Pick<SessionUser, "role">) {
-  return NEW_MENU.filter((item) => can(user, item.area, "create"));
+export function newMenuFor(user: NavUser) {
+  return NEW_MENU.filter((item) => can(user, item.area, "create") && costOk(user, item));
 }
 
 /** The item a path belongs to: /quotations/new → Quotations. */

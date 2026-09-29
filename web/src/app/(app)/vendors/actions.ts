@@ -9,6 +9,7 @@ import { vendorStatementPdf } from "@/lib/pdf";
 import { getSettings } from "@/lib/settings";
 import { readMail, sendPdfMail, shareUrl, whatsappLink } from "@/lib/share";
 import { createVendorStatementLink, readRange, statementMessage, vendorLedger } from "@/lib/statements";
+import { applyVendorOnAccount } from "@/lib/vendor-payments";
 import { createVendor, getVendor, updateVendor, type VendorInput } from "@/lib/vendors";
 
 /** The form as typed. Opening balance / active only when the form showed them. */
@@ -90,4 +91,14 @@ export async function emailVendorStatementAction(
     if (!pdf) throw new UserError("That vendor doesn't exist.");
     await sendPdfMail({ ...readMail(form), fileName: pdf.fileName, pdf: pdf.bytes });
   });
+}
+
+/** D52 (as D50 for customers): put a vendor payment's rest on the vendor's open bills. */
+export async function applyVendorOnAccountAction(vendorId: number, paymentId: number, _: FormState, form: FormData): Promise<FormState> {
+  const actor = await requirePermission("payments", "create");
+  checkId(vendorId);
+  checkId(paymentId);
+  // No revalidatePath (as for customers): it would re-render the used-up apply page as a 404. The form goes back to
+  // the vendor page, which renders fresh (dynamic).
+  return formAction(() => applyVendorOnAccount(actor, vendorId, paymentId, String(form.get("allocations") ?? "")));
 }

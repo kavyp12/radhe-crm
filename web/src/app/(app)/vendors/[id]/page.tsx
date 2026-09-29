@@ -6,6 +6,7 @@ import { DateText } from "@/components/date-text";
 import { EmailDialog, WhatsAppButton } from "@/components/doc-actions";
 import { DocFacts } from "@/components/doc-share";
 import { EmptyState } from "@/components/empty-state";
+import { db } from "@/db";
 import { History } from "@/components/history";
 import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
@@ -20,6 +21,7 @@ import { can, canViewCost } from "@/lib/permissions";
 import { listPurchaseBills } from "@/lib/purchase-bills";
 import { getSettings } from "@/lib/settings";
 import { drCr, entryLabel, LEDGER_PERIODS, rangeText, readRange, statementMessage, vendorLedger } from "@/lib/statements";
+import { vendorOnAccount } from "@/lib/vendor-payments";
 import { getVendor, vendorOverview } from "@/lib/vendors";
 import { LedgerFilter } from "../../customers/[id]/ledger-filter";
 import { emailVendorStatementAction, vendorStatementShareAction } from "../actions";
@@ -58,12 +60,14 @@ export default async function VendorPage({ params, searchParams }: PageProps<"/v
   const { period, range, error: rangeError } = readRange(text("period") || undefined, text("from"), text("to"));
   // Bills show purchase amounts per bill: only for can_view_cost users (D51).
   const bills = can(user, "books", "view") && canViewCost(user);
-  const [overview, files, ledger, billRows, settings] = await Promise.all([
+  const canApply = can(user, "payments", "create");
+  const [overview, files, ledger, billRows, settings, onAccount] = await Promise.all([
     vendorOverview(id),
     listAttachments("vendor", id),
     vendorLedger(id, range),
     bills ? listPurchaseBills(id) : [],
     getSettings(),
+    canApply ? vendorOnAccount(db, id) : [],
   ]);
   const tiles = [
     { label: "Total billed", value: <Money paise={overview.billed} /> },
@@ -127,6 +131,39 @@ export default async function VendorPage({ params, searchParams }: PageProps<"/v
               </div>
             ))}
           </section>
+          {onAccount.length > 0 && (
+            <section aria-label="On account" className="overflow-x-auto rounded-lg border bg-card">
+              <div className="border-b px-4 py-3">
+                <h2 className="text-sm font-medium">On account</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">Paid but not on any bill yet. Apply it to open bills.</p>
+              </div>
+              <table className="w-full min-w-120 border-separate border-spacing-0 text-[13px]">
+                <tbody>
+                  {onAccount.map((p) => (
+                    <tr key={p.id}>
+                      <td className={td}>
+                        <Link href={`/vendor-payments/${p.id}`} className="text-primary hover:underline">
+                          <DocNumber number={p.number} />
+                        </Link>
+                      </td>
+                      <td className={td}>
+                        <DateText date={p.date} />
+                      </td>
+                      <td className={td}>Payment, not allocated</td>
+                      <td className={`${td} text-right`}>
+                        <Money paise={p.rest} />
+                      </td>
+                      <td className={`${td} w-24 text-right`}>
+                        <Button asChild variant="outline" size="sm">
+                          <Link href={`/vendors/${id}/apply?payment=${p.id}`}>Apply</Link>
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          )}
           <dl className="grid gap-x-6 gap-y-4 rounded-lg border bg-card p-4 sm:grid-cols-2 lg:grid-cols-3">
             <Detail label="GSTIN">{v.gstin ?? "Unregistered"}</Detail>
             <Detail label="State">{`${v.stateCode} · ${stateName(v.stateCode) ?? ""}`}</Detail>

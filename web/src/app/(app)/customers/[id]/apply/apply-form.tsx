@@ -29,17 +29,22 @@ function paise(text: string): bigint | null {
 const th = "h-9 border-b px-2 text-left text-xs font-medium whitespace-nowrap text-muted-foreground";
 const td = "border-b px-2 py-1.5";
 
-/** D50: spreads what a receipt / credit note has on account over the open invoices (oldest first, editable) and jobs. */
+/**
+ * D50: spreads what a receipt / credit note has on account over the open invoices (oldest first, editable) and jobs.
+ * `vendor`: a vendor payment's rest over the vendor's open bills (D52; bills come in as `open.invoices`, no jobs).
+ */
 export function ApplyForm({
   available,
   open,
   back,
   action,
+  vendor,
 }: {
   available: bigint;
   open: OpenItems;
   back: string;
   action: (state: FormState, form: FormData) => Promise<FormState>;
+  vendor?: boolean;
 }) {
   const router = useRouter();
   const { state, onSubmit, pending } = useFormAction(action);
@@ -81,17 +86,21 @@ export function ApplyForm({
       <input type="hidden" name="allocations" value={json} />
       <FormSection
         title="Apply to"
-        description="Oldest invoices are filled first; change any line. An amount on a job is an advance for it. Whatever is left stays on account."
+        description={
+          vendor
+            ? "Oldest bills are filled first; change any line. Whatever is left stays on account."
+            : "Oldest invoices are filled first; change any line. An amount on a job is an advance for it. Whatever is left stays on account."
+        }
       >
         <div className="grid gap-4">
           {nInvoices === 0 ? (
-            <p className="text-sm text-muted-foreground">No open invoices or debit notes.</p>
+            <p className="text-sm text-muted-foreground">{vendor ? "No open bills." : "No open invoices or debit notes."}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-140 border-separate border-spacing-0 text-[13px]">
                 <thead>
                   <tr>
-                    <th className={th}>Invoice / debit note</th>
+                    <th className={th}>{vendor ? "Bill" : "Invoice / debit note"}</th>
                     <th className={th}>Date</th>
                     <th className={th}>Due</th>
                     <th className={`${th} text-right`}>Open</th>

@@ -6,7 +6,7 @@ import { UserError } from "@/lib/action";
 import type { PostLine, SystemKey } from "@/lib/ledger";
 import { divRound, milliText } from "@/lib/num";
 
-// Stock moves (A§9, D20, D51): the low-level helpers every stock document uses (opening, adjustment, purchase, issue).
+// Stock moves (A§9, D20, D51, D52): the low-level helpers every stock document uses (opening, adjustment, purchase, issue).
 // An item's qty and value are the sums of its moves; the average is never stored. Lock the items (lockItems) before
 // valuing or adding their moves; moves are append-only, a cancel / edit adds the mirror move. No lib imports that lead
 // back to approvals / settings, so Settings can move opening stock (moveOpeningStock).
@@ -119,6 +119,39 @@ export async function checkNotNegative(tx: Tx, itemIds: number[]) {
   throw new UserError(
     `${item.name} would go below zero stock (${milliText(have)} ${item.unit}): part of it has been used or issued already.`,
   );
+}
+
+const out = alias(stockMoves, "out_move");
+
+/**
+ * D52: a document's stock can't be taken back (a cancel, or an edit that changes its stock lines) once any of that item
+ * has gone out after the document first moved it — a later outgoing move still in force. Otherwise the value left
+ * wouldn't match what is physically left (value stuck on zero qty). A later cancelled pair, or another document's
+ * mirror move, took out exactly what it brought, so it doesn't count. Lock the items first.
+ */
+export async function checkNothingOutSince(tx: Tx, source: StockSource, sourceId: number, itemIds: number[], what: string) {
+  const ids = [...new Set(itemIds)];
+  if (!ids.length) return;
+  const [hit] = await tx
+    .select({ name: stockItems.name })
+    .from(out)
+    .innerJoin(stockItems, eq(stockItems.id, out.itemId))
+    .leftJoin(mirror, eq(mirror.reversesMoveId, out.id))
+    .where(
+      and(
+        inArray(out.itemId, ids),
+        sql`${out.qtyMilli} < 0`,
+        isNull(out.reversesMoveId),
+        isNull(mirror.id),
+        sql`${out.id} > (select min(d.id) from stock_moves d where d.source = ${source} and d.source_id = ${sourceId} and d.item_id = ${out.itemId})`,
+      ),
+    )
+    .limit(1);
+  if (hit) {
+    throw new UserError(
+      `${hit.name} has been used or issued since this ${what} was entered, so its stock can't be taken back: correct it with a stock adjustment instead.`,
+    );
+  }
 }
 
 /** Dr `a` / Cr `b` for a positive value, the other way for a negative one; nothing for zero. */
