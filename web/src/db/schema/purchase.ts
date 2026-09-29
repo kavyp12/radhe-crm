@@ -231,6 +231,56 @@ export const purchaseOrderLines = pgTable(
   ],
 );
 
+export const GOODS_RECEIPT_STATUSES = ["active", "cancelled"] as const;
+
+/**
+ * Material receive / GRN (S18, A§3, D21, D53): goods received against a purchase order, numbered GRN/ and posted when
+ * saved — Dr stock / Cr grn_clearing at the PO rate (excl. GST), with stock moves at that value. A bill made from it
+ * clears grn_clearing. Cancel only while unbilled and none of its stock has gone out (D52). Audited.
+ */
+export const goodsReceipts = pgTable(
+  "goods_receipts",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    number: text("number").notNull().unique(),
+    date: date("date").notNull(),
+    orderId: bigint("order_id", { mode: "number" })
+      .notNull()
+      .references(() => purchaseOrders.id),
+    notes: text("notes"),
+    status: text("status", { enum: GOODS_RECEIPT_STATUSES }).notNull().default("active"),
+    ...stamps(),
+  },
+  (t) => [index("goods_receipts_order_idx").on(t.orderId), check("goods_receipts_status_check", sql`${t.status} in ('active', 'cancelled')`)],
+);
+
+/** A GRN's lines: a PO line received, its qty, the PO rate and the value posted (qty × rate, excl. GST). */
+export const goodsReceiptLines = pgTable(
+  "goods_receipt_lines",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    receiptId: bigint("receipt_id", { mode: "number" })
+      .notNull()
+      .references(() => goodsReceipts.id),
+    position: integer("position").notNull(),
+    orderLineId: bigint("order_line_id", { mode: "number" })
+      .notNull()
+      .references(() => purchaseOrderLines.id),
+    itemId: bigint("item_id", { mode: "number" })
+      .notNull()
+      .references(() => stockItems.id),
+    qtyMilli: bigint("qty_milli", { mode: "bigint" }).notNull(),
+    ratePaise: bigint("rate_paise", { mode: "bigint" }).notNull(),
+    valuePaise: bigint("value_paise", { mode: "bigint" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("goods_receipt_lines_receipt_idx").on(t.receiptId),
+    index("goods_receipt_lines_order_line_idx").on(t.orderLineId),
+    check("goods_receipt_lines_qty_positive", sql`${t.qtyMilli} > 0`),
+  ],
+);
+
 export const PURCHASE_BILL_STATUSES = ["active", "cancelled"] as const;
 
 /**
@@ -286,12 +336,16 @@ export const purchaseBillLines = pgTable(
     ratePaise: bigint("rate_paise", { mode: "bigint" }).notNull(),
     gstBp: integer("gst_bp").notNull(),
     jobId: bigint("job_id", { mode: "number" }).references(() => jobs.id),
+    // Billed from a GRN line (T23): its stock came in with the GRN, so the line clears grn_clearing instead.
+    grnLineId: bigint("grn_line_id", { mode: "number" }).references(() => goodsReceiptLines.id),
     active: boolean("active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("purchase_bill_lines_bill_idx").on(t.billId),
     index("purchase_bill_lines_job_idx").on(t.jobId),
+    index("purchase_bill_lines_grn_line_idx").on(t.grnLineId),
+    check("purchase_bill_lines_grn_on_item", sql`${t.grnLineId} is null or ${t.stockItemId} is not null`),
     check("purchase_bill_lines_one_kind", sql`num_nonnulls(${t.stockItemId}, ${t.expenseCategoryId}) = 1`),
     check("purchase_bill_lines_job_on_expense", sql`${t.jobId} is null or ${t.expenseCategoryId} is not null`),
     check("purchase_bill_lines_qty_positive", sql`${t.qtyMilli} > 0`),

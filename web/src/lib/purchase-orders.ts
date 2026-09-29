@@ -2,6 +2,8 @@ import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import type { Status } from "@/components/status-badge";
 import { db, writeTx, type Tx } from "@/db";
 import {
+  goodsReceiptLines,
+  goodsReceipts,
   materialRequestLines,
   materialRequests,
   PURCHASE_ORDER_STATUSES,
@@ -38,6 +40,36 @@ import { companyState, newShareToken, readDate } from "@/lib/sales";
 type Order = typeof purchaseOrders.$inferSelect;
 type OrderStatus = (typeof PURCHASE_ORDER_STATUSES)[number];
 export const ORDER_STATUS: Record<OrderStatus, Status> = { draft: "Draft", sent: "Sent", cancelled: "Cancelled" };
+
+/** Per PO line: the qty received on live GRNs (T23). */
+export async function receivedByLine(q: Tx | typeof db, orderIds: number[]): Promise<Map<number, bigint>> {
+  if (!orderIds.length) return new Map();
+  const rows = await q
+    .select({ lineId: goodsReceiptLines.orderLineId, qty: sql<string>`sum(${goodsReceiptLines.qtyMilli})` })
+    .from(goodsReceiptLines)
+    .innerJoin(goodsReceipts, eq(goodsReceipts.id, goodsReceiptLines.receiptId))
+    .where(and(inArray(goodsReceipts.orderId, orderIds), eq(goodsReceipts.status, "active")))
+    .groupBy(goodsReceiptLines.orderLineId);
+  return new Map(rows.map((r) => [r.lineId, BigInt(r.qty)]));
+}
+
+/** The status shown (computed, T23): Cancelled; every line received → Received; some → Partly Received; else Draft / Sent. */
+export function orderStatus(status: OrderStatus, lines: { id: number; qtyMilli: bigint }[], received: Map<number, bigint>): Status {
+  if (status === "cancelled") return "Cancelled";
+  if (lines.length && lines.every((l) => (received.get(l.id) ?? 0n) >= l.qtyMilli)) return "Received";
+  if (lines.some((l) => (received.get(l.id) ?? 0n) > 0n)) return "Partly Received";
+  return ORDER_STATUS[status];
+}
+
+/** Goods came in against the order (a live GRN): it can no longer be changed or cancelled. */
+async function checkNothingReceived(tx: Tx, o: Order, what: string) {
+  const [grn] = await tx
+    .select({ number: goodsReceipts.number })
+    .from(goodsReceipts)
+    .where(and(eq(goodsReceipts.orderId, o.id), eq(goodsReceipts.status, "active")))
+    .limit(1);
+  if (grn) throw new UserError(`Goods have been received against ${o.number} (${grn.number}): it can't be ${what}.`);
+}
 
 /** The form as typed. lines = JSON of OrderLineText[]. */
 export type OrderInput = { vendorId: string; date: string; notes: string; lines: string };
@@ -201,6 +233,7 @@ export async function updateOrder(actor: SessionUser, id: number, input: OrderIn
   allowed(actor, "edit");
   await writeTx(actor, async (tx) => {
     const current = await lock(tx, id);
+    await checkNothingReceived(tx, current, "changed");
     const r = await readOrder(tx, input, current);
     const old = await activeLines(tx, current.id);
     await tx.update(purchaseOrders).set({ ...r.values, status: "draft" }).where(eq(purchaseOrders.id, current.id));
@@ -226,6 +259,7 @@ export async function cancelOrder(actor: SessionUser, id: number) {
   allowed(actor, "cancel");
   return writeTx(actor, async (tx) => {
     const o = await lock(tx, id);
+    await checkNothingReceived(tx, o, "cancelled");
     await tx.update(purchaseOrders).set({ status: "cancelled" }).where(eq(purchaseOrders.id, o.id));
     await syncOrdered(tx, await requestsOf(tx, (await activeLines(tx, o.id)).map((l) => l.requestLineId)));
     return { message: `Cancelled ${o.number}.` };
@@ -234,8 +268,9 @@ export async function cancelOrder(actor: SessionUser, id: number) {
 
 // ---- Loaders (callers have checked purchaseOrders + can_view_cost)
 
+/** Orders, newest first, with the status shown (receipts counted, T23). */
 export async function listOrders() {
-  return db
+  const rows = await db
     .select({
       id: purchaseOrders.id,
       number: purchaseOrders.number,
@@ -248,6 +283,13 @@ export async function listOrders() {
     .from(purchaseOrders)
     .innerJoin(vendors, eq(vendors.id, purchaseOrders.vendorId))
     .orderBy(desc(purchaseOrders.id));
+  const lines = await db
+    .select({ id: purchaseOrderLines.id, orderId: purchaseOrderLines.orderId, qtyMilli: purchaseOrderLines.qtyMilli })
+    .from(purchaseOrderLines)
+    .where(eq(purchaseOrderLines.active, true));
+  const byOrder = Map.groupBy(lines, (l) => l.orderId);
+  const received = await receivedByLine(db, rows.map((r) => r.id));
+  return rows.map((r) => ({ ...r, shown: orderStatus(r.status, byOrder.get(r.id) ?? [], received) }));
 }
 
 export async function getOrder(id: number) {
@@ -274,12 +316,22 @@ export async function getOrder(id: number) {
     .orderBy(asc(purchaseOrderLines.position));
   const mode = gstMode(row.order.vendorStateCode, await companyState(db));
   const requests = new Map(lines.flatMap((l) => (l.requestId === null ? [] : [[l.requestId, l.request!] as const])));
+  const received = await receivedByLine(db, [id]);
   return {
     ...row.order,
     vendor: row.vendor,
     mode,
+    shown: orderStatus(row.order.status, lines.map((l) => l.line), received),
     totals: billTotals(lines.map((l) => l.line), mode),
-    lines: lines.map((l) => ({ ...l.line, name: l.name, unit: l.unit, hsnSac: l.hsnSac, request: l.request, requestId: l.requestId })),
+    lines: lines.map((l) => ({
+      ...l.line,
+      name: l.name,
+      unit: l.unit,
+      hsnSac: l.hsnSac,
+      request: l.request,
+      requestId: l.requestId,
+      received: received.get(l.line.id) ?? 0n,
+    })),
     requests: [...requests].map(([rid, number]) => ({ id: rid, number })),
   };
 }

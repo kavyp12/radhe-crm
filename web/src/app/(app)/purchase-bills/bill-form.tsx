@@ -35,7 +35,9 @@ export type BillFormValues = {
 
 type Row = LineRow & PurchaseLineText;
 let seq = 0;
-const blank = (): Row => ({ id: `pl-${++seq}`, what: "", description: "", qty: "", rate: "", gst: "", jobId: "" });
+const blank = (): Row => ({ id: `pl-${++seq}`, what: "", description: "", qty: "", rate: "", gst: "", jobId: "", grnLineId: "" });
+/** A line billing a GRN line keeps the item and qty as received (T23); the rate and GST % are the vendor's. */
+const fromGrn = (row: LineRow, key: string) => !!(row as Row).grnLineId && ["what", "qty", "jobId"].includes(key);
 
 const fails = (parse: (s: string) => unknown) => (v: string) => {
   try {
@@ -184,7 +186,14 @@ export function BillForm({
       </FormSection>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-start">
-        <FormSection title="Lines" description="A stock item, or an expense category (with its job, if it is for one).">
+        <FormSection
+          title="Lines"
+          description={
+            rows.some((r) => r.grnLineId)
+              ? "Lines from a GRN keep the item and qty as received: enter the vendor's rate (the difference goes to price variance). Add freight etc. as expense lines."
+              : "A stock item, or an expense category (with its job, if it is for one)."
+          }
+        >
           <input type="hidden" name="lines" value={json} />
           <LineItemsGrid
             columns={columns}
@@ -192,6 +201,7 @@ export function BillForm({
             onChange={(next) => onChange(next as Row[])}
             newRow={blank}
             minWidth="min-w-[980px]"
+            locked={fromGrn}
             amount={(row) => {
               try {
                 return <Money paise={taxableOf({ qtyMilli: parseQty((row as Row).qty), ratePaise: parseMoney((row as Row).rate) })} />;

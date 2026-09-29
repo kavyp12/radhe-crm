@@ -6,6 +6,7 @@ import { DocFacts } from "@/components/doc-share";
 import { Field } from "@/components/form";
 import { History } from "@/components/history";
 import { PageHeader } from "@/components/page-header";
+import { PurchaseChain } from "@/components/purchase-chain";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,7 +15,6 @@ import { formatDateTime } from "@/lib/dates";
 import { getRequest, REQUEST_STATUS } from "@/lib/material-requests";
 import { milliText } from "@/lib/num";
 import { can, canViewCost } from "@/lib/permissions";
-import { ordersForRequest } from "@/lib/purchase-orders";
 import { cancelRequestAction, decideRequestAction } from "../actions";
 
 const LABELS = {
@@ -37,10 +37,8 @@ export default async function MaterialRequestPage({ params }: PageProps<"/materi
   const id = Number((await params).id);
   const r = Number.isSafeInteger(id) ? await getRequest(id) : undefined;
   if (!r) notFound();
-  const orders = await ordersForRequest(id);
   const pending = r.status === "pending";
   const buying = can(user, "purchaseOrders", "create") && canViewCost(user); // purchase rates (D36, D53)
-  const poLinks = can(user, "purchaseOrders", "view") && canViewCost(user);
   const note = (
     <Field label="Note (optional)">
       <Textarea name="note" rows={2} maxLength={1000} />
@@ -100,6 +98,8 @@ export default async function MaterialRequestPage({ params }: PageProps<"/materi
         )}
       </div>
 
+      <PurchaseChain user={user} step="request" id={id} />
+
       <Tabs defaultValue="details" className="gap-4">
         <TabsList variant="line">
           <TabsTrigger value="details">Details</TabsTrigger>
@@ -128,24 +128,6 @@ export default async function MaterialRequestPage({ params }: PageProps<"/materi
                     ["Decision note", r.decisionNote],
                   ] as [string, string | null][])
                 : []),
-              [
-                "Purchase orders",
-                orders.length
-                  ? orders.map((o, i) => (
-                      <span key={o.id}>
-                        {i > 0 && ", "}
-                        {poLinks ? (
-                          <Link href={`/purchase-orders/${o.id}`} className="text-primary hover:underline">
-                            {o.number}
-                          </Link>
-                        ) : (
-                          o.number
-                        )}
-                        {o.status === "cancelled" && " (cancelled)"}
-                      </span>
-                    ))
-                  : null,
-              ],
             ]}
           />
           <div className="overflow-x-auto rounded-lg border bg-card">

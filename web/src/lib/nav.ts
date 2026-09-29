@@ -70,7 +70,7 @@ export const NAV: NavGroup[] = [
       { label: "Vendors", href: "/vendors", area: "vendors", icon: Store },
       { label: "Material Requests", href: "/material-requests", area: "materialRequests", icon: ClipboardList },
       { label: "Purchase Orders", href: "/purchase-orders", area: "purchaseOrders", icon: ShoppingCart, cost: true },
-      { label: "Material Receive", href: "/material-receive", area: "goodsReceipts", icon: PackageCheck },
+      { label: "Material Receive", href: "/material-receive", area: "goodsReceipts", icon: PackageCheck, cost: true },
       { label: "Purchase Bills", href: "/purchase-bills", area: "books", icon: FileSpreadsheet, cost: true },
     ],
   },

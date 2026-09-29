@@ -31,10 +31,12 @@ type Props = {
   amount?: (row: LineRow) => ReactNode;
   /** Tailwind min-width for wide grids (scrolls sideways inside its card). */
   minWidth?: string;
+  /** A cell that can't be changed on this row (e.g. a bill line's item and qty as received on a GRN). */
+  locked?: (row: LineRow, key: string) => boolean;
 };
 
 /** Line-items grid (DESIGN.md "Form"): Tab moves across cells, Enter adds a line below. */
-export function LineItemsGrid({ columns, rows, onChange, newRow, amount, minWidth = "min-w-[640px]" }: Props) {
+export function LineItemsGrid({ columns, rows, onChange, newRow, amount, minWidth = "min-w-[640px]", locked }: Props) {
   const grid = useRef<HTMLTableElement>(null);
   const listId = useId();
   const focusCell = (row: number, col: number) =>
@@ -81,6 +83,7 @@ export function LineItemsGrid({ columns, rows, onChange, newRow, amount, minWidt
                 {columns.map((column, j) => {
                   const value = row[column.key] ?? "";
                   const invalid = !!value && !!column.invalid?.(value);
+                  const fixed = !!locked?.(row, column.key);
                   const cell = {
                     "data-cell": `${i}:${j}`,
                     "aria-label": `${column.label}, line ${i + 1}`,
@@ -97,12 +100,13 @@ export function LineItemsGrid({ columns, rows, onChange, newRow, amount, minWidt
                       "placeholder:text-muted-foreground/60 hover:border-input focus:border-ring focus:bg-card focus:ring-2 focus:ring-ring/25",
                       column.numeric && "text-right tabular-nums",
                       invalid && "border-destructive/60 bg-destructive/5 hover:border-destructive/60",
+                      fixed && "text-muted-foreground hover:border-transparent",
                     ),
                   };
                   return (
                     <td key={column.key} className="border-b p-1">
                       {column.options ? (
-                        <select {...cell} onChange={(e) => set(i, column.key, e.target.value)}>
+                        <select {...cell} disabled={fixed} onChange={(e) => set(i, column.key, e.target.value)}>
                           <option value="">{column.placeholder ?? "—"}</option>
                           {column.options.map((o) => (
                             <option key={o.value} value={o.value}>
@@ -113,6 +117,7 @@ export function LineItemsGrid({ columns, rows, onChange, newRow, amount, minWidt
                       ) : (
                         <input
                           {...cell}
+                          readOnly={fixed}
                           placeholder={column.placeholder}
                           inputMode={column.numeric ? "decimal" : undefined}
                           list={column.suggestions ? `${listId}-${column.key}` : undefined}

@@ -1,6 +1,17 @@
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { db, writeTx, type Tx } from "@/db";
-import { customers, expenseCategories, jobs, purchaseBillLines, purchaseBills, stockItems, vendors } from "@/db/schema";
+import {
+  customers,
+  expenseCategories,
+  goodsReceiptLines,
+  goodsReceipts,
+  jobs,
+  purchaseBillLines,
+  purchaseBills,
+  purchaseOrders,
+  stockItems,
+  vendors,
+} from "@/db/schema";
 import { formMoney, formText, UserError } from "@/lib/action";
 import { type Change, needsBackdateApproval, registerExecutor, runOrRequest } from "@/lib/approvals";
 import { addDays, formatDate, fyKey } from "@/lib/dates";
@@ -24,7 +35,9 @@ import { billStatus, paidByBill, paidTowardsBills, releaseBill } from "@/lib/ven
 
 // Purchase bills (S9, S24, A§2, A§3, D51): a vendor's bill, numbered PB/ and posted when saved:
 //   Dr stock (stock lines) / category expense accounts (expense lines, with their job) + gst_in_*, round_off ±,
-//   Cr ap (vendor). Stock lines add stock moves at their taxable value (excl. GST).
+//   Cr ap (vendor). Stock lines add stock moves at their taxable value (excl. GST). A line billing a GRN line (T23,
+//   D21, D53) keeps the GRN's item and qty and adds no stock move (the GRN brought the stock in): it posts Dr
+//   grn_clearing at the GRN value and the difference to the vendor's rate to price_variance (±).
 // Edit = reverse + repost, cancel = reverse on the bill date (D45); both by the owner at once, anyone else through an
 // approval request (A§7); neither may leave an item below zero stock, nor take back stock of an item that has gone
 // out since (D52). A backdated save by a non-owner is a request too. Purchase rates are cost: every entry point
@@ -113,6 +126,7 @@ async function readBill(tx: Tx, input: BillInput, current?: Bill) {
     }
   });
 
+  const grnValues = await checkGrnLines(tx, lines, vendor.id, current);
   const mode = gstMode(vendor.stateCode, await companyState(tx));
   const typed = formMoney(input.roundOff, "roundOff");
   let totals: ReturnType<typeof billTotals>;
@@ -128,6 +142,7 @@ async function readBill(tx: Tx, input: BillInput, current?: Bill) {
     mode,
     totals,
     categories,
+    grnValues,
     values: {
       vendorId: vendor.id,
       vendorBillNo,
@@ -142,6 +157,49 @@ async function readBill(tx: Tx, input: BillInput, current?: Bill) {
 }
 
 type Read = Awaited<ReturnType<typeof readBill>>;
+
+/**
+ * Lines billing a GRN (T23): a live GRN of this vendor, the item and qty as received, and each GRN line billed once
+ * (on live bills; `current` = the bill being edited). The GRN lines are locked, so two bills can't take the same one.
+ * Returns each GRN line's value as posted.
+ */
+async function checkGrnLines(tx: Tx, lines: PurchaseLine[], vendorId: number, current?: Bill) {
+  const ids = lines.flatMap((l) => (l.grnLineId === null ? [] : [l.grnLineId]));
+  if (!ids.length) return new Map<number, bigint>();
+  if (new Set(ids).size !== ids.length) throw new UserError("A received line is on this bill twice.", "lines");
+  const received = await tx
+    .select({ line: goodsReceiptLines, grn: goodsReceipts.number, status: goodsReceipts.status, vendorId: purchaseOrders.vendorId })
+    .from(goodsReceiptLines)
+    .innerJoin(goodsReceipts, eq(goodsReceipts.id, goodsReceiptLines.receiptId))
+    .innerJoin(purchaseOrders, eq(purchaseOrders.id, goodsReceipts.orderId))
+    .where(inArray(goodsReceiptLines.id, ids))
+    .for("update");
+  const billed = await tx
+    .select({ grnLineId: purchaseBillLines.grnLineId, number: purchaseBills.number })
+    .from(purchaseBillLines)
+    .innerJoin(purchaseBills, eq(purchaseBills.id, purchaseBillLines.billId))
+    .where(
+      and(
+        inArray(purchaseBillLines.grnLineId, ids),
+        eq(purchaseBillLines.active, true),
+        eq(purchaseBills.status, "active"),
+        current ? ne(purchaseBills.id, current.id) : undefined,
+      ),
+    );
+  lines.forEach((l, i) => {
+    if (l.grnLineId === null) return;
+    const fail = (message: string): never => {
+      throw new UserError(`Line ${i + 1}: ${message}`, "lines");
+    };
+    const r = received.find((x) => x.line.id === l.grnLineId) ?? fail("that received line doesn't exist; reload the page.");
+    if (r.status !== "active") fail(`${r.grn} is cancelled.`);
+    if (r.vendorId !== vendorId) fail(`${r.grn} is another vendor's.`);
+    if (r.line.itemId !== l.itemId || r.line.qtyMilli !== l.qtyMilli) fail(`the item and qty stay as received on ${r.grn}; only the rate and GST % change.`);
+    const b = billed.find((x) => x.grnLineId === l.grnLineId);
+    if (b) fail(`this ${r.grn} line is already billed on ${b.number}.`);
+  });
+  return new Map(received.map((r) => [r.line.id, r.line.valuePaise]));
+}
 
 /** The vendor's bill no is unique among their live bills. */
 async function checkDuplicate(tx: Tx, vendorId: number, billNo: string, exceptId?: number) {
@@ -159,7 +217,10 @@ async function checkDuplicate(tx: Tx, vendorId: number, billNo: string, exceptId
   if (dup) throw new UserError(`This vendor's bill ${billNo} is already entered as ${dup.number}.`, "vendorBillNo");
 }
 
-/** A§3 + D51: Dr stock / category accounts (with job) + input GST, round_off ±, Cr ap (vendor) = the total. */
+/**
+ * A§3 + D51: Dr stock / category accounts (with job) + input GST, round_off ±, Cr ap (vendor) = the total. A GRN line:
+ * Dr grn_clearing at the GRN value, the rest of its taxable value to price_variance (±, D21).
+ */
 function entryLines(r: Read): PostLine[] {
   const dr = new Map<string, PostLine & { debit: bigint }>();
   const add = (account: PostLine["account"], amount: bigint, jobId: number | null = null) => {
@@ -168,9 +229,14 @@ function entryLines(r: Read): PostLine[] {
     line.debit += amount;
     dr.set(key, line);
   };
+  let variance = 0n;
   r.lines.forEach((l, i) => {
     const taxable = r.totals.lines[i].taxable;
-    if (l.itemId !== null) add("stock", taxable);
+    if (l.grnLineId !== null) {
+      const value = r.grnValues.get(l.grnLineId)!;
+      add("grn_clearing", value);
+      variance += taxable - value;
+    } else if (l.itemId !== null) add("stock", taxable);
     else add(r.categories.find((c) => c.id === l.categoryId)!.accountId, taxable, l.jobId);
   });
   add("gst_in_cgst", r.totals.cgst);
@@ -179,6 +245,8 @@ function entryLines(r: Read): PostLine[] {
   const round = r.totals.roundOff;
   return [
     ...dr.values(),
+    ...(variance > 0n ? [{ account: "price_variance" as const, debit: variance }] : []),
+    ...(variance < 0n ? [{ account: "price_variance" as const, credit: -variance }] : []),
     ...(round > 0n ? [{ account: "round_off" as const, debit: round }] : []),
     ...(round < 0n ? [{ account: "round_off" as const, credit: -round }] : []),
     { account: "ap", vendorId: r.vendor.id, credit: r.totals.total },
@@ -207,13 +275,14 @@ const insertLines = (tx: Tx, billId: number, lines: PurchaseLine[]) =>
       ratePaise: l.ratePaise,
       gstBp: l.gstBp,
       jobId: l.jobId,
+      grnLineId: l.grnLineId,
     })),
   );
 
-/** Stock lines in at their taxable value (items locked by the caller). */
+/** Stock lines in at their taxable value (items locked by the caller); a GRN line's stock came in with the GRN. */
 async function stockIn(tx: Tx, billId: number, r: Read) {
   for (const [i, l] of r.lines.entries()) {
-    if (l.itemId === null) continue;
+    if (l.itemId === null || l.grnLineId !== null) continue;
     await addMove(tx, { itemId: l.itemId, date: r.values.date, qty: l.qtyMilli, value: r.totals.lines[i].taxable, source: "purchase", sourceId: billId });
   }
 }
@@ -317,6 +386,7 @@ async function planEdit(tx: Tx, p: EditPayload) {
     ratePaise: l.ratePaise,
     gstBp: l.gstBp,
     jobId: l.jobId,
+    grnLineId: l.grnLineId,
   });
   const sameLines =
     old.length === r.lines.length &&
@@ -342,8 +412,8 @@ async function planEdit(tx: Tx, p: EditPayload) {
   if (!sameLines) diff("Lines", await linesText(tx, old), await linesText(tx, r.lines.map(asSaved)));
   const reposts = !sameLines || v.vendorId !== current.vendorId || v.date !== current.date || v.roundOffPaise !== current.roundOffPaise || v.vendorStateCode !== current.vendorStateCode;
   // D52: items whose stock (qty or value) this edit changes; the others go back in exactly as they were.
-  const before = stockByItem(old.map((o) => ({ itemId: o.stockItemId, qty: o.qtyMilli, value: taxableOf(o) })));
-  const after = stockByItem(r.lines.map((l, i) => ({ itemId: l.itemId, qty: l.qtyMilli, value: r.totals.lines[i].taxable })));
+  const before = stockByItem(old.map((o) => ({ itemId: o.grnLineId === null ? o.stockItemId : null, qty: o.qtyMilli, value: taxableOf(o) })));
+  const after = stockByItem(r.lines.map((l, i) => ({ itemId: l.grnLineId === null ? l.itemId : null, qty: l.qtyMilli, value: r.totals.lines[i].taxable })));
   const stockChanged = [...new Set([...before.keys(), ...after.keys()])].filter((id) => before.get(id) !== after.get(id));
   return { current, r, old, sameLines, changes, reposts, stockChanged };
 }
@@ -490,11 +560,21 @@ export async function getPurchaseBill(id: number) {
     .where(eq(purchaseBills.id, id));
   if (!row) return undefined;
   const lines = await db
-    .select({ line: purchaseBillLines, item: stockItems.name, unit: stockItems.unit, category: expenseCategories.name, job: jobs.number })
+    .select({
+      line: purchaseBillLines,
+      item: stockItems.name,
+      unit: stockItems.unit,
+      category: expenseCategories.name,
+      job: jobs.number,
+      grnId: goodsReceipts.id,
+      grn: goodsReceipts.number,
+    })
     .from(purchaseBillLines)
     .leftJoin(stockItems, eq(stockItems.id, purchaseBillLines.stockItemId))
     .leftJoin(expenseCategories, eq(expenseCategories.id, purchaseBillLines.expenseCategoryId))
     .leftJoin(jobs, eq(jobs.id, purchaseBillLines.jobId))
+    .leftJoin(goodsReceiptLines, eq(goodsReceiptLines.id, purchaseBillLines.grnLineId))
+    .leftJoin(goodsReceipts, eq(goodsReceipts.id, goodsReceiptLines.receiptId))
     .where(and(eq(purchaseBillLines.billId, id), eq(purchaseBillLines.active, true)))
     .orderBy(asc(purchaseBillLines.position));
   const mode = gstMode(row.bill.vendorStateCode, await companyState(db));
@@ -514,7 +594,7 @@ export async function getPurchaseBill(id: number) {
     paid,
     open,
     payment: billStatus(row.bill, open),
-    lines: lines.map((l) => ({ ...l.line, what: l.item ?? l.category ?? "", unit: l.unit, job: l.job })),
+    lines: lines.map((l) => ({ ...l.line, what: l.item ?? l.category ?? "", unit: l.unit, job: l.job, grnId: l.grnId, grn: l.grn })),
   };
 }
 
@@ -527,6 +607,7 @@ export const formLines = (lines: BillLine[]): PurchaseLineText[] =>
     rate: moneyText(l.ratePaise),
     gst: bpText(l.gstBp),
     jobId: l.jobId === null ? "" : String(l.jobId),
+    grnLineId: l.grnLineId === null ? "" : String(l.grnLineId),
   }));
 
 /** Pick lists: active vendors, items and categories (plus what this bill already uses), jobs not cancelled. */

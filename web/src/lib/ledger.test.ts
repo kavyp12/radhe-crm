@@ -112,6 +112,8 @@ test("ledger: balance before the range, running balance inside it, closing; late
       { account: "price_variance", debit: dr, credit: cr },
       { account: "capital", debit: cr, credit: dr },
     ]);
+  // Other test files post to price_variance too (bills from GRNs, T23): count from what was there before.
+  const base = (await ledger({ account: "price_variance" }, "2091-03-01")).opening;
   await pv("2091-03-05", 1_000_00n, 0n);
   await pv("2091-03-10", 500_00n, 0n);
   await pv("2091-03-15", 0n, 200_00n);
@@ -119,14 +121,14 @@ test("ledger: balance before the range, running balance inside it, closing; late
   await pv("2091-03-25", 999_00n, 0n);
 
   const l = await ledger({ account: "price_variance" }, "2091-03-10", "2091-03-20");
-  expect(l.opening).toBe(1_000_00n);
+  expect(l.opening).toBe(base + 1_000_00n);
   expect(l.rows.map((r) => [r.date, r.balance])).toEqual([
-    ["2091-03-10", 1_500_00n],
-    ["2091-03-15", 1_300_00n],
-    ["2091-03-20", 1_600_50n],
+    ["2091-03-10", base + 1_500_00n],
+    ["2091-03-15", base + 1_300_00n],
+    ["2091-03-20", base + 1_600_50n],
   ]);
-  expect(l.closing).toBe(1_600_50n);
-  expect((await ledger({ account: "price_variance" }, undefined, "2091-03-31")).closing).toBe(2_599_50n);
+  expect(l.closing).toBe(base + 1_600_50n);
+  expect((await ledger({ account: "price_variance" }, undefined, "2091-03-31")).closing).toBe(base + 2_599_50n);
 });
 
 test("post() refuses without a signed-in user, and refuses an unbalanced entry", async () => {

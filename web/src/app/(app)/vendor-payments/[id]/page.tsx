@@ -7,6 +7,7 @@ import { DocFacts } from "@/components/doc-share";
 import { History } from "@/components/history";
 import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
+import { PurchaseChain } from "@/components/purchase-chain";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { db } from "@/db";
@@ -93,6 +94,8 @@ export default async function VendorPaymentPage({ params }: PageProps<"/vendor-p
           )}
         </div>
       )}
+
+      <PurchaseChain user={user} step="payment" id={id} />
 
       <Tabs defaultValue="details" className="gap-4">
         <TabsList variant="line">

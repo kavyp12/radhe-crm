@@ -77,7 +77,6 @@ export function OrderForm({
       next.map((row) => {
         const before = rows.find((r) => r.id === row.id);
         if (!before || row.itemId === before.itemId) return row;
-        if (before.requestLineId) return { ...row, itemId: before.itemId };
         const item = options.items.find((i) => String(i.id) === row.itemId);
         if (!item) return row;
         return {
@@ -138,6 +137,7 @@ export function OrderForm({
             onChange={(next) => onChange(next as Row[])}
             newRow={blank}
             minWidth="min-w-[760px]"
+            locked={(row, key) => !!(row as Row).requestLineId && key === "itemId"}
             amount={(row) => {
               try {
                 return <Money paise={taxableOf({ qtyMilli: parseQty((row as Row).qty), ratePaise: parseMoney((row as Row).rate) })} />;

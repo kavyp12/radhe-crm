@@ -30,11 +30,12 @@ const LABELS = {
 const th = "h-9 border-b px-3 text-left text-xs font-medium whitespace-nowrap text-muted-foreground";
 const td = "border-b px-3 py-2 whitespace-nowrap";
 
-/** Where a move's document lives (adjustments; purchase bills from T18; issues / returns from T21). */
+/** Where a move's document lives (adjustments; purchase bills from T18; issues / returns from T21; GRNs from T23). */
 function docHref(source: string, id: number): string | null {
   if (source === "adjustment") return "/stock-adjustments";
   if (source === "purchase") return `/purchase-bills/${id}`;
   if (source === "issue" || source === "return") return `/issue-to-job/${id}`;
+  if (source === "grn") return `/material-receive/${id}`;
   return null;
 }
 
@@ -120,7 +121,7 @@ export default async function ItemPage({ params }: PageProps<"/items/[id]">) {
                           {m.job && <span className="text-muted-foreground"> · job {m.job}</span>}
                         </td>
                         <td className={`${td} tabular-nums`}>
-                          {href && m.number && (m.source !== "purchase" || cost) ? (
+                          {href && m.number && ((m.source !== "purchase" && m.source !== "grn") || cost) ? (
                             <Link href={href} className="text-primary hover:underline">
                               {m.number}
                             </Link>

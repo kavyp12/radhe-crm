@@ -267,6 +267,20 @@
       "when": 1790690015543,
       "tag": "0037_material_requests_purchase_orders_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1790691997796,
+      "tag": "0038_goods_receipts",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1790691999126,
+      "tag": "0039_goods_receipts_audit",
+      "breakpoints": true
     }
   ]
 }

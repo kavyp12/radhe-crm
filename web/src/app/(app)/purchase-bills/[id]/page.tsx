@@ -8,6 +8,7 @@ import { History } from "@/components/history";
 import { TotalsPanel } from "@/components/line-items";
 import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
+import { PurchaseChain } from "@/components/purchase-chain";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { db } from "@/db";
@@ -93,6 +94,8 @@ export default async function PurchaseBillPage({ params }: PageProps<"/purchase-
         )}
       </div>
 
+      <PurchaseChain user={user} step="bill" id={id} />
+
       <Tabs defaultValue="details" className="gap-4">
         <TabsList variant="line">
           <TabsTrigger value="details">Details</TabsTrigger>
@@ -151,6 +154,14 @@ export default async function PurchaseBillPage({ params }: PageProps<"/purchase-
                           )}
                         </div>
                         {l.description && <div className="text-xs text-muted-foreground">{l.description}</div>}
+                        {l.grnId !== null && (
+                          <div className="text-xs text-muted-foreground">
+                            Received on{" "}
+                            <Link href={`/material-receive/${l.grnId}`} className="text-primary hover:underline">
+                              {l.grn}
+                            </Link>
+                          </div>
+                        )}
                       </td>
                       <td className={`${td} text-right whitespace-nowrap tabular-nums`}>
                         {milliText(l.qtyMilli)} {l.unit ?? ""}

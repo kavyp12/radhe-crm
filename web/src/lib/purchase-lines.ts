@@ -4,9 +4,12 @@ import { divRound, invoiceTotals, parseMoney, parsePercent, parseQty, type GstMo
 // with. A line is a stock item OR an expense category; qty × rate = taxable (no discount); GST per line; a job only on
 // an expense line (a stock item reaches a job through Issue to Job, T21).
 
-/** The form's text. what = "item:12" (stock item) or "cat:5" (expense category); jobId blank = none. */
-export type PurchaseLineText = { what: string; description: string; qty: string; rate: string; gst: string; jobId: string };
-export const PURCHASE_LINE_KEYS = ["what", "description", "qty", "rate", "gst", "jobId"] as const;
+/**
+ * The form's text. what = "item:12" (stock item) or "cat:5" (expense category); jobId blank = none; grnLineId = the GRN
+ * line a stock line bills (T23: its stock came in with the GRN), blank / missing = none.
+ */
+export type PurchaseLineText = { what: string; description: string; qty: string; rate: string; gst: string; jobId: string; grnLineId?: string };
+export const PURCHASE_LINE_KEYS = ["what", "description", "qty", "rate", "gst", "jobId", "grnLineId"] as const;
 
 export type PurchaseLine = {
   itemId: number | null;
@@ -16,6 +19,7 @@ export type PurchaseLine = {
   ratePaise: bigint;
   gstBp: number;
   jobId: number | null;
+  grnLineId: number | null;
 };
 
 /** Nothing typed on the line: skipped (a stray empty row doesn't block saving). */
@@ -55,6 +59,8 @@ export function readPurchaseLine(t: PurchaseLineText, n: number): PurchaseLine {
   const jobId = t.jobId ? Number(t.jobId) : null;
   if (jobId !== null && !Number.isSafeInteger(jobId)) fail("pick the job again.");
   if (jobId !== null && kind === "item") fail("a job goes on expense lines only; stock reaches a job through Issue to Job.");
+  const grnLineId = t.grnLineId ? Number(t.grnLineId) : null;
+  if (grnLineId !== null && (!Number.isSafeInteger(grnLineId) || kind !== "item")) fail("reload the page.");
   return {
     itemId: kind === "item" ? Number(id) : null,
     categoryId: kind === "cat" ? Number(id) : null,
@@ -63,6 +69,7 @@ export function readPurchaseLine(t: PurchaseLineText, n: number): PurchaseLine {
     ratePaise,
     gstBp,
     jobId,
+    grnLineId,
   };
 }
 

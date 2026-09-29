@@ -7,6 +7,7 @@ import { History } from "@/components/history";
 import { TotalsPanel } from "@/components/line-items";
 import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
+import { PurchaseChain } from "@/components/purchase-chain";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { db } from "@/db";
@@ -40,6 +41,7 @@ export default async function PurchaseOrderPage({ params }: PageProps<"/purchase
   if (!o) notFound();
   const [settings, names] = await Promise.all([getSettings(), db.select({ id: vendors.id, name: vendors.name }).from(vendors)]);
   const open = o.status !== "cancelled";
+  const received = o.lines.some((l) => l.received > 0n); // no edit / cancel once goods came in (T23)
   const shared = o.status !== "draft";
   const t = o.totals;
   const message = shareMessage({
@@ -53,7 +55,7 @@ export default async function PurchaseOrderPage({ params }: PageProps<"/purchase
 
   return (
     <div className="grid grid-cols-1 gap-5">
-      <PageHeader back={{ href: "/purchase-orders", label: "Purchase orders" }} title={o.number} status={ORDER_STATUS[o.status]} description={o.vendor.name} />
+      <PageHeader back={{ href: "/purchase-orders", label: "Purchase orders" }} title={o.number} status={o.shown} description={o.vendor.name} />
       <div className="flex flex-wrap gap-2">
         <DocShare
           pdfHref={`/purchase-orders/${id}/pdf`}
@@ -69,15 +71,20 @@ export default async function PurchaseOrderPage({ params }: PageProps<"/purchase
               : undefined
           }
         />
+        {open && o.shown !== "Received" && can(user, "goodsReceipts", "create") && (
+          <Button asChild>
+            <Link href={`/material-receive/new?po=${id}`}>Receive goods</Link>
+          </Button>
+        )}
         {o.status === "draft" && can(user, "purchaseOrders", "edit") && (
           <ActionButton action={sendOrderAction.bind(null, id)} label="Mark as sent" done="Marked as sent." variant="default" />
         )}
-        {open && can(user, "purchaseOrders", "edit") && (
+        {open && !received && can(user, "purchaseOrders", "edit") && (
           <Button asChild variant="outline">
             <Link href={`/purchase-orders/${id}/edit`}>Edit</Link>
           </Button>
         )}
-        {open && can(user, "purchaseOrders", "cancel") && (
+        {open && !received && can(user, "purchaseOrders", "cancel") && (
           <ActionDialog
             action={cancelOrderAction.bind(null, id)}
             label="Cancel"
@@ -89,6 +96,8 @@ export default async function PurchaseOrderPage({ params }: PageProps<"/purchase
           />
         )}
       </div>
+
+      <PurchaseChain user={user} step="order" id={id} />
 
       <Tabs defaultValue="details" className="gap-4">
         <TabsList variant="line">
@@ -132,6 +141,7 @@ export default async function PurchaseOrderPage({ params }: PageProps<"/purchase
                     <th className={`${th} w-8 text-right`}>#</th>
                     <th className={th}>Item</th>
                     <th className={`${th} text-right`}>Qty</th>
+                    <th className={`${th} text-right`}>Received</th>
                     <th className={`${th} text-right`}>Rate</th>
                     <th className={`${th} text-right`}>Taxable</th>
                     <th className={`${th} text-right`}>GST %</th>
@@ -151,6 +161,7 @@ export default async function PurchaseOrderPage({ params }: PageProps<"/purchase
                       <td className={`${td} text-right whitespace-nowrap tabular-nums`}>
                         {milliText(l.qtyMilli)} {l.unit}
                       </td>
+                      <td className={`${td} text-right tabular-nums`}>{milliText(l.received)}</td>
                       <td className={`${td} text-right`}>
                         <Money paise={l.ratePaise} />
                       </td>
