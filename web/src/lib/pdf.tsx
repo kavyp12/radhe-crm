@@ -59,6 +59,8 @@ export type PdfDoc = {
   lines: PdfLine[];
   terms: string | null;
   payment: boolean; // bank details + UPI (invoices)
+  /** Under the total: an invoice's Advance adjusted and Balance (S5). */
+  after?: [string, bigint][];
 };
 
 const GREY = "#6b7280";
@@ -244,6 +246,12 @@ export async function renderPdf(doc: PdfDoc): Promise<Buffer> {
               <Text style={[s.bold, { fontSize: 11 }]}>Total</Text>
               <Text style={[s.bold, { fontSize: 11 }]}>{formatMoney(totals.total)}</Text>
             </View>
+            {doc.after?.map(([label, v], i) => (
+              <View key={label} style={[s.row, { justifyContent: "space-between", paddingVertical: 1.5 }, i === 0 ? { marginTop: 3 } : {}]}>
+                <Text style={i === doc.after!.length - 1 ? s.bold : s.muted}>{label}</Text>
+                <Text style={i === doc.after!.length - 1 ? s.bold : {}}>{formatMoney(v)}</Text>
+              </View>
+            ))}
           </View>
         </View>
 
@@ -322,6 +330,13 @@ export async function invoicePdf(id: number) {
     lines: inv.lines,
     terms: inv.terms,
     payment: true,
+    after:
+      inv.advance > 0n
+        ? [
+            ["Advance adjusted", -inv.advance],
+            ["Balance", inv.balance],
+          ]
+        : undefined,
   });
   return { bytes, fileName: pdfFileName(inv.number ?? `draft-invoice-${inv.id}`) };
 }

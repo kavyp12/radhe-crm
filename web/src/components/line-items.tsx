@@ -165,10 +165,13 @@ export function TotalsPanel({
   rows,
   total,
   words,
+  after = [],
 }: {
   rows: { label: string; paise: bigint }[];
   total: bigint;
   words?: string;
+  /** Below the total, e.g. Advance adjusted and Balance (S5). */
+  after?: { label: string; paise: bigint; strong?: boolean }[];
 }) {
   return (
     <div className="rounded-lg border bg-card">
@@ -189,6 +192,18 @@ export function TotalsPanel({
         </div>
         {words && <p className="mt-1 text-xs text-muted-foreground">{words}</p>}
       </div>
+      {after.length > 0 && (
+        <dl className="grid gap-2 border-t p-4 text-sm">
+          {after.map((row) => (
+            <div key={row.label} className={cn("flex items-center justify-between gap-4", row.strong && "font-medium")}>
+              <dt className={row.strong ? undefined : "text-muted-foreground"}>{row.label}</dt>
+              <dd>
+                <Money paise={row.paise} />
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
     </div>
   );
 }

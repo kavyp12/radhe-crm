@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, writeTx, type Tx } from "@/db";
-import { accounts, allocations, customers, invoices, receipts, users } from "@/db/schema";
+import { accounts, allocations, customers, invoices, jobs, receipts, users } from "@/db/schema";
 import { formMoney, formText, UserError } from "@/lib/action";
 import {
   activeAllocationsOf,
@@ -9,6 +9,7 @@ import {
   deactivate,
   readAllocations,
   type AllocationLine,
+  type AllocationTarget,
 } from "@/lib/allocations";
 import { type Change, needsBackdateApproval, registerExecutor, runOrRequest } from "@/lib/approvals";
 import { formatDate, fyKey, parseDate } from "@/lib/dates";
@@ -27,7 +28,7 @@ import { checkVersion, customerFor, readDate } from "@/lib/sales";
 
 type Receipt = typeof receipts.$inferSelect;
 
-/** The form as typed. allocations = JSON of { target: "invoice", id, amount }[]. */
+/** The form as typed. allocations = JSON of { target: "invoice" | "job", id, amount }[]. */
 export type ReceiptInput = {
   customerId: string;
   date: string;
@@ -112,10 +113,24 @@ const postReceipt = (tx: Tx, id: number, number: string, v: Values, customerName
     ],
   });
 
-const insertAllocations = (tx: Tx, receiptId: number, lines: AllocationLine[], by: SessionUser) =>
+/** fromJob: invoice id → the job whose advance its old row carried (kept when an edit re-allocates, T14). */
+const insertAllocations = (
+  tx: Tx,
+  receiptId: number,
+  lines: AllocationLine[],
+  by: SessionUser,
+  fromJob = new Map<number, number | null>(),
+) =>
   lines.length
     ? tx.insert(allocations).values(
-        lines.map((l) => ({ receiptId, invoiceId: l.invoiceId, amountPaise: l.amount, createdBy: by.id })),
+        lines.map((l) => ({
+          receiptId,
+          invoiceId: l.target === "invoice" ? l.id : null,
+          jobId: l.target === "job" ? l.id : null,
+          fromJobId: l.target === "invoice" ? (fromJob.get(l.id) ?? null) : null,
+          amountPaise: l.amount,
+          createdBy: by.id,
+        })),
       )
     : Promise.resolve();
 
@@ -186,14 +201,30 @@ const accountName = async (tx: Tx, id: number) =>
 const personName = async (tx: Tx, id: string | null) =>
   id ? ((await tx.select({ name: users.name }).from(users).where(eq(users.id, id)))[0]?.name ?? null) : null;
 
-/** The allocations in force, with their invoice numbers. */
-const currentLines = (tx: Tx, receiptId: number) =>
-  tx
-    .select({ id: allocations.id, invoiceId: allocations.invoiceId, amount: allocations.amountPaise, number: invoices.number })
+/** The allocations in force, with their invoice / job numbers. */
+async function currentLines(tx: Tx, receiptId: number) {
+  const rows = await tx
+    .select({
+      id: allocations.id,
+      invoiceId: allocations.invoiceId,
+      jobId: allocations.jobId,
+      fromJobId: allocations.fromJobId,
+      amount: allocations.amountPaise,
+      invoice: invoices.number,
+      job: jobs.number,
+    })
     .from(allocations)
-    .innerJoin(invoices, eq(invoices.id, allocations.invoiceId))
+    .leftJoin(invoices, eq(invoices.id, allocations.invoiceId))
+    .leftJoin(jobs, eq(jobs.id, allocations.jobId))
     .where(and(eq(allocations.receiptId, receiptId), eq(allocations.active, true)))
     .orderBy(asc(allocations.id));
+  return rows.map((r) => ({
+    ...r,
+    target: (r.jobId !== null ? "job" : "invoice") as AllocationTarget,
+    targetId: r.jobId ?? r.invoiceId!,
+    number: r.job ?? r.invoice ?? "",
+  }));
+}
 
 type EditPayload = { id: number; version: string; input: ReceiptInput };
 
@@ -208,7 +239,8 @@ async function planEdit(tx: Tx, p: EditPayload) {
   }
   const old = await currentLines(tx, p.id);
   const sameLines =
-    old.length === r.lines.length && r.lines.every((l) => old.some((o) => o.invoiceId === l.invoiceId && o.amount === l.amount));
+    old.length === r.lines.length &&
+    r.lines.every((l) => old.some((o) => o.target === l.target && o.targetId === l.id && o.amount === l.amount));
   const [oldCustomer] = await tx.select({ name: customers.name }).from(customers).where(eq(customers.id, current.customerId));
 
   const changes: Change[] = [];
@@ -229,7 +261,7 @@ async function planEdit(tx: Tx, p: EditPayload) {
   if (!sameLines) {
     diff(
       "Allocated",
-      allocationText(old.map((o) => ({ number: o.number ?? "", amount: o.amount })), current.amountPaise) || "on account",
+      allocationText(old, current.amountPaise) || "on account",
       allocationText(r.lines, v.amountPaise) || "on account",
     );
   }
@@ -254,7 +286,8 @@ async function doEdit(tx: Tx, owner: SessionUser, p: EditPayload) {
   }
   if (!sameLines) {
     await deactivate(tx, old.map((o) => o.id));
-    await insertAllocations(tx, current.id, r.lines, owner);
+    const fromJob = new Map(old.filter((o) => o.invoiceId !== null).map((o) => [o.invoiceId!, o.fromJobId]));
+    await insertAllocations(tx, current.id, r.lines, owner, fromJob);
   }
   return current.number;
 }
@@ -365,21 +398,40 @@ export async function getReceipt(id: number) {
     .leftJoin(receiver, eq(receiver.id, receipts.receivedBy))
     .where(eq(receipts.id, id));
   if (!row) return undefined;
-  const all = await db
-    .select({
-      id: allocations.id,
-      invoiceId: allocations.invoiceId,
-      amount: allocations.amountPaise,
-      active: allocations.active,
-      changedAt: allocations.updatedAt,
-      number: invoices.number,
-      date: invoices.date,
-      total: invoices.totalPaise,
-    })
-    .from(allocations)
-    .innerJoin(invoices, eq(invoices.id, allocations.invoiceId))
-    .where(eq(allocations.receiptId, id))
-    .orderBy(asc(allocations.id));
+  const all = (
+    await db
+      .select({
+        id: allocations.id,
+        invoiceId: allocations.invoiceId,
+        jobId: allocations.jobId,
+        fromJobId: allocations.fromJobId,
+        amount: allocations.amountPaise,
+        active: allocations.active,
+        changedAt: allocations.updatedAt,
+        invoice: invoices.number,
+        invoiceDate: invoices.date,
+        invoiceTotal: invoices.totalPaise,
+        job: jobs.number,
+        jobDate: jobs.date,
+        jobTotal: jobs.totalPaise,
+      })
+      .from(allocations)
+      .leftJoin(invoices, eq(invoices.id, allocations.invoiceId))
+      .leftJoin(jobs, eq(jobs.id, allocations.jobId))
+      .where(eq(allocations.receiptId, id))
+      .orderBy(asc(allocations.id))
+  ).map((l) => ({
+    id: l.id,
+    invoiceId: l.invoiceId,
+    jobId: l.jobId,
+    fromJobId: l.fromJobId,
+    amount: l.amount,
+    active: l.active,
+    changedAt: l.changedAt,
+    number: l.job ?? l.invoice ?? "",
+    date: (l.jobDate ?? l.invoiceDate)!,
+    total: (l.jobTotal ?? l.invoiceTotal)!,
+  }));
   const lines = all.filter((l) => l.active);
   const allocated = lines.reduce((s, l) => s + l.amount, 0n);
   const r = row.receipt;
@@ -395,7 +447,7 @@ export async function getReceipt(id: number) {
   };
 }
 
-/** The receipts paying an invoice (active allocations of active receipts), oldest first. */
+/** The receipts paying an invoice (active allocations of active receipts), oldest first; fromJob = a job's advance. */
 export const invoicePayments = (invoiceId: number) =>
   db
     .select({
@@ -404,10 +456,21 @@ export const invoicePayments = (invoiceId: number) =>
       date: receipts.date,
       mode: receipts.mode,
       amount: allocations.amountPaise,
+      fromJob: jobs.number,
     })
     .from(allocations)
     .innerJoin(receipts, eq(receipts.id, allocations.receiptId))
+    .leftJoin(jobs, eq(jobs.id, allocations.fromJobId))
     .where(and(eq(allocations.invoiceId, invoiceId), eq(allocations.active, true), eq(receipts.status, "active")))
+    .orderBy(asc(receipts.date), asc(receipts.id));
+
+/** A job's advances in force (S12): which receipts, how much. */
+export const jobAdvances = (jobId: number) =>
+  db
+    .select({ receiptId: receipts.id, number: receipts.number, date: receipts.date, mode: receipts.mode, amount: allocations.amountPaise })
+    .from(allocations)
+    .innerJoin(receipts, eq(receipts.id, allocations.receiptId))
+    .where(and(eq(allocations.jobId, jobId), eq(allocations.active, true), eq(receipts.status, "active")))
     .orderBy(asc(receipts.date), asc(receipts.id));
 
 /** Pick lists for the receipt form: active customers (plus this receipt's), money accounts, staff. */

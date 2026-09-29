@@ -3,8 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { formAction, type FormState } from "@/lib/action";
-import { openInvoices } from "@/lib/allocations";
+import { openInvoices, openJobs } from "@/lib/allocations";
 import { requirePermission } from "@/lib/auth";
+import { JOB_STATUS } from "@/lib/jobs";
 import { db } from "@/db";
 import { cancelReceipt, createReceipt, updateReceipt, type ReceiptInput } from "@/lib/receipts";
 
@@ -27,12 +28,16 @@ const checkId = (id: number) => {
   if (!Number.isSafeInteger(id)) throw new Error("Bad id");
 };
 
-/** The allocation panel's rows for a customer; `exceptReceiptId` = the receipt being edited (its own share counts as open). */
+/** The allocation panel's rows for a customer: open invoices and jobs; `exceptReceiptId` = the receipt being edited. */
 export async function openItemsAction(customerId: number, exceptReceiptId?: number) {
   await requirePermission("payments", "create");
   checkId(customerId);
   if (exceptReceiptId !== undefined) checkId(exceptReceiptId);
-  return { invoices: await openInvoices(db, customerId, exceptReceiptId) };
+  const [invoices, jobs] = await Promise.all([
+    openInvoices(db, customerId, exceptReceiptId),
+    openJobs(db, customerId, exceptReceiptId),
+  ]);
+  return { invoices, jobs: jobs.map((j) => ({ ...j, status: JOB_STATUS[j.status] })) };
 }
 
 export async function createReceiptAction(_: FormState, form: FormData): Promise<FormState> {

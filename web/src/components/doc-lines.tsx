@@ -25,7 +25,18 @@ type Totals = ReturnType<typeof lineTotals>;
 const th = "h-9 border-b px-3 text-left text-xs font-medium whitespace-nowrap text-muted-foreground";
 const td = "border-b px-3 py-2 align-top";
 
-export function DocLines({ lines, totals, mode }: { lines: ViewLine[]; totals?: Totals; mode?: GstMode }) {
+export function DocLines({
+  lines,
+  totals,
+  mode,
+  after,
+}: {
+  lines: ViewLine[];
+  totals?: Totals;
+  mode?: GstMode;
+  /** Rows under the total (an invoice's Advance adjusted / Balance). */
+  after?: { label: string; paise: bigint; strong?: boolean }[];
+}) {
   const money = !!totals;
   const gst = money && mode !== "estimate";
   return (
@@ -93,6 +104,7 @@ export function DocLines({ lines, totals, mode }: { lines: ViewLine[]; totals?: 
           ]}
           total={totals.total}
           words={amountInWords(totals.total < 0n ? 0n : totals.total)}
+          after={after}
         />
       )}
     </div>

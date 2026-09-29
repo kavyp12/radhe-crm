@@ -1,6 +1,4 @@
 import { PageHeader } from "@/components/page-header";
-import { db } from "@/db";
-import { openInvoices } from "@/lib/allocations";
 import { requirePermission } from "@/lib/auth";
 import { todayIST } from "@/lib/dates";
 import { moneyText } from "@/lib/num";
@@ -9,14 +7,18 @@ import { MODE_ACCOUNT } from "@/lib/receipt-modes";
 import { createReceiptAction, openItemsAction } from "../actions";
 import { ReceiptForm } from "../receipt-form";
 
-/** ?customer= picks the customer; ?invoice= also fills that invoice's open amount ("Record payment"). */
+/**
+ * ?customer= picks the customer; ?invoice= also fills that invoice's open amount ("Record payment"); ?job= puts the
+ * amount on that job as an advance ("Record advance", S12).
+ */
 export default async function NewReceiptPage({ searchParams }: PageProps<"/receipts/new">) {
   const user = await requirePermission("payments", "create");
-  const { customer, invoice } = await searchParams;
+  const { customer, invoice, job } = await searchParams;
   const options = await receiptFormOptions();
   const picked = options.customers.find((c) => String(c.id) === customer);
-  const open = picked ? await openInvoices(db, picked.id) : [];
-  const target = open.find((i) => String(i.id) === invoice);
+  const open = picked ? await openItemsAction(picked.id) : { invoices: [], jobs: [] };
+  const target = open.invoices.find((i) => String(i.id) === invoice);
+  const advanceFor = open.jobs.find((j) => String(j.id) === job)?.id;
   const cash = options.accounts.find((a) => a.systemKey === MODE_ACCOUNT.cash);
 
   return (
@@ -34,10 +36,11 @@ export default async function NewReceiptPage({ searchParams }: PageProps<"/recei
           chequeDate: "",
           receivedBy: options.staff.some((s) => s.id === user.id) ? user.id : "",
           notes: "",
-          allocated: target ? { [target.id]: moneyText(target.open) } : {},
+          allocated: target ? { [`invoice:${target.id}`]: moneyText(target.open) } : {},
         }}
         {...options}
         open={open}
+        advanceFor={advanceFor}
         submitLabel="Save receipt"
         action={createReceiptAction}
         loadOpen={openItemsAction}

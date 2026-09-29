@@ -6,6 +6,7 @@ import { ActionButton, ActionDialog } from "@/components/doc-actions";
 import { DocLines } from "@/components/doc-lines";
 import { DocFacts } from "@/components/doc-share";
 import { History } from "@/components/history";
+import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -16,6 +17,8 @@ import { requirePermission } from "@/lib/auth";
 import { todayIST } from "@/lib/dates";
 import { getJob, JOB_STATUS, type JobStatus } from "@/lib/jobs";
 import { can } from "@/lib/permissions";
+import { RECEIPT_MODE } from "@/lib/receipt-modes";
+import { jobAdvances } from "@/lib/receipts";
 import { jobsOnInvoices } from "@/lib/sales";
 import { invoiceJobAction } from "../../invoices/actions";
 import { cancelJobAction } from "../actions";
@@ -39,10 +42,12 @@ export default async function JobPage({ params }: PageProps<"/jobs/[id]">) {
   const id = Number((await params).id);
   const job = Number.isSafeInteger(id) ? await getJob(user, id) : undefined;
   if (!job) notFound();
-  const [files, people, [invoice]] = await Promise.all([
+  const [files, people, [invoice], advances] = await Promise.all([
     listAttachments("job", id),
     db.select({ id: users.id, name: users.name }).from(users),
     jobsOnInvoices(db, [id]),
+    // Advances are money: only for users who may see it (never production).
+    job.money ? jobAdvances(id) : [],
   ]);
   const open = job.status !== "invoiced" && job.status !== "cancelled";
   const overdue = open && job.status !== "delivered" && !!job.targetDate && job.targetDate < todayIST();
@@ -62,6 +67,11 @@ export default async function JobPage({ params }: PageProps<"/jobs/[id]">) {
         {invoice && can(user, "invoices", "view") && (
           <Button asChild variant="outline">
             <Link href={`/invoices/${invoice.invoiceId}`}>{invoice.number ? `Invoice ${invoice.number}` : "Draft invoice"}</Link>
+          </Button>
+        )}
+        {open && job.money && can(user, "payments", "create") && (
+          <Button asChild variant="outline">
+            <Link href={`/receipts/new?customer=${job.customerId}&job=${id}`}>Record advance</Link>
           </Button>
         )}
         {!invoice && open && can(user, "invoices", "create") && (
@@ -126,6 +136,38 @@ export default async function JobPage({ params }: PageProps<"/jobs/[id]">) {
             ]}
           />
           <DocLines lines={job.lines} totals={priced?.totals} mode={priced?.mode} />
+          {advances.length > 0 && (
+            <section className="overflow-x-auto rounded-lg border bg-card">
+              <h2 className="border-b px-4 py-3 text-sm font-medium">
+                Advance received · <Money paise={advances.reduce((s, a) => s + a.amount, 0n)} />
+                <span className="ml-2 text-xs font-normal text-muted-foreground">Adjusted on the invoice when it is issued.</span>
+              </h2>
+              <table className="w-full min-w-100 text-[13px]">
+                <tbody>
+                  {advances.map((a) => (
+                    <tr key={a.receiptId}>
+                      <td className="border-b px-4 py-2 font-medium tabular-nums">
+                        {can(user, "payments", "view") ? (
+                          <Link href={`/receipts/${a.receiptId}`} className="text-primary hover:underline">
+                            {a.number}
+                          </Link>
+                        ) : (
+                          a.number
+                        )}
+                      </td>
+                      <td className="border-b px-4 py-2">
+                        <DateText date={a.date} />
+                      </td>
+                      <td className="border-b px-4 py-2">{RECEIPT_MODE[a.mode]}</td>
+                      <td className="border-b px-4 py-2 text-right">
+                        <Money paise={a.amount} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          )}
         </TabsContent>
 
         <TabsContent value="status">

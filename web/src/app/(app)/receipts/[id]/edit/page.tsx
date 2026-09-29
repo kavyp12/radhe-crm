@@ -1,7 +1,5 @@
 import { notFound, redirect } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
-import { db } from "@/db";
-import { openInvoices } from "@/lib/allocations";
 import { requirePermission } from "@/lib/auth";
 import { moneyText } from "@/lib/num";
 import { can } from "@/lib/permissions";
@@ -15,7 +13,7 @@ export default async function EditReceiptPage({ params }: PageProps<"/receipts/[
   const r = Number.isSafeInteger(id) ? await getReceipt(id) : undefined;
   if (!r) notFound();
   if (r.status !== "active") redirect(`/receipts/${id}`);
-  const [options, open] = await Promise.all([receiptFormOptions(r.customerId), openInvoices(db, r.customerId, id)]);
+  const [options, open] = await Promise.all([receiptFormOptions(r.customerId), openItemsAction(r.customerId, id)]);
   const isOwner = can(user, "approvals", "approve");
 
   return (
@@ -41,7 +39,9 @@ export default async function EditReceiptPage({ params }: PageProps<"/receipts/[
           chequeDate: r.chequeDate ?? "",
           receivedBy: r.receivedBy ?? "",
           notes: r.notes ?? "",
-          allocated: Object.fromEntries(r.lines.map((l) => [l.invoiceId!, moneyText(l.amount)])),
+          allocated: Object.fromEntries(
+            r.lines.map((l) => [l.jobId !== null ? `job:${l.jobId}` : `invoice:${l.invoiceId}`, moneyText(l.amount)]),
+          ),
         }}
         {...options}
         open={open}

@@ -232,9 +232,10 @@ export const receipts = pgTable(
 );
 
 /**
- * Links money to what it pays (A§2): one source (a receipt) → one target (an invoice). A receipt's unallocated
- * remainder is on-account advance. Allocations never post (A§3) and are never deleted: a change deactivates the old
- * rows and adds new ones (D49). Open amounts count only active rows from sources that aren't cancelled. Audited.
+ * Links money to what it pays (A§2): one source (a receipt) → one target (an invoice, or a job = an advance on it).
+ * A receipt's unallocated remainder is on-account advance. Allocations never post (A§3) and are never deleted: a
+ * change deactivates the old rows and adds new ones (D49). Open amounts count only active rows from sources that
+ * aren't cancelled. Audited.
  */
 export const allocations = pgTable(
   "allocations",
@@ -242,6 +243,10 @@ export const allocations = pgTable(
     id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
     receiptId: bigint("receipt_id", { mode: "number" }).references(() => receipts.id),
     invoiceId: bigint("invoice_id", { mode: "number" }).references(() => invoices.id),
+    jobId: bigint("job_id", { mode: "number" }).references(() => jobs.id),
+    // An invoice row that carries a job's advance (moved at Issue, T14): the job it goes back to if the invoice is
+    // cancelled (D49), and what the invoice shows as "Advance adjusted".
+    fromJobId: bigint("from_job_id", { mode: "number" }).references(() => jobs.id),
     amountPaise: bigint("amount_paise", { mode: "bigint" }).notNull(),
     active: boolean("active").notNull().default(true),
     ...stamps(),
@@ -249,8 +254,10 @@ export const allocations = pgTable(
   (t) => [
     index("allocations_receipt_idx").on(t.receiptId),
     index("allocations_invoice_idx").on(t.invoiceId),
+    index("allocations_job_idx").on(t.jobId),
     check("allocations_amount_positive", sql`${t.amountPaise} > 0`),
     check("allocations_one_source", sql`num_nonnulls(${t.receiptId}) = 1`),
-    check("allocations_one_target", sql`num_nonnulls(${t.invoiceId}) = 1`),
+    check("allocations_one_target", sql`num_nonnulls(${t.invoiceId}, ${t.jobId}) = 1`),
+    check("allocations_from_job_on_invoice", sql`${t.fromJobId} is null or ${t.invoiceId} is not null`),
   ],
 );

@@ -51,14 +51,18 @@ export default async function ReceiptPage({ params }: PageProps<"/receipts/[id]"
   const c = r.customer;
   const active = r.status === "active";
   const isOwner = can(user, "approvals", "approve");
-  const invoiceLink = (invoiceId: number | null, number: string | null) =>
-    invoiceId && can(user, "invoices", "view") ? (
-      <Link href={`/invoices/${invoiceId}`} className="font-medium text-primary tabular-nums hover:underline">
-        {number}
+  /** An invoice, or a job the money is an advance for (S12). */
+  const target = (l: { invoiceId: number | null; jobId: number | null; number: string }) => {
+    const [href, area] = l.jobId !== null ? [`/jobs/${l.jobId}`, "jobs" as const] : [`/invoices/${l.invoiceId}`, "invoices" as const];
+    const number = can(user, area, "view") ? (
+      <Link href={href} className="font-medium text-primary tabular-nums hover:underline">
+        {l.number}
       </Link>
     ) : (
-      <span className="font-medium tabular-nums">{number}</span>
+      <span className="font-medium tabular-nums">{l.number}</span>
     );
+    return l.jobId !== null ? <>Advance for job {number}</> : number;
+  };
 
   return (
     <div className="grid grid-cols-1 gap-5">
@@ -140,7 +144,7 @@ export default async function ReceiptPage({ params }: PageProps<"/receipts/[id]"
               <tbody>
                 {r.lines.map((l) => (
                   <tr key={l.id}>
-                    <td className={td}>{invoiceLink(l.invoiceId, l.number)}</td>
+                    <td className={td}>{target(l)}</td>
                     <td className={td}>
                       <DateText date={l.date} />
                     </td>

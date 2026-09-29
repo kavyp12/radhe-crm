@@ -102,7 +102,8 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
               title={`Issue this ${INVOICE_KIND[inv.kind].toLowerCase()}?`}
               description={
                 <>
-                  It gets its number, is posted to the books and can&apos;t be edited after. Jobs on it become Invoiced.
+                  It gets its number, is posted to the books and can&apos;t be edited after. Jobs on it become Invoiced and
+                  advances received on them are adjusted on it.
                   {!isOwner && " A discount over the limit or an old date sends it to the owner for approval first."}
                 </>
               }
@@ -177,7 +178,19 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
               ["Notes", inv.notes],
             ]}
           />
-          <DocLines lines={inv.lines} totals={inv.totals} mode={inv.mode} />
+          <DocLines
+            lines={inv.lines}
+            totals={inv.totals}
+            mode={inv.mode}
+            after={
+              inv.advance > 0n
+                ? [
+                    { label: "Advance adjusted", paise: -inv.advance },
+                    { label: "Balance", paise: inv.balance, strong: true },
+                  ]
+                : undefined
+            }
+          />
         </TabsContent>
 
         <TabsContent value="payments" className="grid grid-cols-1 gap-4">
@@ -215,7 +228,10 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
                       <td className="border-b px-3 py-2">
                         <DateText date={p.date} />
                       </td>
-                      <td className="border-b px-3 py-2">{RECEIPT_MODE[p.mode]}</td>
+                      <td className="border-b px-3 py-2">
+                        {RECEIPT_MODE[p.mode]}
+                        {p.fromJob && <span className="text-muted-foreground"> · advance on job {p.fromJob}</span>}
+                      </td>
                       <td className="border-b px-3 py-2 text-right">
                         <Money paise={p.amount} />
                       </td>

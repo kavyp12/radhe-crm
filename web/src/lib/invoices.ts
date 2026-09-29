@@ -2,7 +2,6 @@ import { and, asc, desc, eq, inArray, isNull, ne, notExists, sql } from "drizzle
 import type { Status } from "@/components/status-badge";
 import { db, writeTx, type Tx } from "@/db";
 import {
-  allocations,
   customers,
   invoiceLines,
   invoices,
@@ -19,7 +18,7 @@ import {
   type INVOICE_STATUSES,
 } from "@/db/schema";
 import { formText, UserError } from "@/lib/action";
-import { deactivate, paidByInvoice, paidTowards, paymentStatus } from "@/lib/allocations";
+import { advanceAdjusted, moveJobAdvances, paidByInvoice, paidTowards, paymentStatus, releaseInvoice } from "@/lib/allocations";
 import { registerExecutor, runOrRequest } from "@/lib/approvals";
 import { addDays, formatDate, todayIST } from "@/lib/dates";
 import { JOB_STATUS, liveJobFor, PRODUCTION_STATUSES } from "@/lib/jobs";
@@ -247,8 +246,11 @@ function postingLines(customerId: number, lines: { jobId: number | null }[], t: 
 
 type IssuePayload = { id: number; version: string };
 
-/** Draft → Issued in one transaction: number, journal entry, frozen, jobs Invoiced. Returns the number. */
-async function doIssue(tx: Tx, p: IssuePayload): Promise<string> {
+/**
+ * Draft → Issued in one transaction: number, journal entry, frozen, jobs Invoiced, and their advances moved onto it
+ * (S12, D49). Returns the number.
+ */
+async function doIssue(tx: Tx, p: IssuePayload, by: SessionUser): Promise<string> {
   const inv = await lock(tx, p.id);
   if (inv.status !== "draft") throw new UserError("Only a draft invoice can be issued.");
   checkVersion(inv, p.version, "invoice");
@@ -293,6 +295,7 @@ async function doIssue(tx: Tx, p: IssuePayload): Promise<string> {
     await tx.update(jobs).set({ status: "invoiced" }).where(eq(jobs.id, job.id));
     await tx.insert(jobStatusHistory).values({ jobId: job.id, fromStatus: job.status, toStatus: "invoiced" });
   }
+  await moveJobAdvances(tx, inv.id, jobIds, totals.total, by.id);
   return number;
 }
 
@@ -323,7 +326,7 @@ registerExecutor<IssuePayload>("invoice.issue", {
       ],
     };
   },
-  run: (tx, _owner, p) => doIssue(tx, p),
+  run: (tx, owner, p) => doIssue(tx, p, owner),
 });
 
 /** AR balance + this amount over the customer's credit limit → a warning (never a block). */
@@ -358,15 +361,15 @@ export async function issueInvoice(actor: SessionUser, id: number): Promise<{ me
     if (!outcome.done) return { message: outcome.message };
     number = outcome.result as string;
   } else {
-    number = await writeTx(actor, (tx) => doIssue(tx, payload));
+    number = await writeTx(actor, (tx) => doIssue(tx, payload, actor));
   }
   return { message: [`Issued ${number}.`, warning].filter(Boolean).join(" ") };
 }
 
 type CancelPayload = { id: number };
 
-/** Issued → Cancelled: reverse the entry on the invoice's own date (D45), keep the number, jobs back. */
-async function doCancelIssued(tx: Tx, p: CancelPayload) {
+/** Issued → Cancelled: reverse the entry on the invoice's own date (D45), keep the number, jobs and advances back. */
+async function doCancelIssued(tx: Tx, p: CancelPayload, by: SessionUser) {
   const inv = await lock(tx, p.id);
   if (inv.status !== "issued") throw new UserError("Only an issued invoice can be cancelled this way.");
   const [entry] = await tx
@@ -378,12 +381,8 @@ async function doCancelIssued(tx: Tx, p: CancelPayload) {
   if (!entry) throw new Error(`Issued invoice ${inv.id} has no journal entry`);
   await reverse(tx, entry.id, inv.date);
   await tx.update(invoices).set({ status: "cancelled" }).where(eq(invoices.id, inv.id));
-  // Money allocated to it goes back on account (D49).
-  const paid = await tx
-    .select({ id: allocations.id })
-    .from(allocations)
-    .where(and(eq(allocations.invoiceId, inv.id), eq(allocations.active, true)));
-  await deactivate(tx, paid.map((a) => a.id));
+  // A job's advance goes back to the job, any other money allocated to it back on account (D49).
+  await releaseInvoice(tx, inv.id, by.id);
 
   // Each job goes back to the status it had when this invoice was issued.
   const jobIds = [...new Set((await linesOf(tx, inv.id)).flatMap((l) => (l.jobId === null ? [] : [l.jobId])))];
@@ -412,11 +411,11 @@ registerExecutor<CancelPayload>("invoice.cancel", {
       changes: [
         { label: "Status", old: "Issued", new: "Cancelled (number kept)" },
         { label: "Journal", old: null, new: `Entry reversed on ${formatDate(inv.date)}` },
-        { label: "Payments", old: null, new: "Any allocated to it go back on account" },
+        { label: "Payments", old: null, new: "Job advances go back to their jobs, other payments on account" },
       ],
     };
   },
-  run: (tx, _owner, p) => doCancelIssued(tx, p),
+  run: (tx, owner, p) => doCancelIssued(tx, p, owner),
 });
 
 /**
@@ -487,8 +486,11 @@ export async function getInvoice(id: number) {
   ).map((r) => ({ ...r.line, category: r.category, job: r.job }));
   const inv = row.invoice;
   const mode = gstMode(inv.placeOfSupply, await companyState(db), inv.kind === "estimate");
-  const paid = inv.status === "issued" ? ((await paidTowards(db, [id])).get(id) ?? 0n) : 0n;
-  const open = inv.status === "issued" ? inv.totalPaise - paid : 0n;
+  const issued = inv.status === "issued";
+  const paid = issued ? ((await paidTowards(db, [id])).get(id) ?? 0n) : 0n;
+  const open = issued ? inv.totalPaise - paid : 0n;
+  // S5: the job advances adjusted at Issue, and what that leaves to pay on this invoice.
+  const advance = issued ? await advanceAdjusted(db, id) : 0n;
   return {
     ...inv,
     customer: row.customer,
@@ -498,6 +500,8 @@ export async function getInvoice(id: number) {
     paid,
     open,
     payment: paymentStatus(inv, open),
+    advance,
+    balance: inv.totalPaise - advance,
   };
 }
 

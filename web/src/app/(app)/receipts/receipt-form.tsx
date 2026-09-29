@@ -7,6 +7,7 @@ import { DateInput } from "@/components/date-input";
 import { DateText } from "@/components/date-text";
 import { Field, FormActions, FormError, FormSection, useFormAction } from "@/components/form";
 import { Money } from "@/components/money";
+import { StatusBadge, type Status } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
@@ -17,8 +18,13 @@ import { moneyText, parseMoney } from "@/lib/num";
 import { MODE_ACCOUNT, RECEIPT_MODE, RECEIPT_MODES, type ReceiptMode } from "@/lib/receipt-modes";
 import { cn } from "@/lib/utils";
 
-export type OpenItem = { id: number; number: string; date: string; dueDate: string; total: bigint; open: bigint };
-type Row = OpenItem & { amount: string };
+export type OpenInvoice = { id: number; number: string; date: string; dueDate: string; total: bigint; open: bigint };
+/** A job that can take an advance (S12); `advance` = what it already holds from other receipts. */
+export type OpenJob = { id: number; number: string; date: string; status: Status; total: bigint; advance: bigint };
+export type OpenItems = { invoices: OpenInvoice[]; jobs: OpenJob[] };
+
+type InvoiceRow = OpenInvoice & { amount: string };
+type JobRow = OpenJob & { amount: string };
 
 export type ReceiptFormValues = {
   customerId: string;
@@ -31,8 +37,8 @@ export type ReceiptFormValues = {
   chequeDate: string;
   receivedBy: string;
   notes: string;
-  /** Invoice id → amount as typed (an edit, or "Record payment" from an invoice). Empty = FIFO fill. */
-  allocated: Record<number, string>;
+  /** "invoice:12" / "job:4" → amount as typed (an edit, or "Record payment" from an invoice). Empty = FIFO fill. */
+  allocated: Record<string, string>;
 };
 
 type Props = {
@@ -40,14 +46,16 @@ type Props = {
   customers: { id: number; name: string; firmName: string | null }[];
   accounts: { id: number; name: string; systemKey: string | null }[];
   staff: { id: string; name: string }[];
-  /** The starting customer's open invoices. */
-  open: OpenItem[];
+  /** The starting customer's open invoices and jobs. */
+  open: OpenItems;
   /** Set when editing: its own allocations count as open, and after saving we go back to it. */
   receiptId?: number;
+  /** "Record advance" from a job page: the amount goes to this job's line instead of the invoices. */
+  advanceFor?: number;
   askReason?: boolean;
   submitLabel: string;
   action: (state: FormState, form: FormData) => Promise<FormState>;
-  loadOpen: (customerId: number, exceptReceiptId?: number) => Promise<{ invoices: OpenItem[] }>;
+  loadOpen: (customerId: number, exceptReceiptId?: number) => Promise<OpenItems>;
 };
 
 /** Typed rupees → paise; blank = 0, unreadable = null. */
@@ -60,13 +68,28 @@ function paise(text: string): bigint | null {
   }
 }
 
-/** FIFO (D49): the amount goes to the oldest open invoices first. */
-function fill(rows: Row[], amount: string): Row[] {
-  const shares = fifo(paise(amount) ?? 0n, rows.map((r) => r.open));
+/** FIFO (D49): what isn't typed on jobs goes to the oldest open invoices first. */
+function fill(rows: InvoiceRow[], available: bigint): InvoiceRow[] {
+  const shares = fifo(available, rows.map((r) => r.open));
   return rows.map((r, i) => ({ ...r, amount: shares[i] > 0n ? moneyText(shares[i]) : "" }));
 }
 
-export function ReceiptForm({ values: v, customers, accounts, staff, open, receiptId, askReason, submitLabel, action, loadOpen }: Props) {
+const th = "h-9 border-b px-2 text-left text-xs font-medium whitespace-nowrap text-muted-foreground";
+const td = "border-b px-2 py-1.5";
+
+export function ReceiptForm({
+  values: v,
+  customers,
+  accounts,
+  staff,
+  open,
+  receiptId,
+  advanceFor,
+  askReason,
+  submitLabel,
+  action,
+  loadOpen,
+}: Props) {
   const router = useRouter();
   const { state, onSubmit, pending } = useFormAction(action);
   useEffect(() => {
@@ -84,44 +107,62 @@ export function ReceiptForm({ values: v, customers, accounts, staff, open, recei
   const [mode, setMode] = useState<ReceiptMode>(v.mode);
   const [accountId, setAccountId] = useState(v.moneyAccountId);
   // An edit starts from what is saved (even nothing), never from a fresh fill.
-  const typed = receiptId !== undefined || Object.keys(v.allocated).length > 0;
-  const [rows, setRows] = useState<Row[]>(() => {
-    const start = open.map((o) => ({ ...o, amount: v.allocated[o.id] ?? "" }));
-    return typed ? start : fill(start, v.amount);
+  const typed = receiptId !== undefined || advanceFor !== undefined || Object.keys(v.allocated).length > 0;
+  const [invoiceRows, setInvoiceRows] = useState<InvoiceRow[]>(() => {
+    const start = open.invoices.map((o) => ({ ...o, amount: v.allocated[`invoice:${o.id}`] ?? "" }));
+    return typed ? start : fill(start, paise(v.amount) ?? 0n);
   });
-  // Once a line is typed in, changing the amount no longer refills the lines.
+  const [jobRows, setJobRows] = useState<JobRow[]>(() => open.jobs.map((j) => ({ ...j, amount: v.allocated[`job:${j.id}`] ?? "" })));
+  // Once an invoice line is typed in, changing the amount no longer refills them.
   const [manual, setManual] = useState(typed);
   const request = useRef(0);
 
   async function pickCustomer(id: string) {
     setCustomerId(id);
     setManual(false);
-    setRows([]);
+    setInvoiceRows([]);
+    setJobRows([]);
     if (!id) return;
     const mine = ++request.current;
-    const { invoices } = await loadOpen(Number(id), receiptId);
-    if (mine === request.current) setRows(fill(invoices.map((i) => ({ ...i, amount: "" })), amount));
+    const items = await loadOpen(Number(id), receiptId);
+    if (mine !== request.current) return;
+    setInvoiceRows(fill(items.invoices.map((i) => ({ ...i, amount: "" })), paise(amount) ?? 0n));
+    setJobRows(items.jobs.map((j) => ({ ...j, amount: "" })));
   }
+  const jobTotal = jobRows.reduce((s, r) => s + (paise(r.amount) ?? 0n), 0n);
   function changeAmount(text: string) {
     setAmount(text);
-    if (!manual) setRows((current) => fill(current, text));
+    if (advanceFor !== undefined && customerId === v.customerId) {
+      setJobRows((rows) => rows.map((r) => (r.id === advanceFor ? { ...r, amount: text } : r)));
+    } else if (!manual) setInvoiceRows((current) => fill(current, (paise(text) ?? 0n) - jobTotal));
   }
   function changeMode(next: ReceiptMode) {
     setMode(next);
     const account = accounts.find((a) => a.systemKey === MODE_ACCOUNT[next]);
     if (account) setAccountId(String(account.id));
   }
-  function changeLine(id: number, text: string) {
-    setManual(true);
-    setRows((current) => current.map((r) => (r.id === id ? { ...r, amount: text } : r)));
-  }
 
   const total = paise(amount);
-  const shares = rows.map((r) => paise(r.amount));
+  const invoiceShares = invoiceRows.map((r) => paise(r.amount));
+  const jobShares = jobRows.map((r) => paise(r.amount));
+  const shares = [...invoiceShares, ...jobShares];
   const readable = shares.every((s) => s !== null);
   const allocated = shares.reduce<bigint>((s, a) => s + (a ?? 0n), 0n);
   const over = total !== null && allocated > total;
-  const json = JSON.stringify(rows.map((r) => ({ target: "invoice", id: String(r.id), amount: r.amount })));
+  const json = JSON.stringify([
+    ...invoiceRows.map((r) => ({ target: "invoice", id: String(r.id), amount: r.amount })),
+    ...jobRows.map((r) => ({ target: "job", id: String(r.id), amount: r.amount })),
+  ]);
+  const amountInput = (label: string, value: string, bad: boolean, onChange: (text: string) => void) => (
+    <Input
+      aria-label={label}
+      aria-invalid={bad || undefined}
+      inputMode="decimal"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="h-8 text-right tabular-nums"
+    />
+  );
 
   return (
     <form onSubmit={onSubmit} className="grid max-w-5xl grid-cols-1 gap-4">
@@ -199,59 +240,101 @@ export function ReceiptForm({ values: v, customers, accounts, staff, open, recei
 
       <FormSection
         title="Allocation"
-        description="Oldest invoices are filled first; change any line. Whatever is left stays on account as an advance."
+        description="Oldest invoices are filled first; change any line. An amount on a job is an advance for it and moves to its invoice when that is issued. Whatever is left stays on account."
       >
         <input type="hidden" name="allocations" value={json} />
         {!customerId ? (
-          <p className="text-sm text-muted-foreground">Pick the customer to see their open invoices.</p>
-        ) : rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No open invoices: the whole amount stays on account.</p>
+          <p className="text-sm text-muted-foreground">Pick the customer to see their open invoices and jobs.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-140 border-separate border-spacing-0 text-[13px]">
-              <thead>
-                <tr className="text-left text-xs text-muted-foreground">
-                  <th className="h-9 border-b px-2 font-medium">Invoice</th>
-                  <th className="h-9 border-b px-2 font-medium">Date</th>
-                  <th className="h-9 border-b px-2 font-medium">Due</th>
-                  <th className="h-9 border-b px-2 text-right font-medium">Total</th>
-                  <th className="h-9 border-b px-2 text-right font-medium">Open</th>
-                  <th className="h-9 w-36 border-b px-2 text-right font-medium">Allocate ₹</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => {
-                  const bad = shares[i] === null || (shares[i] ?? 0n) > r.open;
-                  return (
-                    <tr key={r.id}>
-                      <td className="border-b px-2 py-1.5 font-medium tabular-nums">{r.number}</td>
-                      <td className="border-b px-2 py-1.5">
-                        <DateText date={r.date} />
-                      </td>
-                      <td className="border-b px-2 py-1.5">
-                        <DateText date={r.dueDate} />
-                      </td>
-                      <td className="border-b px-2 py-1.5 text-right">
-                        <Money paise={r.total} />
-                      </td>
-                      <td className="border-b px-2 py-1.5 text-right">
-                        <Money paise={r.open} />
-                      </td>
-                      <td className="border-b px-2 py-1">
-                        <Input
-                          aria-label={`Allocate to ${r.number}`}
-                          aria-invalid={bad || undefined}
-                          inputMode="decimal"
-                          value={r.amount}
-                          onChange={(e) => changeLine(r.id, e.target.value)}
-                          className="h-8 text-right tabular-nums"
-                        />
-                      </td>
+          <div className="grid gap-4">
+            {invoiceRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No open invoices.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-140 border-separate border-spacing-0 text-[13px]">
+                  <thead>
+                    <tr>
+                      <th className={th}>Invoice</th>
+                      <th className={th}>Date</th>
+                      <th className={th}>Due</th>
+                      <th className={`${th} text-right`}>Total</th>
+                      <th className={`${th} text-right`}>Open</th>
+                      <th className={`${th} w-36 text-right`}>Allocate ₹</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>
+                    {invoiceRows.map((r, i) => (
+                      <tr key={r.id}>
+                        <td className={`${td} font-medium tabular-nums`}>{r.number}</td>
+                        <td className={td}>
+                          <DateText date={r.date} />
+                        </td>
+                        <td className={td}>
+                          <DateText date={r.dueDate} />
+                        </td>
+                        <td className={`${td} text-right`}>
+                          <Money paise={r.total} />
+                        </td>
+                        <td className={`${td} text-right`}>
+                          <Money paise={r.open} />
+                        </td>
+                        <td className="border-b px-2 py-1">
+                          {amountInput(
+                            `Allocate to ${r.number}`,
+                            r.amount,
+                            invoiceShares[i] === null || (invoiceShares[i] ?? 0n) > r.open,
+                            (text) => {
+                              setManual(true);
+                              setInvoiceRows((rows) => rows.map((x) => (x.id === r.id ? { ...x, amount: text } : x)));
+                            },
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {jobRows.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-140 border-separate border-spacing-0 text-[13px]">
+                  <thead>
+                    <tr>
+                      <th className={th}>Job (advance)</th>
+                      <th className={th}>Date</th>
+                      <th className={th}>Status</th>
+                      <th className={`${th} text-right`}>Job total</th>
+                      <th className={`${th} text-right`}>Advance so far</th>
+                      <th className={`${th} w-36 text-right`}>Advance ₹</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {jobRows.map((r, i) => (
+                      <tr key={r.id}>
+                        <td className={`${td} font-medium tabular-nums`}>{r.number}</td>
+                        <td className={td}>
+                          <DateText date={r.date} />
+                        </td>
+                        <td className={td}>
+                          <StatusBadge status={r.status} />
+                        </td>
+                        <td className={`${td} text-right`}>
+                          <Money paise={r.total} />
+                        </td>
+                        <td className={`${td} text-right`}>
+                          <Money paise={r.advance} />
+                        </td>
+                        <td className="border-b px-2 py-1">
+                          {amountInput(`Advance for ${r.number}`, r.amount, jobShares[i] === null, (text) =>
+                            setJobRows((rows) => rows.map((x) => (x.id === r.id ? { ...x, amount: text } : x))),
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
@@ -263,19 +346,19 @@ export function ReceiptForm({ values: v, customers, accounts, staff, open, recei
               </dd>
             </div>
             <div className="flex gap-2">
-              <dt className="text-muted-foreground">On account (advance)</dt>
+              <dt className="text-muted-foreground">On account</dt>
               <dd className={cn(over && "text-destructive")}>
                 {total === null || !readable ? "—" : <Money paise={total - allocated} />}
               </dd>
             </div>
           </dl>
-          {rows.length > 0 && (
+          {invoiceRows.length > 0 && (
             <Button
               type="button"
               variant="ghost"
               size="sm"
               onClick={() => {
-                setRows((current) => fill(current, amount));
+                setInvoiceRows((current) => fill(current, (total ?? 0n) - jobTotal));
                 setManual(false);
               }}
             >
