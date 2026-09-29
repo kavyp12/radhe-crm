@@ -39,11 +39,16 @@ export default async function EditReceiptPage({ params }: PageProps<"/receipts/[
           chequeDate: r.chequeDate ?? "",
           receivedBy: r.receivedBy ?? "",
           notes: r.notes ?? "",
+          // One line per document: rows on the same one (two jobs' advances billed together) are added up.
           allocated: Object.fromEntries(
-            r.lines.map((l) => [
-              l.jobId !== null ? `job:${l.jobId}` : l.debitNoteId !== null ? `debit_note:${l.debitNoteId}` : `invoice:${l.invoiceId}`,
-              moneyText(l.amount),
-            ]),
+            [
+              ...r.lines
+                .reduce((sum, l) => {
+                  const key = l.jobId !== null ? `job:${l.jobId}` : l.debitNoteId !== null ? `debit_note:${l.debitNoteId}` : `invoice:${l.invoiceId}`;
+                  return sum.set(key, (sum.get(key) ?? 0n) + l.amount);
+                }, new Map<string, bigint>())
+                .entries(),
+            ].map(([key, paise]) => [key, moneyText(paise)]),
           ),
         }}
         {...options}

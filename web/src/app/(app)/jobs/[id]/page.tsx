@@ -145,10 +145,10 @@ export default async function JobPage({ params }: PageProps<"/jobs/[id]">) {
               <table className="w-full min-w-100 text-[13px]">
                 <tbody>
                   {advances.map((a) => (
-                    <tr key={a.receiptId}>
+                    <tr key={a.href}>
                       <td className="border-b px-4 py-2 font-medium tabular-nums">
                         {can(user, "payments", "view") ? (
-                          <Link href={`/receipts/${a.receiptId}`} className="text-primary hover:underline">
+                          <Link href={a.href} className="text-primary hover:underline">
                             {a.number}
                           </Link>
                         ) : (
@@ -158,7 +158,7 @@ export default async function JobPage({ params }: PageProps<"/jobs/[id]">) {
                       <td className="border-b px-4 py-2">
                         <DateText date={a.date} />
                       </td>
-                      <td className="border-b px-4 py-2">{RECEIPT_MODE[a.mode]}</td>
+                      <td className="border-b px-4 py-2">{a.mode ? RECEIPT_MODE[a.mode] : "Credit note"}</td>
                       <td className="border-b px-4 py-2 text-right">
                         <Money paise={a.amount} />
                       </td>

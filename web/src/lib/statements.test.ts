@@ -17,7 +17,7 @@ import type { SessionUser } from "@/lib/permissions";
 import { approveQuotation, createQuotation, sendQuotation } from "@/lib/quotations";
 import { cancelReceipt, createReceipt, updateReceipt, type ReceiptInput } from "@/lib/receipts";
 import { saveBooks } from "@/lib/settings";
-import { createStatementLink, customerLedger, readRange } from "@/lib/statements";
+import { createStatementLink, customerLedger, readRange, withoutReversed } from "@/lib/statements";
 
 let owner: SessionUser;
 let categoryId: string;
@@ -143,6 +143,16 @@ test("the statement shows the ledger's figures; a sample PDF is saved", async ()
   await mkdir(".samples", { recursive: true });
   await writeFile(".samples/statement.pdf", pdf.bytes);
 }, 30_000);
+
+test("the statement leaves out reversed entries with their reversals (D50); the ledger keeps them", async () => {
+  const l = await customerLedger(shared.id, { from: null, to: null });
+  expect(l.rows).toHaveLength(10); // opening, invoice, receipt, 3 cancelled / edited + their 3 reversals, the repost
+  const s = withoutReversed(l);
+  // Opening ₹1,000 · invoice ₹5,000 · receipt ₹2,000 · the edited receipt as it stands (₹800).
+  expect(s.rows.map((r) => r.debit || r.credit)).toEqual([1000_00n, 5000_00n, 2000_00n, 800_00n]);
+  expect(s.rows.map((r) => r.balance)).toEqual([1000_00n, 6000_00n, 4000_00n, 3200_00n]);
+  expect([s.opening, s.closing, s.debit, s.credit]).toEqual([0n, l.closing, 6000_00n, 2800_00n]);
+});
 
 test("the statement share link works without a login; a wrong token gets 404", async () => {
   const get = (token: string) => shareRoute(new Request(`http://x/share/${token}`), { params: Promise.resolve({ token }) });

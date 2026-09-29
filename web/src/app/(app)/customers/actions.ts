@@ -1,7 +1,9 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { formAction, UserError, type FormState } from "@/lib/action";
+import { applyOnAccount } from "@/lib/allocations";
 import { requirePermission } from "@/lib/auth";
 import { customers } from "@/db/schema";
 import {
@@ -103,4 +105,23 @@ export async function emailStatementAction(
     if (!pdf) throw new UserError("That customer doesn't exist.");
     await sendPdfMail({ ...readMail(form), fileName: pdf.fileName, pdf: pdf.bytes });
   });
+}
+
+/** D50: apply a receipt's rest / a credit note's leftover credit to open invoices, debit notes or jobs. */
+export async function applyOnAccountAction(
+  customerId: number,
+  kind: "receipt" | "credit_note",
+  sourceId: number,
+  _: FormState,
+  form: FormData,
+): Promise<FormState> {
+  const actor = await requirePermission("payments", "create");
+  checkId(customerId);
+  checkId(sourceId);
+  if (kind !== "receipt" && kind !== "credit_note") throw new Error("Bad source");
+  const state = await formAction(() =>
+    applyOnAccount(actor, customerId, { kind, id: sourceId }, String(form.get("allocations") ?? "")),
+  );
+  revalidatePath(`/customers/${customerId}`);
+  return state;
 }

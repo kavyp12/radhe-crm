@@ -1,11 +1,12 @@
 import { and, asc, eq, inArray, isNotNull, notExists, sql, type SQL } from "drizzle-orm";
 import type { Status } from "@/components/status-badge";
-import { db, type Tx } from "@/db";
+import { db, writeTx, type Tx } from "@/db";
 import { allocations, creditNotes, debitNotes, invoices, jobs, receipts } from "@/db/schema";
 import { UserError } from "@/lib/action";
 import { todayIST } from "@/lib/dates";
 import { PRODUCTION_STATUSES } from "@/lib/jobs";
 import { formatMoney, parseMoney } from "@/lib/num";
+import { can, type SessionUser } from "@/lib/permissions";
 
 // Allocations (A§2, A§5, D49): which money (a receipt, a credit note) pays what — an invoice, a debit note, or a job
 // as an advance (S12). They never post. Open amounts and payment statuses are computed from them on every read,
@@ -262,22 +263,30 @@ export async function deactivate(tx: Tx, ids: number[]) {
 }
 
 /**
- * Invoice Issue (S12, D49): the billed jobs' advances move to the invoice, oldest receipt first, up to `open`. Every
- * job row is deactivated; what doesn't fit stays with its receipt as on-account advance. Returns the amount moved.
+ * Invoice Issue (S12, D49): the billed jobs' advances move to the invoice, oldest money first, up to `open`. Every
+ * job row is deactivated; what doesn't fit stays with its receipt (or credit note, D50) on account. Returns the amount moved.
  */
 export async function moveJobAdvances(tx: Tx, invoiceId: number, jobIds: number[], open: bigint, by: string) {
   if (!jobIds.length) return 0n;
   const rows = await tx
     .select({ allocation: allocations })
     .from(allocations)
-    .innerJoin(receipts, eq(receipts.id, allocations.receiptId))
+    .leftJoin(receipts, eq(receipts.id, allocations.receiptId))
+    .leftJoin(creditNotes, eq(creditNotes.id, allocations.creditNoteId))
     .where(and(liveAllocation(), inArray(allocations.jobId, jobIds)))
-    .orderBy(asc(receipts.date), asc(allocations.id));
+    .orderBy(sql`coalesce(${receipts.date}, ${creditNotes.date})`, asc(allocations.id));
   let left = open;
   for (const { allocation: a } of rows) {
     const take = left <= 0n ? 0n : a.amountPaise < left ? a.amountPaise : left;
     if (take > 0n) {
-      await tx.insert(allocations).values({ receiptId: a.receiptId, invoiceId, fromJobId: a.jobId, amountPaise: take, createdBy: by });
+      await tx.insert(allocations).values({
+        receiptId: a.receiptId,
+        creditNoteId: a.creditNoteId,
+        invoiceId,
+        fromJobId: a.jobId,
+        amountPaise: take,
+        createdBy: by,
+      });
       left -= take;
     }
   }
@@ -293,10 +302,17 @@ export async function releaseInvoice(tx: Tx, invoiceId: number, by: string) {
   const rows = await tx
     .select()
     .from(allocations)
-    .where(and(eq(allocations.invoiceId, invoiceId), eq(allocations.active, true)));
+    .where(and(eq(allocations.invoiceId, invoiceId), eq(allocations.active, true)))
+    .orderBy(asc(allocations.id));
   for (const a of rows) {
-    if (a.fromJobId !== null && a.receiptId !== null) {
-      await tx.insert(allocations).values({ receiptId: a.receiptId, jobId: a.fromJobId, amountPaise: a.amountPaise, createdBy: by });
+    if (a.fromJobId !== null) {
+      await tx.insert(allocations).values({
+        receiptId: a.receiptId,
+        creditNoteId: a.creditNoteId,
+        jobId: a.fromJobId,
+        amountPaise: a.amountPaise,
+        createdBy: by,
+      });
     }
   }
   await deactivate(tx, rows.map((a) => a.id));
@@ -318,6 +334,110 @@ export async function allocateCreditNote(tx: Tx, noteId: number, invoiceId: numb
   const amount = total < open ? total : open;
   if (amount > 0n) await tx.insert(allocations).values({ creditNoteId: noteId, invoiceId, amountPaise: amount, createdBy: by });
   return amount;
+}
+
+export type OnAccountSource = { kind: "receipt" | "credit_note"; id: number };
+
+/**
+ * What a customer has on account (D50): live receipts with an unallocated rest and issued credit notes with leftover
+ * credit, oldest first. `rest` = amount − its active allocations.
+ */
+export async function onAccountSources(q: Q, customerId: number) {
+  // The subqueries name the outer row in full: drizzle leaves columns unqualified in a one-table select.
+  const [rs, cs] = await Promise.all([
+    q
+      .select({
+        id: receipts.id,
+        number: receipts.number,
+        date: receipts.date,
+        amount: receipts.amountPaise,
+        used: sql<string>`coalesce((select sum(a.amount_paise) from allocations a where a.receipt_id = "receipts"."id" and a.active), 0)`,
+      })
+      .from(receipts)
+      .where(and(eq(receipts.customerId, customerId), eq(receipts.status, "active"))),
+    q
+      .select({
+        id: creditNotes.id,
+        number: creditNotes.number,
+        date: creditNotes.date,
+        amount: creditNotes.totalPaise,
+        used: sql<string>`coalesce((select sum(a.amount_paise) from allocations a where a.credit_note_id = "credit_notes"."id" and a.active), 0)`,
+      })
+      .from(creditNotes)
+      .where(and(eq(creditNotes.customerId, customerId), eq(creditNotes.status, "issued"))),
+  ]);
+  return [
+    ...rs.map((r) => ({ kind: "receipt" as const, id: r.id, number: r.number, date: r.date, rest: r.amount - BigInt(r.used) })),
+    ...cs.map((c) => ({ kind: "credit_note" as const, id: c.id, number: c.number ?? "", date: c.date, rest: c.amount - BigInt(c.used) })),
+  ]
+    .filter((s) => s.rest > 0n)
+    .sort((a, b) => (a.date !== b.date ? (a.date < b.date ? -1 : 1) : a.number < b.number ? -1 : 1));
+}
+
+/** The source row, locked (two applies of the same money queue), and what it still has on account. */
+async function lockSource(tx: Tx, customerId: number, source: OnAccountSource) {
+  const found =
+    source.kind === "receipt"
+      ? (await tx.select().from(receipts).where(eq(receipts.id, source.id)).for("update")).map((r) => ({
+          number: r.number,
+          customerId: r.customerId,
+          live: r.status === "active",
+          amount: r.amountPaise,
+        }))
+      : (await tx.select().from(creditNotes).where(eq(creditNotes.id, source.id)).for("update")).map((c) => ({
+          number: c.number ?? "",
+          customerId: c.customerId,
+          live: c.status === "issued",
+          amount: c.totalPaise,
+        }));
+  const s = found[0];
+  if (!s || s.customerId !== customerId) throw new UserError("That receipt or credit note isn't this customer's: reload the page.");
+  if (!s.live) throw new UserError(`${s.number} is cancelled.`);
+  const column = source.kind === "receipt" ? allocations.receiptId : allocations.creditNoteId;
+  const [used] = await tx
+    .select({ paise: sql<string>`coalesce(sum(${allocations.amountPaise}), 0)` })
+    .from(allocations)
+    .where(and(eq(column, source.id), eq(allocations.active, true)));
+  return { ...s, rest: s.amount - BigInt(used.paise) };
+}
+
+/**
+ * D50: puts a receipt's unallocated rest or a credit note's leftover credit on open invoices, debit notes or jobs.
+ * Only adds (free for owner / accountant); changing existing allocations stays a receipt edit. An amount on a target
+ * the source already pays merges into that row (deactivated + a new row, D49), so each target keeps one line.
+ */
+export async function applyOnAccount(actor: SessionUser, customerId: number, source: OnAccountSource, json: string) {
+  if (!can(actor, "payments", "create")) throw new Error("Not allowed");
+  const lines = readAllocations(json);
+  if (!lines.length) throw new UserError("Enter an amount on at least one line.", "allocations");
+  return writeTx(actor, async (tx) => {
+    const s = await lockSource(tx, customerId, source);
+    const total = lines.reduce((sum, l) => sum + l.amount, 0n);
+    if (total > s.rest) {
+      throw new UserError(`${formatMoney(total)} is more than the ${formatMoney(s.rest)} ${s.number} has on account.`, "allocations");
+    }
+    const checked = await checkAllocations(tx, customerId, s.rest, lines);
+    const own = await tx
+      .select()
+      .from(allocations)
+      .where(and(eq(source.kind === "receipt" ? allocations.receiptId : allocations.creditNoteId, source.id), eq(allocations.active, true)));
+    for (const l of checked) {
+      const target = (a: typeof allocations.$inferSelect) =>
+        l.target === "invoice" ? a.invoiceId : l.target === "debit_note" ? a.debitNoteId : a.jobId;
+      const same = own.find((a) => target(a) === l.id && a.fromJobId === null);
+      if (same) await deactivate(tx, [same.id]);
+      await tx.insert(allocations).values({
+        receiptId: source.kind === "receipt" ? source.id : null,
+        creditNoteId: source.kind === "credit_note" ? source.id : null,
+        invoiceId: l.target === "invoice" ? l.id : null,
+        debitNoteId: l.target === "debit_note" ? l.id : null,
+        jobId: l.target === "job" ? l.id : null,
+        amountPaise: l.amount + (same?.amountPaise ?? 0n),
+        createdBy: actor.id,
+      });
+    }
+    return { message: `Applied ${formatMoney(total)} from ${s.number}.` };
+  });
 }
 
 /** A cancelled credit note stops paying; a cancelled debit note's receipts go back on account (like an invoice, D49). */

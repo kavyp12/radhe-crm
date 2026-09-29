@@ -13,7 +13,7 @@ import { amountInWords, bpText, formatMoney, milliText, noteTotals, type GstMode
 import { getInvoice, INVOICE_KIND } from "@/lib/invoices";
 import { getQuotation } from "@/lib/quotations";
 import { getSettings } from "@/lib/settings";
-import { customerLedger, drCr, entryLabel, rangeText, statementLink, type Range } from "@/lib/statements";
+import { customerLedger, drCr, entryLabel, rangeText, statementLink, withoutReversed, type Range } from "@/lib/statements";
 import { storage } from "@/lib/storage";
 
 // The one A4 layout for quotations, invoices, credit / debit notes and statements (D06, DESIGN "PDFs"), rendered with
@@ -497,11 +497,11 @@ export async function notePdf(kind: NoteKind, id: number) {
   return { bytes, fileName: pdfFileName(n.number ?? `draft-${NOTE_KIND[kind].path}-${n.id}`) };
 }
 
-/** A customer's statement for the range (S15), figures straight from the journal. */
+/** A customer's statement for the range (S15), figures straight from the journal, reversed pairs left out (D50). */
 export async function statementPdf(customerId: number, range: Range) {
   const customer = await getCustomer(customerId);
   if (!customer) return null;
-  const l = await customerLedger(customerId, range);
+  const l = withoutReversed(await customerLedger(customerId, range));
   const bytes = await renderStatement({
     customer,
     range,

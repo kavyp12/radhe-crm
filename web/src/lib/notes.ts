@@ -25,7 +25,7 @@ import { can, type SessionUser } from "@/lib/permissions";
 import { checkVersion, companyState, dueDateFor, newShareToken, readDate } from "@/lib/sales";
 
 // Credit and debit notes (S16, A§2–§7, D49): corrections to one issued invoice — lines picked from it (a qty and / or a
-// taxable amount, never more than the line has left after earlier notes of the same kind), GST in the invoice's mode,
+// taxable amount; a credit note never more than the line has left after earlier ones, D50), GST in the invoice's mode,
 // no round-off. Drafts can be edited (D47); Issue numbers (CN/… · DN/…) and posts:
 //   credit note: Dr sales_returns (taxable, per job) + gst_out_* / Cr ar · debit note: Dr ar / Cr sales + gst_out_*.
 // A credit note then pays its invoice up to the open amount (the rest is customer credit); a debit note is a
@@ -137,7 +137,10 @@ function readNoteLines(json: string): NoteLineIn[] {
   return lines;
 }
 
-/** Checks lines against the invoice: each on it, never more than it has left (qty and amount). */
+/**
+ * Checks lines against the invoice: each on it; a credit note never more than the line has left (qty and amount).
+ * Debit notes have no cap: they add to the invoice (D50).
+ */
 async function checkNoteLines(q: Q, kind: NoteKind, invoiceId: number, lines: NoteLineIn[], exceptNoteId?: number) {
   const left = await invoiceLinesLeft(q, kind, invoiceId, exceptNoteId);
   return lines
@@ -145,10 +148,10 @@ async function checkNoteLines(q: Q, kind: NoteKind, invoiceId: number, lines: No
       const il = left.find((x) => x.id === l.invoiceLineId);
       if (!il) throw new UserError("A line isn't on this invoice: reload the page.", "lines");
       const n = `Invoice line ${il.position}`;
-      if (l.qty !== null && l.qty > il.qtyLeft) {
+      if (kind === "credit" && l.qty !== null && l.qty > il.qtyLeft) {
         throw new UserError(`${n}: qty ${milliText(l.qty)} is more than the ${milliText(il.qtyLeft)} ${il.unit} left.`, "lines");
       }
-      if (l.taxable > il.taxableLeft) {
+      if (kind === "credit" && l.taxable > il.taxableLeft) {
         throw new UserError(`${n}: ${formatMoney(l.taxable)} is more than the ${formatMoney(il.taxableLeft)} left on it.`, "lines");
       }
       return { ...l, gstBp: il.gstBp, jobId: il.jobId, position: il.position };
@@ -464,7 +467,7 @@ export async function getNote(kind: NoteKind, id: number) {
   const totals = noteTotals(lines.map((l) => ({ taxable: l.taxablePaise, gstBp: l.gstBp })), mode);
   const note = row.note;
   const issued = note.status === "issued";
-  // Debit note: paid by receipts. Credit note: what it paid on its invoice (the rest is customer credit).
+  // Debit note: paid by receipts. Credit note: what it paid on its invoice or was applied to (the rest is customer credit).
   const paid =
     kind === "debit"
       ? issued

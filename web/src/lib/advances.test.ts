@@ -4,13 +4,15 @@ import { beforeAll, expect, test } from "vitest";
 import { db } from "@/db";
 import { accounts, allocations } from "@/db/schema";
 import { testOwner } from "@/db/test-owner";
-import { advanceAdjusted, openJobs } from "@/lib/allocations";
+import { advanceAdjusted, applyOnAccount, onAccountSources, openJobs } from "@/lib/allocations";
+import { customerAdvance } from "@/lib/customer-history";
 import { createCustomer, type CustomerInput } from "@/lib/customers";
 import { addDays, formatDate, todayIST } from "@/lib/dates";
 import { cancelInvoice, createInvoice, createInvoiceFromJobs, getInvoice, issueInvoice } from "@/lib/invoices";
 import { createJob, getJob, setJobStatus } from "@/lib/jobs";
 import { ledger } from "@/lib/ledger";
 import type { LineText } from "@/lib/lines";
+import { createNote, invoiceLinesLeft, issueNote } from "@/lib/notes";
 import { invoicePdf } from "@/lib/pdf";
 import type { SessionUser } from "@/lib/permissions";
 import { createReceipt, getReceipt, jobAdvances, updateReceipt, type ReceiptInput } from "@/lib/receipts";
@@ -186,4 +188,57 @@ test("advances go only to open jobs; a receipt edit keeps the advance it carried
   expect((await getInvoice(inv))!).toMatchObject({ advance: 12000_00n, open: 13000_00n, balance: 13000_00n });
   const rows = await db.select().from(allocations).where(and(eq(allocations.receiptId, rc!), eq(allocations.active, true)));
   expect(rows.map((r) => [r.invoiceId, r.fromJobId, r.amountPaise])).toEqual([[inv, j, 12000_00n]]);
+});
+
+test("D50: a receipt's rest and a credit note's leftover credit are applied on account; the job's part moves at Issue", async () => {
+  const c = await createCustomer(owner, customer("On Account Signs"));
+  const plain = async (rupees: string) => {
+    const id = await createInvoice(owner, { kind: "tax", customerId: String(c), date: formatDate(today), terms: "", notes: "", lines: JSON.stringify([line(rupees)]) });
+    await issueInvoice(owner, id);
+    return id;
+  };
+  // A paid ₹1,000 invoice gets a ₹300 credit note → ₹300 customer credit. A ₹5,000 receipt sits on account.
+  const paid = await plain("1,000");
+  await createReceipt(owner, receipt(c, "1,000", [["invoice", paid, "1,000"]]));
+  const [invLine] = await invoiceLinesLeft(db, "credit", paid);
+  const cn = await createNote(owner, "credit", paid, {
+    date: formatDate(today),
+    reason: "Rate correction",
+    notes: "",
+    lines: JSON.stringify([{ invoiceLineId: String(invLine.id), qty: "", amount: "300" }]),
+  });
+  await issueNote(owner, "credit", cn);
+  const { id: rc } = await createReceipt(owner, receipt(c, "5,000", []));
+  const [a, b] = [await plain("2,000"), await plain("1,500")];
+  const j = await job(c, "4,000");
+  expect((await onAccountSources(db, c)).map((s) => [s.kind, s.id, s.rest])).toEqual([
+    ["credit_note", cn, 300_00n],
+    ["receipt", rc, 5000_00n],
+  ]);
+  const apply = (kind: "receipt" | "credit_note", id: number, lines: ["invoice" | "job", number, string][]) =>
+    applyOnAccount(owner, c, { kind, id }, JSON.stringify(lines.map(([target, x, amount]) => ({ target, id: String(x), amount }))));
+
+  await apply("receipt", rc!, [["invoice", a, "2,000"], ["invoice", b, "1,000"], ["job", j, "1,500"]]);
+  await expect(apply("receipt", rc!, [["invoice", b, "600"]])).rejects.toThrow("more than the ₹500.00 RC/");
+  await expect(apply("credit_note", cn, [["invoice", b, "600"]])).rejects.toThrow("more than the ₹300.00 CN/");
+  await apply("credit_note", cn, [["job", j, "300"]]);
+  expect((await getInvoice(a))!.payment).toBe("Paid");
+  expect((await getInvoice(b))!).toMatchObject({ open: 500_00n, payment: "Part Payment" });
+  expect((await jobAdvances(j)).map((x) => [x.receiptId, x.creditNoteId, x.amount])).toEqual([
+    [rc, null, 1500_00n],
+    [null, cn, 300_00n],
+  ]);
+  expect(await customerAdvance(c)).toEqual({ onJobs: 1800_00n, onAccount: 500_00n });
+
+  // Issue moves both advances onto the invoice; a cancel puts both back on the job.
+  const inv = await billJob(j);
+  expect((await getInvoice(inv))!).toMatchObject({ advance: 1800_00n, open: 2200_00n });
+  await cancelInvoice(owner, inv, "Re-bill");
+  expect((await jobAdvances(j)).map((x) => x.amount)).toEqual([1500_00n, 300_00n]);
+
+  // More of the same receipt on an invoice it already pays: one line, added up.
+  await apply("receipt", rc!, [["invoice", b, "500"]]);
+  expect((await getReceipt(rc!))!.lines.filter((l) => l.invoiceId === b).map((l) => l.amount)).toEqual([1500_00n]);
+  expect(await onAccountSources(db, c)).toEqual([]);
+  expect(await customerAdvance(c)).toEqual({ onJobs: 1800_00n, onAccount: 0n });
 });

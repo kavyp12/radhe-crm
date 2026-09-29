@@ -171,14 +171,17 @@ export async function customerHistory(customerId: number): Promise<Chain[]> {
 }
 
 /**
- * S1 "advance / on account": money received and not yet on an invoice — advances on the customer's open jobs, and the
- * unallocated rest of live receipts and issued credit notes (a note's excess stays as customer credit, D49).
+ * S1 "advance / on account": money received and not yet on an invoice — advances on the customer's open jobs (from
+ * receipts, or credit applied to them, D50), and the unallocated rest of live receipts and issued credit notes (a
+ * note's excess stays as customer credit, D49).
  */
 export async function customerAdvance(customerId: number) {
   const [row] = await db.execute<{ on_jobs: string; on_account: string; credit: string }>(sql`
     select
-      coalesce((select sum(a.amount_paise) from allocations a join receipts r on r.id = a.receipt_id
-        where r.customer_id = ${customerId} and r.status = 'active' and a.active and a.job_id is not null), 0) as on_jobs,
+      coalesce((select sum(a.amount_paise) from allocations a join jobs j on j.id = a.job_id
+        where j.customer_id = ${customerId} and a.active
+          and not exists (select 1 from receipts r where r.id = a.receipt_id and r.status = 'cancelled')
+          and not exists (select 1 from credit_notes c where c.id = a.credit_note_id and c.status = 'cancelled')), 0) as on_jobs,
       coalesce((select sum(r.amount_paise - coalesce((select sum(a.amount_paise) from allocations a
         where a.receipt_id = r.id and a.active), 0)) from receipts r
         where r.customer_id = ${customerId} and r.status = 'active'), 0) as on_account,

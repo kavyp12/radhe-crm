@@ -228,10 +228,10 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
                 </thead>
                 <tbody>
                   {payments.map((p) => (
-                    <tr key={p.receiptId}>
+                    <tr key={p.href}>
                       <td className="border-b px-3 py-2 font-medium tabular-nums">
                         {can(user, "payments", "view") ? (
-                          <Link href={`/receipts/${p.receiptId}`} className="text-primary hover:underline">
+                          <Link href={p.href} className="text-primary hover:underline">
                             {p.number}
                           </Link>
                         ) : (
@@ -242,7 +242,7 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
                         <DateText date={p.date} />
                       </td>
                       <td className="border-b px-3 py-2">
-                        {RECEIPT_MODE[p.mode]}
+                        {p.mode ? RECEIPT_MODE[p.mode] : "Credit note"}
                         {p.fromJob && <span className="text-muted-foreground"> · advance on job {p.fromJob}</span>}
                       </td>
                       <td className="border-b px-3 py-2 text-right">

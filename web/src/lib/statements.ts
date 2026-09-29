@@ -73,6 +73,27 @@ export async function customerLedger(customerId: number, range: Range) {
   return { ...l, debit: sum("debit"), credit: sum("credit") };
 }
 
+type LedgerRow = { entryId: number; reverses: number | null; debit: bigint; credit: bigint };
+
+/**
+ * What the statement PDF / share link shows (D50): the ledger without entries that were reversed together with their
+ * reversals (cancelled / edited documents — a pair nets to zero), running balance and totals recomputed. Only pairs
+ * both inside the range are dropped, so the closing balance never changes. The in-app ledger shows everything.
+ */
+export function withoutReversed<R extends LedgerRow>(l: { opening: bigint; rows: R[] }) {
+  const ids = new Set(l.rows.map((r) => r.entryId));
+  const reversed = new Set(l.rows.filter((r) => r.reverses !== null && ids.has(r.reverses)).map((r) => r.reverses));
+  let balance = l.opening;
+  const rows = l.rows
+    .filter((r) => !(r.reverses !== null && ids.has(r.reverses)) && !reversed.has(r.entryId))
+    .map((r) => {
+      balance += r.debit - r.credit;
+      return { ...r, balance };
+    });
+  const sum = (side: "debit" | "credit") => rows.reduce((s, r) => s + r[side], 0n);
+  return { opening: l.opening, rows, closing: balance, debit: sum("debit"), credit: sum("credit") };
+}
+
 /** A public link to this statement (D49): a new token row; the PDF is built from the journal each time it is opened. */
 export async function createStatementLink(actor: SessionUser, customerId: number, range: Range): Promise<string> {
   if (!can(actor, "customers", "money")) throw new Error("Not allowed");

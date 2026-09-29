@@ -60,7 +60,10 @@ export function NoteForm({ kind, lines, mode, values: v, submitLabel, action }: 
     }),
   );
 
-  /** A qty fills the amount pro rata (qty × the line's taxable ÷ its qty), never above what is left. */
+  // Credit notes are capped by what is left on each line; debit notes add to the invoice and have no cap (D50).
+  const capped = kind === "credit";
+
+  /** A qty fills the amount pro rata (qty × the line's taxable ÷ its qty); a credit note never above what is left. */
   function changeQty(id: number, text: string) {
     setRows((current) =>
       current.map((r) => {
@@ -68,7 +71,7 @@ export function NoteForm({ kind, lines, mode, values: v, submitLabel, action }: 
         const qty = read(parseQty, text);
         if (!qty || qty <= 0n) return { ...r, qtyText: text };
         const share = divRound(r.taxable * qty, r.qty);
-        return { ...r, qtyText: text, amountText: moneyText(share < r.taxableLeft ? share : r.taxableLeft) };
+        return { ...r, qtyText: text, amountText: moneyText(capped && share > r.taxableLeft ? r.taxableLeft : share) };
       }),
     );
   }
@@ -118,7 +121,7 @@ export function NoteForm({ kind, lines, mode, values: v, submitLabel, action }: 
                     <th className={`${th} w-8 text-right`}>#</th>
                     <th className={th}>Item</th>
                     <th className={`${th} text-right`}>Invoiced</th>
-                    <th className={`${th} text-right`}>Left</th>
+                    {capped && <th className={`${th} text-right`}>Left</th>}
                     <th className={`${th} w-24 text-right`}>Qty</th>
                     <th className={`${th} w-32 text-right`}>Amount ₹</th>
                     {mode !== "estimate" && <th className={`${th} text-right`}>GST %</th>}
@@ -138,16 +141,18 @@ export function NoteForm({ kind, lines, mode, values: v, submitLabel, action }: 
                         </div>
                         <Money paise={r.taxable} className="text-xs text-muted-foreground" />
                       </td>
-                      <td className={`${td} text-right whitespace-nowrap`}>
-                        <div className="tabular-nums">
-                          {milliText(r.qtyLeft)} {r.unit}
-                        </div>
-                        <Money paise={r.taxableLeft} className="text-xs text-muted-foreground" />
-                      </td>
+                      {capped && (
+                        <td className={`${td} text-right whitespace-nowrap`}>
+                          <div className="tabular-nums">
+                            {milliText(r.qtyLeft)} {r.unit}
+                          </div>
+                          <Money paise={r.taxableLeft} className="text-xs text-muted-foreground" />
+                        </td>
+                      )}
                       <td className="border-b px-2 py-1">
                         <Input
                           aria-label={`Qty, line ${r.position}`}
-                          aria-invalid={qty === null || (!!qty && qty > r.qtyLeft) || undefined}
+                          aria-invalid={qty === null || (capped && !!qty && qty > r.qtyLeft) || undefined}
                           inputMode="decimal"
                           value={r.qtyText}
                           onChange={(e) => changeQty(r.invoiceLineId, e.target.value)}
@@ -157,7 +162,7 @@ export function NoteForm({ kind, lines, mode, values: v, submitLabel, action }: 
                       <td className="border-b px-2 py-1">
                         <Input
                           aria-label={`Amount, line ${r.position}`}
-                          aria-invalid={amount === null || (!!amount && amount > r.taxableLeft) || undefined}
+                          aria-invalid={amount === null || (capped && !!amount && amount > r.taxableLeft) || undefined}
                           inputMode="decimal"
                           value={r.amountText}
                           onChange={(e) => changeAmount(r.invoiceLineId, e.target.value)}

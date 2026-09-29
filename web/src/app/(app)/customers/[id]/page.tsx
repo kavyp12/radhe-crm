@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { db } from "@/db";
 import { users } from "@/db/schema";
+import { onAccountSources } from "@/lib/allocations";
 import { listAttachments } from "@/lib/attachments";
 import { requirePermission } from "@/lib/auth";
 import { customerAdvance, customerHistory, type Chain } from "@/lib/customer-history";
@@ -174,7 +175,8 @@ export default async function CustomerPage({ params, searchParams }: PageProps<"
   const money = can(user, "customers", "money");
   const { period, range, error: rangeError } = readRange(text("period") || undefined, text("from"), text("to"));
 
-  const [overview, advance, files, people, chains, ledger, settings] = await Promise.all([
+  const canApply = can(user, "payments", "create");
+  const [overview, advance, files, people, chains, ledger, settings, sources] = await Promise.all([
     customerOverview(id),
     customerAdvance(id),
     listAttachments("customer", id),
@@ -182,6 +184,7 @@ export default async function CustomerPage({ params, searchParams }: PageProps<"
     customerHistory(id),
     money ? customerLedger(id, range) : null,
     getSettings(),
+    canApply ? onAccountSources(db, id) : [],
   ]);
   const personName = (v: unknown) => people.find((p) => p.id === v)?.name ?? String(v);
   const tiles = [
@@ -241,6 +244,43 @@ export default async function CustomerPage({ params, searchParams }: PageProps<"
               </div>
             ))}
           </section>
+          {sources.length > 0 && (
+            <section aria-label="On account" className="overflow-x-auto rounded-lg border bg-card">
+              <div className="border-b px-4 py-3">
+                <h2 className="text-sm font-medium">On account</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Money not on any invoice yet. Apply it to open invoices, debit notes or jobs.
+                </p>
+              </div>
+              <table className="w-full min-w-120 border-separate border-spacing-0 text-[13px]">
+                <tbody>
+                  {sources.map((s) => (
+                    <tr key={`${s.kind}:${s.id}`}>
+                      <td className={td}>
+                        <DocLink
+                          href={s.kind === "receipt" ? `/receipts/${s.id}` : `/credit-debit-notes/cn/${s.id}`}
+                          number={s.number}
+                          allowed
+                        />
+                      </td>
+                      <td className={td}>
+                        <DateText date={s.date} />
+                      </td>
+                      <td className={td}>{s.kind === "receipt" ? "Receipt, not allocated" : "Credit note, leftover credit"}</td>
+                      <td className={`${td} text-right`}>
+                        <Money paise={s.rest} />
+                      </td>
+                      <td className={`${td} w-24 text-right`}>
+                        <Button asChild variant="outline" size="sm">
+                          <Link href={`/customers/${id}/apply?${s.kind === "receipt" ? "receipt" : "creditNote"}=${s.id}`}>Apply</Link>
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          )}
           <dl className="grid gap-x-6 gap-y-4 rounded-lg border bg-card p-4 sm:grid-cols-2 lg:grid-cols-3">
             <Detail label="GSTIN">{c.gstin ?? "Unregistered"}</Detail>
             <Detail label="State">{`${c.stateCode} · ${stateName(c.stateCode) ?? ""}`}</Detail>

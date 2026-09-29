@@ -1,12 +1,13 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, notExists, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, writeTx, type Tx } from "@/db";
-import { accounts, allocations, customers, debitNotes, invoices, jobs, receipts, users } from "@/db/schema";
+import { accounts, allocations, creditNotes, customers, debitNotes, invoices, jobs, receipts, users } from "@/db/schema";
 import { formMoney, formText, UserError } from "@/lib/action";
 import {
   activeAllocationsOf,
   checkAllocations,
   deactivate,
+  liveAllocation,
   readAllocations,
   type AllocationLine,
   type AllocationTarget,
@@ -457,40 +458,50 @@ export async function getReceipt(id: number) {
   };
 }
 
-/** The receipts paying an invoice (active allocations of active receipts), oldest first; fromJob = a job's advance. */
-export const invoicePayments = (invoiceId: number) =>
-  db
+/**
+ * The money paying a target (live allocations), oldest first: receipts, and credit notes applied to it (D50; a
+ * receipt has `mode`, a credit note none). fromJob = a job's advance moved onto an invoice.
+ */
+async function paymentsTo(target: SQL) {
+  const date = sql<string>`coalesce(${receipts.date}, ${creditNotes.date})`;
+  const rows = await db
     .select({
-      receiptId: receipts.id,
-      number: receipts.number,
-      date: receipts.date,
+      receiptId: allocations.receiptId,
+      creditNoteId: allocations.creditNoteId,
+      number: sql<string>`coalesce(${receipts.number}, ${creditNotes.number})`,
+      date,
       mode: receipts.mode,
       amount: allocations.amountPaise,
       fromJob: jobs.number,
     })
     .from(allocations)
-    .innerJoin(receipts, eq(receipts.id, allocations.receiptId))
+    .leftJoin(receipts, eq(receipts.id, allocations.receiptId))
+    .leftJoin(creditNotes, eq(creditNotes.id, allocations.creditNoteId))
     .leftJoin(jobs, eq(jobs.id, allocations.fromJobId))
-    .where(and(eq(allocations.invoiceId, invoiceId), eq(allocations.active, true), eq(receipts.status, "active")))
-    .orderBy(asc(receipts.date), asc(receipts.id));
+    .where(and(target, liveAllocation()))
+    .orderBy(date, asc(allocations.id));
+  return rows.map((r) => ({ ...r, href: r.receiptId !== null ? `/receipts/${r.receiptId}` : `/credit-debit-notes/cn/${r.creditNoteId}` }));
+}
 
-/** The receipts paying a debit note (T16), oldest first. */
-export const debitNotePayments = (noteId: number) =>
-  db
-    .select({ receiptId: receipts.id, number: receipts.number, date: receipts.date, mode: receipts.mode, amount: allocations.amountPaise })
-    .from(allocations)
-    .innerJoin(receipts, eq(receipts.id, allocations.receiptId))
-    .where(and(eq(allocations.debitNoteId, noteId), eq(allocations.active, true), eq(receipts.status, "active")))
-    .orderBy(asc(receipts.date), asc(receipts.id));
+/** What pays an invoice; its own credit notes are left out (the Payments tab lists them as notes). */
+export const invoicePayments = (invoiceId: number) =>
+  paymentsTo(
+    and(
+      eq(allocations.invoiceId, invoiceId),
+      notExists(
+        db
+          .select({ one: sql`1` })
+          .from(creditNotes)
+          .where(and(eq(creditNotes.id, allocations.creditNoteId), eq(creditNotes.invoiceId, invoiceId))),
+      ),
+    )!,
+  );
 
-/** A job's advances in force (S12): which receipts, how much. */
-export const jobAdvances = (jobId: number) =>
-  db
-    .select({ receiptId: receipts.id, number: receipts.number, date: receipts.date, mode: receipts.mode, amount: allocations.amountPaise })
-    .from(allocations)
-    .innerJoin(receipts, eq(receipts.id, allocations.receiptId))
-    .where(and(eq(allocations.jobId, jobId), eq(allocations.active, true), eq(receipts.status, "active")))
-    .orderBy(asc(receipts.date), asc(receipts.id));
+/** What pays a debit note (T16). */
+export const debitNotePayments = (noteId: number) => paymentsTo(eq(allocations.debitNoteId, noteId));
+
+/** A job's advances in force (S12). */
+export const jobAdvances = (jobId: number) => paymentsTo(eq(allocations.jobId, jobId));
 
 /** Pick lists for the receipt form: active customers (plus this receipt's), money accounts, staff. */
 export async function receiptFormOptions(keepCustomerId?: number) {

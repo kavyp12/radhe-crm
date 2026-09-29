@@ -184,6 +184,16 @@ test("a note can't take more than the invoice line has left after earlier notes 
   await expect(createNote(owner, "credit", draftInvoice, { date: formatDate(today), reason: "x", notes: "", lines: "[]" })).rejects.toThrow("Only an issued invoice");
 });
 
+test("a debit note has no cap (D50): more than the invoice line, and again after that", async () => {
+  const inv = await invoice(outside);
+  const first = await draft(owner, "debit", inv, "3", "1,500", "Extra letters supplied");
+  await issueNote(owner, "debit", first);
+  const second = await draft(owner, "debit", inv, "", "2,000", "Rate revised");
+  await issueNote(owner, "debit", second);
+  expect((await getNote("debit", first))!).toMatchObject({ status: "issued", totalPaise: 1770_00n }); // ₹1,500 + 18% IGST
+  expect((await getNote("debit", second))!).toMatchObject({ status: "issued", totalPaise: 2360_00n });
+});
+
 test("a non-owner's credit note becomes an approval request and posts nothing; approval issues it", async () => {
   const inv = await invoice(local);
   const id = await draft(accountant, "credit", inv, "", "100");

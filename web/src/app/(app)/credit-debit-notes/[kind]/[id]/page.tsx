@@ -164,7 +164,7 @@ export default async function NotePage({ params }: PageProps<"/credit-debit-note
                     ["Received / open", issued ? <span key="o"><Money paise={note.paid} /> / <Money paise={note.open} /></span> : null],
                   ] as [string, React.ReactNode][])
                 : ([
-                    ["Paid towards the invoice", issued ? <Money key="p" paise={note.paid} /> : null],
+                    ["Applied (invoices / jobs)", issued ? <Money key="p" paise={note.paid} /> : null],
                     ["Customer credit", issued ? <Money key="c" paise={note.open} /> : null],
                   ] as [string, React.ReactNode][])),
               ["Notes", note.notes],
@@ -244,10 +244,10 @@ export default async function NotePage({ params }: PageProps<"/credit-debit-note
                 </thead>
                 <tbody>
                   {payments.map((p) => (
-                    <tr key={p.receiptId}>
+                    <tr key={p.href}>
                       <td className={`${td} font-medium tabular-nums`}>
                         {can(user, "payments", "view") ? (
-                          <Link href={`/receipts/${p.receiptId}`} className="text-primary hover:underline">
+                          <Link href={p.href} className="text-primary hover:underline">
                             {p.number}
                           </Link>
                         ) : (
@@ -257,7 +257,7 @@ export default async function NotePage({ params }: PageProps<"/credit-debit-note
                       <td className={td}>
                         <DateText date={p.date} />
                       </td>
-                      <td className={td}>{RECEIPT_MODE[p.mode]}</td>
+                      <td className={td}>{p.mode ? RECEIPT_MODE[p.mode] : "Credit note"}</td>
                       <td className={`${td} text-right`}>
                         <Money paise={p.amount} />
                       </td>
