@@ -107,7 +107,7 @@ export default async function ItemPage({ params }: PageProps<"/items/[id]">) {
                 </thead>
                 <tbody>
                   {item.moves.map((m) => {
-                    const href = m.number || m.source === "purchase" ? docHref(m.source, m.sourceId) : null;
+                    const href = docHref(m.source, m.sourceId);
                     return (
                       <tr key={m.id} className={cn(m.reversal && "text-muted-foreground")}>
                         <td className={td}>
@@ -119,7 +119,7 @@ export default async function ItemPage({ params }: PageProps<"/items/[id]">) {
                           {m.job && <span className="text-muted-foreground"> · job {m.job}</span>}
                         </td>
                         <td className={`${td} tabular-nums`}>
-                          {href && m.number ? (
+                          {href && m.number && (m.source !== "purchase" || cost) ? (
                             <Link href={href} className="text-primary hover:underline">
                               {m.number}
                             </Link>

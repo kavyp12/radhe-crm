@@ -75,3 +75,10 @@ export async function requirePermission(area: Area, action?: Action): Promise<Se
   if (!can(user, area, action)) redirect("/");
   return user;
 }
+
+/** Pages and server actions that show purchase rates or stock values (D51): the area permission and can_view_cost. */
+export async function requireCostPermission(area: Area, action?: Action): Promise<SessionUser> {
+  const user = await requirePermission(area, action);
+  if (!user.canViewCost) redirect("/");
+  return user;
+}

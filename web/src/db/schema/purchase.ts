@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
-import { type AnyPgColumn, bigint, check, date, index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { type AnyPgColumn, bigint, boolean, check, date, index, integer, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { users } from "./auth";
-import { stockItems } from "./masters";
+import { expenseCategories, stockItems, vendors } from "./masters";
 import { jobs } from "./sales";
 
 // Purchase / stock (A§2): stock moves and adjustments; purchase bills, vendor payments and expenses follow.
@@ -70,4 +70,73 @@ export const stockAdjustments = pgTable(
     ...stamps(),
   },
   (t) => [index("stock_adjustments_item_idx").on(t.itemId), check("stock_adjustments_qty_nonzero", sql`${t.qtyMilli} <> 0`)],
+);
+
+export const PURCHASE_BILL_STATUSES = ["active", "cancelled"] as const;
+
+/**
+ * Purchase bills (S9, A§2, D51): numbered PB/ and posted when saved. The vendor's bill no is unique per vendor among
+ * live bills (a cancelled one frees it). vendor_state_code is the vendor's state when saved: ours → CGST + SGST,
+ * else IGST (A§4). Edit = reverse + repost, cancel = reverse on the bill date. Payment status is computed (A§5). Audited.
+ */
+export const purchaseBills = pgTable(
+  "purchase_bills",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    number: text("number").notNull().unique(),
+    vendorId: bigint("vendor_id", { mode: "number" })
+      .notNull()
+      .references(() => vendors.id),
+    vendorBillNo: text("vendor_bill_no").notNull(),
+    date: date("date").notNull(), // the bill date
+    dueDate: date("due_date").notNull(), // date + the vendor's credit days
+    vendorStateCode: text("vendor_state_code").notNull(),
+    roundOffPaise: bigint("round_off_paise", { mode: "bigint" }).notNull().default(sql`0`),
+    totalPaise: bigint("total_paise", { mode: "bigint" }).notNull(),
+    status: text("status", { enum: PURCHASE_BILL_STATUSES }).notNull().default("active"),
+    notes: text("notes"),
+    ...stamps(),
+  },
+  (t) => [
+    index("purchase_bills_vendor_idx").on(t.vendorId),
+    uniqueIndex("purchase_bills_vendor_bill_no_idx")
+      .on(t.vendorId, sql`upper(${t.vendorBillNo})`)
+      .where(sql`${t.status} <> 'cancelled'`),
+    check("purchase_bills_total_positive", sql`${t.totalPaise} > 0`),
+    check("purchase_bills_round_off_check", sql`${t.roundOffPaise} between -100 and 100`),
+    check("purchase_bills_status_check", sql`${t.status} in ('active', 'cancelled')`),
+  ],
+);
+
+/**
+ * A bill's lines: a stock item OR an expense category, qty × rate (taxable), GST %; a job only on an expense line
+ * (D51). Never deleted: an edit deactivates the old lines and adds new ones (the bill's lines = its active ones).
+ */
+export const purchaseBillLines = pgTable(
+  "purchase_bill_lines",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    billId: bigint("bill_id", { mode: "number" })
+      .notNull()
+      .references(() => purchaseBills.id),
+    position: integer("position").notNull(),
+    stockItemId: bigint("stock_item_id", { mode: "number" }).references(() => stockItems.id),
+    expenseCategoryId: bigint("expense_category_id", { mode: "number" }).references(() => expenseCategories.id),
+    description: text("description"),
+    qtyMilli: bigint("qty_milli", { mode: "bigint" }).notNull(),
+    ratePaise: bigint("rate_paise", { mode: "bigint" }).notNull(),
+    gstBp: integer("gst_bp").notNull(),
+    jobId: bigint("job_id", { mode: "number" }).references(() => jobs.id),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("purchase_bill_lines_bill_idx").on(t.billId),
+    index("purchase_bill_lines_job_idx").on(t.jobId),
+    check("purchase_bill_lines_one_kind", sql`num_nonnulls(${t.stockItemId}, ${t.expenseCategoryId}) = 1`),
+    check("purchase_bill_lines_job_on_expense", sql`${t.jobId} is null or ${t.expenseCategoryId} is not null`),
+    check("purchase_bill_lines_qty_positive", sql`${t.qtyMilli} > 0`),
+    check("purchase_bill_lines_rate_check", sql`${t.ratePaise} >= 0`),
+    check("purchase_bill_lines_gst_check", sql`${t.gstBp} between 0 and 10000`),
+  ],
 );

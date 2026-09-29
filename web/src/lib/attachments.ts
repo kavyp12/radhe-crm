@@ -18,7 +18,11 @@ const ENTITY_AREA: Record<string, Area> = {
   job: "jobs",
   invoice: "invoices",
   receipt: "payments",
+  purchase_bill: "books",
 };
+
+/** Entity types whose files show purchase rates: only for can_view_cost users (D51). */
+const COST_ENTITIES = new Set(["purchase_bill"]);
 
 /** Entity types whose files anyone who can see the record may add (D48: production uploads installation photos). */
 const UPLOAD_ON_VIEW = new Set(["job"]);
@@ -26,6 +30,7 @@ const UPLOAD_ON_VIEW = new Set(["job"]);
 /** "edit" = may upload. */
 export function canAttach(user: SessionUser, entityType: string, action: Extract<Action, "view" | "edit">) {
   const area = ENTITY_AREA[entityType];
+  if (COST_ENTITIES.has(entityType) && !user.canViewCost) return false;
   return !!area && can(user, area, action === "edit" && UPLOAD_ON_VIEW.has(entityType) ? "view" : action);
 }
 
