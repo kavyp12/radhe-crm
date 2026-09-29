@@ -124,6 +124,113 @@ export const stockIssueLines = pgTable(
   ],
 );
 
+export const MATERIAL_REQUEST_STATUSES = ["pending", "approved", "rejected", "ordered", "cancelled"] as const;
+
+/**
+ * Material requests (S18, A§8, D53): what the workshop needs, numbered MR/ when saved. Pending → Approved / Rejected
+ * (the owner, with an optional note) → Ordered once a purchase order is made from it; its maker may cancel it while
+ * pending. Never posts. Audited.
+ */
+export const materialRequests = pgTable(
+  "material_requests",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    number: text("number").notNull().unique(),
+    date: date("date").notNull(),
+    neededBy: date("needed_by").notNull(),
+    jobId: bigint("job_id", { mode: "number" }).references(() => jobs.id),
+    notes: text("notes"),
+    status: text("status", { enum: MATERIAL_REQUEST_STATUSES }).notNull().default("pending"),
+    decidedBy: text("decided_by").references(() => users.id),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decisionNote: text("decision_note"),
+    ...stamps(),
+  },
+  (t) => [
+    index("material_requests_status_idx").on(t.status),
+    check("material_requests_status_check", sql`${t.status} in ('pending', 'approved', 'rejected', 'ordered', 'cancelled')`),
+  ],
+);
+
+/** A request's lines: a stock item and the qty wanted (never changed: a wrong request is cancelled). */
+export const materialRequestLines = pgTable(
+  "material_request_lines",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    requestId: bigint("request_id", { mode: "number" })
+      .notNull()
+      .references(() => materialRequests.id),
+    position: integer("position").notNull(),
+    itemId: bigint("item_id", { mode: "number" })
+      .notNull()
+      .references(() => stockItems.id),
+    qtyMilli: bigint("qty_milli", { mode: "bigint" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("material_request_lines_request_idx").on(t.requestId), check("material_request_lines_qty_positive", sql`${t.qtyMilli} > 0`)],
+);
+
+export const PURCHASE_ORDER_STATUSES = ["draft", "sent", "cancelled"] as const;
+
+/**
+ * Purchase orders (S18, A§8, D36, D53): numbered PO/ when saved; never posted. Draft → Sent (→ Partly received →
+ * Received, computed from the GRNs in T23); cancelled only while nothing is received; editable until the first GRN.
+ * vendor_state_code as for bills (ours → CGST + SGST, else IGST). Purchase rates: can_view_cost users only. Audited.
+ */
+export const purchaseOrders = pgTable(
+  "purchase_orders",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    number: text("number").notNull().unique(),
+    date: date("date").notNull(),
+    vendorId: bigint("vendor_id", { mode: "number" })
+      .notNull()
+      .references(() => vendors.id),
+    vendorStateCode: text("vendor_state_code").notNull(),
+    totalPaise: bigint("total_paise", { mode: "bigint" }).notNull(),
+    status: text("status", { enum: PURCHASE_ORDER_STATUSES }).notNull().default("draft"),
+    notes: text("notes"),
+    shareToken: text("share_token").notNull().unique(), // public /share/<token> link to the PDF (D07)
+    ...stamps(),
+  },
+  (t) => [
+    index("purchase_orders_vendor_idx").on(t.vendorId),
+    check("purchase_orders_status_check", sql`${t.status} in ('draft', 'sent', 'cancelled')`),
+  ],
+);
+
+/**
+ * A PO's lines: a stock item, qty × rate, GST %, and the request line it was copied from (if any). Never deleted: an
+ * edit deactivates the old lines and adds new ones (the PO's lines = its active ones).
+ */
+export const purchaseOrderLines = pgTable(
+  "purchase_order_lines",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    orderId: bigint("order_id", { mode: "number" })
+      .notNull()
+      .references(() => purchaseOrders.id),
+    position: integer("position").notNull(),
+    itemId: bigint("item_id", { mode: "number" })
+      .notNull()
+      .references(() => stockItems.id),
+    description: text("description"),
+    qtyMilli: bigint("qty_milli", { mode: "bigint" }).notNull(),
+    ratePaise: bigint("rate_paise", { mode: "bigint" }).notNull(),
+    gstBp: integer("gst_bp").notNull(),
+    requestLineId: bigint("request_line_id", { mode: "number" }).references(() => materialRequestLines.id),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("purchase_order_lines_order_idx").on(t.orderId),
+    index("purchase_order_lines_request_line_idx").on(t.requestLineId),
+    check("purchase_order_lines_qty_positive", sql`${t.qtyMilli} > 0`),
+    check("purchase_order_lines_rate_check", sql`${t.ratePaise} >= 0`),
+    check("purchase_order_lines_gst_check", sql`${t.gstBp} between 0 and 10000`),
+  ],
+);
+
 export const PURCHASE_BILL_STATUSES = ["active", "cancelled"] as const;
 
 /**

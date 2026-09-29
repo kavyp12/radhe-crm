@@ -31,6 +31,7 @@ const LABELS = {
   gstin: "GSTIN",
   state_code: "State",
   mobile: "Mobile",
+  email: "Email",
   address: "Address",
   credit_days: "Credit days",
   opening_balance_paise: "Opening balance",
@@ -168,6 +169,7 @@ export default async function VendorPage({ params, searchParams }: PageProps<"/v
             <Detail label="GSTIN">{v.gstin ?? "Unregistered"}</Detail>
             <Detail label="State">{`${v.stateCode} · ${stateName(v.stateCode) ?? ""}`}</Detail>
             <Detail label="Mobile">{v.mobile}</Detail>
+            <Detail label="Email">{v.email}</Detail>
             <Detail label="Address">{v.address}</Detail>
             <Detail label="Credit days">{v.creditDays === null ? null : `${v.creditDays} days`}</Detail>
             <Detail label="Opening balance (+ = we owe)">
@@ -246,7 +248,7 @@ export default async function VendorPage({ params, searchParams }: PageProps<"/v
               <WhatsAppButton share={vendorStatementShareAction.bind(null, id, period, text("from"), text("to"))} />
               <EmailDialog
                 action={emailVendorStatementAction.bind(null, id, period, text("from"), text("to"))}
-                to=""
+                to={v.email ?? ""}
                 subject={`Statement of account${settings.companyName ? ` from ${settings.companyName}` : ""}`}
                 message={statementMessage({ name: v.name, range, closing: ledger.closing, company: settings.companyName })}
               />

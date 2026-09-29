@@ -50,6 +50,7 @@ test("+ New lists only what the role may create", () => {
 test("cost-only pages (purchase rates) are hidden without can_view_cost (D52)", () => {
   expect(labels("accountant")).toContain("Purchase Bills");
   expect(labels("accountant", false)).not.toContain("Purchase Bills");
+  expect(labels("accountant", false)).not.toContain("Purchase Orders");
   expect(labels("accountant", false)).toContain("Expenses");
   expect(newMenuFor(user("accountant", false)).map((item) => item.label)).not.toContain("Purchase Bill");
 });

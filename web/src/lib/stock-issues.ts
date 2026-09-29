@@ -36,7 +36,8 @@ export const ISSUE_KIND = { issue: "Issue", return: "Return" } as const satisfie
 export type IssueInput = { kind: string; jobId: string; date: string; notes: string; lines: string };
 type Line = { itemId: number; qty: bigint };
 
-function readLines(json: string): Line[] {
+/** { itemId, qty }[] as typed (JSON) → lines; blank rows skipped, each item once. Also material requests (T22). */
+export function readItemLines(json: string): Line[] {
   let raw: unknown;
   try {
     raw = JSON.parse(json);
@@ -106,7 +107,7 @@ async function plan(tx: Tx, input: IssueInput) {
   if (kind === "issue" && job.status === "cancelled") throw new UserError(`Job ${job.number} is cancelled.`, "jobId");
   const date = readDate(input.date);
   await checkBooksDate(tx, date);
-  const read = readLines(input.lines);
+  const read = readItemLines(input.lines);
   const notes = formText(input.notes, "notes", 500);
 
   const items = await lockItems(tx, read.map((l) => l.itemId));

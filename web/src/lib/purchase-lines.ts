@@ -66,6 +66,21 @@ export function readPurchaseLine(t: PurchaseLineText, n: number): PurchaseLine {
   };
 }
 
+/** A purchase order line as typed (T22): a stock item; requestLineId = the material request line it came from. */
+export type OrderLineText = { itemId: string; description: string; qty: string; rate: string; gst: string; requestLineId: string };
+export const ORDER_LINE_KEYS = ["itemId", "description", "qty", "rate", "gst", "requestLineId"] as const;
+export type OrderLine = PurchaseLine & { itemId: number; requestLineId: number | null };
+export const blankOrderLine = (t: OrderLineText) => !t.itemId && !t.qty.trim() && !t.rate.trim();
+
+/** One order line as typed → values (read like a bill's stock line); throws Error("Line n: …"). */
+export function readOrderLine(t: OrderLineText, n: number): OrderLine {
+  if (!t.itemId) throw new Error(`Line ${n}: pick the item.`);
+  const l = readPurchaseLine({ what: `item:${t.itemId}`, description: t.description, qty: t.qty, rate: t.rate, gst: t.gst, jobId: "" }, n);
+  const requestLineId = t.requestLineId ? Number(t.requestLineId) : null;
+  if (requestLineId !== null && !Number.isSafeInteger(requestLineId)) throw new Error(`Line ${n}: reload the page.`);
+  return { ...l, itemId: l.itemId!, requestLineId };
+}
+
 /** The line's taxable value: qty × rate, half-up to the paisa. */
 export const taxableOf = (l: Pick<PurchaseLine, "qtyMilli" | "ratePaise">) => divRound(l.qtyMilli * l.ratePaise, 1000n);
 

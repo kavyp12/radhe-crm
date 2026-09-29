@@ -3,7 +3,7 @@ import { Document, Font, Image, Page, renderToBuffer, StyleSheet, Text, View } f
 import { eq } from "drizzle-orm";
 import type { ReactNode } from "react";
 import { db } from "@/db";
-import { attachments, creditNotes, debitNotes, invoices, quotations } from "@/db/schema";
+import { attachments, creditNotes, debitNotes, invoices, purchaseOrders, quotations } from "@/db/schema";
 import { getCustomer } from "@/lib/customers";
 import { formatDate, todayIST } from "@/lib/dates";
 import { stateName } from "@/lib/gstin";
@@ -11,14 +11,16 @@ import { lineTotals, sizeText } from "@/lib/lines";
 import { getNote, NOTE_KIND, type NoteKind } from "@/lib/notes";
 import { amountInWords, bpText, formatMoney, milliText, noteTotals, type GstMode } from "@/lib/num";
 import { getInvoice, INVOICE_KIND } from "@/lib/invoices";
+import { getOrder } from "@/lib/purchase-orders";
 import { getQuotation } from "@/lib/quotations";
 import { getSettings } from "@/lib/settings";
 import { customerLedger, drCr, entryLabel, rangeText, statementLink, vendorLedger, withoutReversed, type Range } from "@/lib/statements";
 import { storage } from "@/lib/storage";
 import { getVendor } from "@/lib/vendors";
 
-// The one A4 layout for quotations, invoices, credit / debit notes and statements (D06, DESIGN "PDFs"), rendered with
-// @react-pdf/renderer on the server: the same letterhead, customer block and footer; a lines table or a ledger table.
+// The one A4 layout for quotations, invoices, credit / debit notes, purchase orders and statements (D06, DESIGN "PDFs"),
+// rendered with @react-pdf/renderer on the server: the same letterhead, party block (customer, or the vendor on a
+// purchase order) and footer; a lines table or a ledger table.
 // Built-in Helvetica has no ₹ and no Gujarati, so everything is set in Noto Sans with Noto Sans Gujarati as the
 // fallback for Gujarati letters (fonts committed under src/assets/fonts, OFL; next.config traces them into the build).
 
@@ -56,12 +58,14 @@ export type PdfLine = {
 export type PdfNoteLine = Omit<PdfLine, "qtyMilli" | "ratePaise" | "discountPaise"> & { qtyMilli: bigint | null; taxablePaise: bigint };
 
 export type PdfDoc = {
-  title: string; // "Quotation", "Tax Invoice", "Estimate", "Credit Note", "Debit Note"
+  title: string; // "Quotation", "Tax Invoice", "Estimate", "Credit Note", "Debit Note", "Purchase Order"
   number: string;
   date: string;
   dueDate?: string | null;
   mark: "DRAFT" | "CANCELLED" | null;
   customer: { name: string; firmName: string | null; billingAddress: string | null; gstin: string | null; stateCode: string };
+  /** Over the party block; default "Bill to" ("To" on quotations). */
+  partyLabel?: string;
   placeOfSupply: string | null; // printed on tax invoices
   mode: GstMode;
   lines: PdfLine[];
@@ -272,7 +276,7 @@ export async function renderPdf(doc: PdfDoc): Promise<Buffer> {
             ...(doc.dueDate ? [`Due ${formatDate(doc.dueDate)}`] : []),
           ]}
         />
-        <Party label={doc.title === "Quotation" ? "To" : "Bill to"} c={doc.customer}>
+        <Party label={doc.partyLabel ?? (doc.title === "Quotation" ? "To" : "Bill to")} c={doc.customer}>
           {doc.placeOfSupply && (
             <>
               <Text style={s.muted}>Place of supply</Text>
@@ -503,6 +507,37 @@ export async function notePdf(kind: NoteKind, id: number) {
   return { bytes, fileName: pdfFileName(n.number ?? `draft-${NOTE_KIND[kind].path}-${n.id}`) };
 }
 
+/** A purchase order (T22): the vendor in the party block, the items at the order's rates, GST as for bills. */
+export async function purchaseOrderPdf(id: number) {
+  const o = await getOrder(id);
+  if (!o) return null;
+  const bytes = await renderPdf({
+    title: "Purchase Order",
+    number: o.number,
+    date: o.date,
+    mark: o.status === "draft" ? "DRAFT" : o.status === "cancelled" ? "CANCELLED" : null,
+    customer: { name: o.vendor.name, firmName: null, billingAddress: o.vendor.address, gstin: o.vendor.gstin, stateCode: o.vendorStateCode },
+    partyLabel: "Vendor",
+    placeOfSupply: null,
+    mode: o.mode,
+    lines: o.lines.map((l) => ({
+      category: l.name,
+      description: l.description ? `${l.name} — ${l.description}` : l.name,
+      hsnSac: l.hsnSac,
+      widthMilli: null,
+      heightMilli: null,
+      qtyMilli: l.qtyMilli,
+      unit: l.unit,
+      ratePaise: l.ratePaise,
+      discountPaise: 0n,
+      gstBp: l.gstBp,
+    })),
+    terms: null, // notes stay internal
+    payment: false,
+  });
+  return { bytes, fileName: pdfFileName(o.number) };
+}
+
 /** A customer's statement for the range (S15), figures straight from the journal, reversed pairs left out (D50). */
 export async function statementPdf(customerId: number, range: Range) {
   const customer = await getCustomer(customerId);
@@ -551,6 +586,8 @@ export async function pdfForToken(token: string) {
     const [note] = await db.select({ id: t.id }).from(t).where(eq(t.shareToken, token));
     if (note) return notePdf(kind, note.id);
   }
+  const [po] = await db.select({ id: purchaseOrders.id }).from(purchaseOrders).where(eq(purchaseOrders.shareToken, token));
+  if (po) return purchaseOrderPdf(po.id);
   const statement = await statementLink(token);
   if (!statement) return null;
   const range = { from: statement.fromDate, to: statement.toDate };

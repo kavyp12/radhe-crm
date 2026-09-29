@@ -69,7 +69,7 @@ export const NAV: NavGroup[] = [
     items: [
       { label: "Vendors", href: "/vendors", area: "vendors", icon: Store },
       { label: "Material Requests", href: "/material-requests", area: "materialRequests", icon: ClipboardList },
-      { label: "Purchase Orders", href: "/purchase-orders", area: "purchaseOrders", icon: ShoppingCart },
+      { label: "Purchase Orders", href: "/purchase-orders", area: "purchaseOrders", icon: ShoppingCart, cost: true },
       { label: "Material Receive", href: "/material-receive", area: "goodsReceipts", icon: PackageCheck },
       { label: "Purchase Bills", href: "/purchase-bills", area: "books", icon: FileSpreadsheet, cost: true },
     ],

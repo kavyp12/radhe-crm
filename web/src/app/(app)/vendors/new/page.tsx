@@ -16,6 +16,7 @@ export default async function NewVendorPage() {
           gstin: "",
           stateCode: COMPANY_STATE,
           mobile: "",
+          email: "",
           address: "",
           creditDays: "",
           notes: "",

@@ -18,6 +18,10 @@ export const STATUSES = [
   "Pending approval",
   "Rejected",
   "Cancelled",
+  "Pending", // material requests (T22)
+  "Ordered",
+  "Partly Received", // purchase orders (T23)
+  "Received",
 ] as const;
 export type Status = (typeof STATUSES)[number];
 
@@ -38,6 +42,10 @@ const TONE: Record<Status, string> = {
   "Pending approval": "bg-orange-50 text-orange-800 ring-orange-600/25",
   Rejected: "bg-red-50 text-red-700 ring-red-600/20",
   Cancelled: "bg-zinc-100 text-zinc-500 ring-zinc-500/20",
+  Pending: "bg-orange-50 text-orange-800 ring-orange-600/25",
+  Ordered: "bg-indigo-50 text-indigo-700 ring-indigo-600/20",
+  "Partly Received": "bg-yellow-50 text-yellow-800 ring-yellow-600/30",
+  Received: "bg-green-50 text-green-700 ring-green-600/20",
 };
 
 export function StatusBadge({ status, className }: { status: Status; className?: string }) {

@@ -22,6 +22,7 @@ export default async function EditVendorPage({ params }: PageProps<"/vendors/[id
           gstin: v.gstin ?? "",
           stateCode: v.stateCode,
           mobile: v.mobile ?? "",
+          email: v.email ?? "",
           address: v.address ?? "",
           creditDays: v.creditDays === null ? "" : String(v.creditDays),
           notes: v.notes ?? "",

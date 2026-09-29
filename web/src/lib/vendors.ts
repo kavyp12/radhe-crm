@@ -1,7 +1,7 @@
 import { asc, eq, sql } from "drizzle-orm";
 import { db, writeTx, type Tx } from "@/db";
 import { journalLines, vendors } from "@/db/schema";
-import { formDays, formMoney, formPhone, formText, UserError } from "@/lib/action";
+import { formDays, formEmail, formMoney, formPhone, formText, UserError } from "@/lib/action";
 import { stateAndGstin } from "@/lib/gstin";
 import { setOpening, systemAccountId } from "@/lib/ledger";
 import { can, type SessionUser } from "@/lib/permissions";
@@ -14,6 +14,7 @@ export type VendorInput = {
   gstin: string;
   stateCode: string;
   mobile: string;
+  email?: string; // blank / missing = none
   address: string;
   creditDays: string;
   notes: string;
@@ -28,6 +29,7 @@ function values(input: VendorInput) {
     name,
     ...stateAndGstin(input.stateCode, input.gstin),
     mobile: formPhone(input.mobile, "mobile"),
+    email: formEmail(input.email ?? "", "email"),
     address: formText(input.address, "address", 1000),
     creditDays: formDays(input.creditDays, "creditDays"),
     notes: formText(input.notes, "notes", 2000),

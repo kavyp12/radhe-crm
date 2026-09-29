@@ -20,6 +20,7 @@ function input(form: FormData): VendorInput {
     gstin: text("gstin"),
     stateCode: text("stateCode"),
     mobile: text("mobile"),
+    email: text("email"),
     address: text("address"),
     creditDays: text("creditDays"),
     notes: text("notes"),

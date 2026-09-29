@@ -14,6 +14,7 @@ export type VendorFormValues = {
   gstin: string;
   stateCode: string;
   mobile: string;
+  email: string;
   address: string;
   creditDays: string;
   notes: string;
@@ -50,6 +51,9 @@ export function VendorForm({ values: v, canSetOpening, canDeactivate, submitLabe
           </Field>
           <Field label="Mobile" error={error("mobile")}>
             <Input name="mobile" type="tel" defaultValue={v.mobile} maxLength={20} />
+          </Field>
+          <Field label="Email" hint="Optional: purchase orders are emailed here." error={error("email")}>
+            <Input name="email" type="email" defaultValue={v.email} maxLength={200} />
           </Field>
           <GstinStateFields gstin={v.gstin} stateCode={v.stateCode} error={error} />
           {warning && <div className="sm:col-span-2">{warning}</div>}

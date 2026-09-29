@@ -253,6 +253,20 @@
       "when": 1790688843510,
       "tag": "0035_stock_issues_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1790690014281,
+      "tag": "0036_material_requests_purchase_orders",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1790690015543,
+      "tag": "0037_material_requests_purchase_orders_audit",
+      "breakpoints": true
     }
   ]
 }

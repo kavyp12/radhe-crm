@@ -100,6 +100,7 @@ export const vendors = pgTable("vendors", {
   gstin: text("gstin"),
   stateCode: text("state_code").notNull().default("24"),
   mobile: text("mobile"),
+  email: text("email"), // where purchase order PDFs are emailed (T22)
   address: text("address"),
   creditDays: integer("credit_days"),
   openingBalancePaise: bigint("opening_balance_paise", { mode: "bigint" }).notNull().default(sql`0`),
