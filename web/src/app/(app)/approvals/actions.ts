@@ -10,6 +10,7 @@ import "@/lib/invoices";
 import "@/lib/notes";
 import "@/lib/quotations";
 import "@/lib/receipts";
+import "@/lib/stock";
 
 export async function decideAction(id: number, _: FormState, form: FormData): Promise<FormState> {
   const owner = await requirePermission("approvals", "approve");

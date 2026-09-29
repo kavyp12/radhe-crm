@@ -33,14 +33,14 @@ function allowed(actor: SessionUser) {
 }
 
 /** Blank = not known yet (Q2). Digits only, 4 to 8 of them. */
-function hsnSac(value: string): string | null {
+export function hsnSac(value: string): string | null {
   const v = value.replace(/\s/g, "");
   if (v && !/^\d{4,8}$/.test(v)) throw new UserError("HSN / SAC is 4 to 8 digits.", "hsnSac");
   return v || null;
 }
 
 /** "18" or "12.5" (%) → basis points, the same 2-decimal parse as the discount limit. */
-function gstBp(value: string): number {
+export function gstBp(value: string): number {
   let bp: number;
   try {
     bp = Number(parseMoney(value));

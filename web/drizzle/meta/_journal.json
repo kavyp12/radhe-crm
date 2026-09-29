@@ -183,6 +183,20 @@
       "when": 1790665010618,
       "tag": "0025_credit_debit_notes_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790672703381,
+      "tag": "0026_stock",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1790672721070,
+      "tag": "0027_stock_rules",
+      "breakpoints": true
     }
   ]
 }

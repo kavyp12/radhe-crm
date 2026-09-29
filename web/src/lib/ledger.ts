@@ -160,7 +160,7 @@ export async function liveEntry(tx: Tx, docType: string, docId: number) {
 }
 
 // Opening balances (A§3, D40) are posted by the master row itself: doc_type = its table, doc_id = its id.
-const OPENING_DOCS = ["accounts", "customers", "vendors"] as const;
+const OPENING_DOCS = ["accounts", "customers", "vendors", "stock_items"] as const;
 
 /**
  * No document may be dated before the books start date (D43). FOR SHARE: Settings can't move the date while a

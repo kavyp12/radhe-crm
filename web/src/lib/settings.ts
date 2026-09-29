@@ -5,6 +5,7 @@ import { formDays, formMoney, formText, UserError } from "@/lib/action";
 import { parseDate } from "@/lib/dates";
 import { gstinProblem } from "@/lib/gstin";
 import { firstDocumentDate, liveOpenings, moveOpenings, setOpening } from "@/lib/ledger";
+import { moveOpeningStock } from "@/lib/stock-moves";
 import { bpText, parseMoney } from "@/lib/num";
 import { can, type SessionUser } from "@/lib/permissions";
 
@@ -128,7 +129,10 @@ export async function saveBooks(actor: SessionUser, input: BooksInput): Promise<
         throw new UserError("Opening balances are posted on this date, so it can't be blank.", "booksStartDate");
       }
       await tx.update(settings).set({ booksStartDate: date }).where(eq(settings.id, 1));
-      if (date) await moveOpenings(tx, date);
+      if (date) {
+        await moveOpenings(tx, date);
+        await moveOpeningStock(tx, date);
+      }
     }
 
     const money = await tx.select().from(accounts).where(eq(accounts.isMoney, true)).for("update");

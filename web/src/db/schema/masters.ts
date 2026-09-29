@@ -128,6 +128,31 @@ export const productCategories = pgTable("product_categories", {
 });
 
 /**
+ * Stock items (A§2, S17, D20): one unit each, no conversion. The category is an expense category (D51). GST % is the
+ * purchase default (null = typed on each bill line). The opening stock is what was typed; lib/stock.ts posts it on the
+ * books start date (D40). Quantities and values live in stock_moves. Audited.
+ */
+export const stockItems = pgTable("stock_items", {
+  id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull().unique(),
+  unit: text("unit").notNull(),
+  categoryId: bigint("category_id", { mode: "number" })
+    .notNull()
+    .references(() => expenseCategories.id),
+  hsnSac: text("hsn_sac"),
+  gstBp: integer("gst_bp"),
+  openingQtyMilli: bigint("opening_qty_milli", { mode: "bigint" }).notNull().default(sql`0`),
+  openingRatePaise: bigint("opening_rate_paise", { mode: "bigint" }).notNull().default(sql`0`),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: text("created_by").references(() => users.id),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+/**
  * S10 categories (21 inserted by migration 0012), each posting to its own expense account; cost_bucket puts
  * job-tagged amounts into job costing (A§10, D41; none = overhead). Audited.
  */
