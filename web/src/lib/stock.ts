@@ -1,6 +1,6 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, writeTx, type Tx } from "@/db";
-import { expenseCategories, jobs, purchaseBills, settings, stockAdjustments, stockItems, stockMoves, type StockSource } from "@/db/schema";
+import { expenseCategories, jobs, purchaseBills, settings, stockAdjustments, stockIssues, stockItems, stockMoves, type StockSource } from "@/db/schema";
 import { formText, UserError } from "@/lib/action";
 import { registerExecutor, runOrRequest } from "@/lib/approvals";
 import { gstBp, hsnSac } from "@/lib/categories";
@@ -283,11 +283,13 @@ export async function getItem(user: SessionUser, id: number) {
       reverses: stockMoves.reversesMoveId,
       adjustment: stockAdjustments.number,
       bill: purchaseBills.number,
+      issue: stockIssues.number,
       job: jobs.number,
     })
     .from(stockMoves)
     .leftJoin(stockAdjustments, and(eq(stockMoves.source, "adjustment"), eq(stockAdjustments.id, stockMoves.sourceId)))
     .leftJoin(purchaseBills, and(eq(stockMoves.source, "purchase"), eq(purchaseBills.id, stockMoves.sourceId)))
+    .leftJoin(stockIssues, and(inArray(stockMoves.source, ["issue", "return"]), eq(stockIssues.id, stockMoves.sourceId)))
     .leftJoin(jobs, eq(jobs.id, stockMoves.jobId))
     .where(eq(stockMoves.itemId, id))
     .orderBy(asc(stockMoves.date), asc(stockMoves.id));
@@ -303,7 +305,7 @@ export async function getItem(user: SessionUser, id: number) {
       source: m.source,
       sourceId: m.sourceId,
       reversal: m.reverses !== null,
-      number: m.adjustment ?? m.bill,
+      number: m.adjustment ?? m.bill ?? m.issue,
       job: m.job,
       qty: m.qty,
       balance: qty,

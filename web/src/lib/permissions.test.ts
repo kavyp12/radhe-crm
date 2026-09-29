@@ -19,8 +19,8 @@ const samples: Record<Role, { allowed: Sample[]; denied: Sample[] }> = {
     denied: [["customers", "cancel"], ["invoices", "create"], ["payments"], ["vendors"], ["books"], ["reports"], ["users"], ["jobs", "status"], ["categories"], ["stockItems"]],
   },
   production: {
-    allowed: [["jobs", "view"], ["jobs", "status"], ["stockIssue", "create"], ["materialRequests", "create"], ["printJobs", "view"], ["stockItems", "view"]],
-    denied: [["jobs", "edit"], ["customers"], ["invoices"], ["payments"], ["books"], ["reports"], ["salesReports"], ["settings"], ["stockItems", "edit"], ["categories"]],
+    allowed: [["jobs", "view"], ["jobs", "status"], ["stockIssue", "create"], ["stockIssue", "view"], ["materialRequests", "create"], ["printJobs", "view"], ["stockItems", "view"]],
+    denied: [["jobs", "edit"], ["customers"], ["invoices"], ["payments"], ["books"], ["reports"], ["salesReports"], ["settings"], ["stockItems", "edit"], ["categories"], ["stockIssue", "cancel"]],
   },
 };
 

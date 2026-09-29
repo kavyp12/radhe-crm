@@ -239,6 +239,20 @@
       "when": 1790676173140,
       "tag": "0033_expenses_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790688838680,
+      "tag": "0034_stock_issues",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1790688843510,
+      "tag": "0035_stock_issues_audit",
+      "breakpoints": true
     }
   ]
 }

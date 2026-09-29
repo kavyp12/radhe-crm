@@ -13,6 +13,7 @@ import "@/lib/purchase-bills";
 import "@/lib/quotations";
 import "@/lib/receipts";
 import "@/lib/stock";
+import "@/lib/stock-issues";
 import "@/lib/vendor-payments";
 
 export async function decideAction(id: number, _: FormState, form: FormData): Promise<FormState> {

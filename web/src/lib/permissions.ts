@@ -49,7 +49,7 @@ export const PERMISSIONS = {
     accountant: ["view", "create", "money"],
     production: ["view", "create"],
   },
-  stockIssue: { owner: FULL, accountant: FULL, production: ["create"] }, // production: qty only
+  stockIssue: { owner: FULL, accountant: FULL, production: ["view", "create"] }, // production: qty only, no values
   stockAdjustment: { owner: FULL, accountant: ["create"] }, // accountant's "request" = create via approval
   printJobs: { owner: FULL, accountant: FULL, sales: VIEW, production: ["view"] },
   reports: { owner: VIEW, accountant: VIEW }, // dashboard & reports: all

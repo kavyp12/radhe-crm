@@ -73,6 +73,57 @@ export const stockAdjustments = pgTable(
   (t) => [index("stock_adjustments_item_idx").on(t.itemId), check("stock_adjustments_qty_nonzero", sql`${t.qtyMilli} <> 0`)],
 );
 
+export const STOCK_ISSUE_KINDS = ["issue", "return"] as const;
+export const STOCK_ISSUE_STATUSES = ["active", "cancelled"] as const;
+
+/**
+ * Stock issued to a job, or returned from it (S17, S11, A§3, D53): issues and returns share the SI/ series and post
+ * when saved — an issue Dr materials_consumed (job) / Cr stock at the moving average, a return the other way at the
+ * job's own issue average. Cancel = mirror moves + reversal on its own date. Audited.
+ */
+export const stockIssues = pgTable(
+  "stock_issues",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    number: text("number").notNull().unique(),
+    kind: text("kind", { enum: STOCK_ISSUE_KINDS }).notNull(),
+    date: date("date").notNull(),
+    jobId: bigint("job_id", { mode: "number" })
+      .notNull()
+      .references(() => jobs.id),
+    notes: text("notes"),
+    status: text("status", { enum: STOCK_ISSUE_STATUSES }).notNull().default("active"),
+    ...stamps(),
+  },
+  (t) => [
+    index("stock_issues_job_idx").on(t.jobId),
+    check("stock_issues_kind_check", sql`${t.kind} in ('issue', 'return')`),
+    check("stock_issues_status_check", sql`${t.status} in ('active', 'cancelled')`),
+  ],
+);
+
+/** An issue's / return's lines: each item once, the qty and the value it moved at (as posted; cost users only). */
+export const stockIssueLines = pgTable(
+  "stock_issue_lines",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    issueId: bigint("issue_id", { mode: "number" })
+      .notNull()
+      .references(() => stockIssues.id),
+    position: integer("position").notNull(),
+    itemId: bigint("item_id", { mode: "number" })
+      .notNull()
+      .references(() => stockItems.id),
+    qtyMilli: bigint("qty_milli", { mode: "bigint" }).notNull(),
+    valuePaise: bigint("value_paise", { mode: "bigint" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("stock_issue_lines_item_idx").on(t.issueId, t.itemId),
+    check("stock_issue_lines_qty_positive", sql`${t.qtyMilli} > 0`),
+  ],
+);
+
 export const PURCHASE_BILL_STATUSES = ["active", "cancelled"] as const;
 
 /**

@@ -30,10 +30,11 @@ const LABELS = {
 const th = "h-9 border-b px-3 text-left text-xs font-medium whitespace-nowrap text-muted-foreground";
 const td = "border-b px-3 py-2 whitespace-nowrap";
 
-/** Where a move's document lives (adjustments; purchase bills from T18). */
+/** Where a move's document lives (adjustments; purchase bills from T18; issues / returns from T21). */
 function docHref(source: string, id: number): string | null {
   if (source === "adjustment") return "/stock-adjustments";
   if (source === "purchase") return `/purchase-bills/${id}`;
+  if (source === "issue" || source === "return") return `/issue-to-job/${id}`;
   return null;
 }
 

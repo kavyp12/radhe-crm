@@ -8,6 +8,7 @@ import { DocFacts } from "@/components/doc-share";
 import { History } from "@/components/history";
 import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
+import { DocNumber } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { db } from "@/db";
@@ -20,6 +21,7 @@ import { can } from "@/lib/permissions";
 import { RECEIPT_MODE } from "@/lib/receipt-modes";
 import { jobAdvances } from "@/lib/receipts";
 import { jobsOnInvoices } from "@/lib/sales";
+import { ISSUE_KIND, listStockIssues } from "@/lib/stock-issues";
 import { invoiceJobAction } from "../../invoices/actions";
 import { cancelJobAction } from "../actions";
 import { StatusButtons } from "../status-buttons";
@@ -42,12 +44,15 @@ export default async function JobPage({ params }: PageProps<"/jobs/[id]">) {
   const id = Number((await params).id);
   const job = Number.isSafeInteger(id) ? await getJob(user, id) : undefined;
   if (!job) notFound();
-  const [files, people, [invoice], advances] = await Promise.all([
+  const materials = can(user, "stockIssue", "view");
+  const [files, people, [invoice], advances, issues] = await Promise.all([
     listAttachments("job", id),
     db.select({ id: users.id, name: users.name }).from(users),
     jobsOnInvoices(db, [id]),
     // Advances are money: only for users who may see it (never production).
     job.money ? jobAdvances(id) : [],
+    // Issues / returns (T21): values only for can_view_cost users (the loader strips them).
+    materials ? listStockIssues(user, id) : [],
   ]);
   const open = job.status !== "invoiced" && job.status !== "cancelled";
   const overdue = open && job.status !== "delivered" && !!job.targetDate && job.targetDate < todayIST();
@@ -166,6 +171,65 @@ export default async function JobPage({ params }: PageProps<"/jobs/[id]">) {
                   ))}
                 </tbody>
               </table>
+            </section>
+          )}
+          {materials && (
+            <section aria-label="Materials" className="overflow-x-auto rounded-lg border bg-card">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2.5">
+                <h2 className="text-sm font-medium">
+                  Materials issued
+                  {issues.some((i) => "cost" in i) && (
+                    <>
+                      {" · "}
+                      <Money
+                        paise={issues.reduce(
+                          (s, i) => s + ("cost" in i && i.status === "active" ? (i.kind === "issue" ? i.cost.value : -i.cost.value) : 0n),
+                          0n,
+                        )}
+                      />
+                    </>
+                  )}
+                </h2>
+                {can(user, "stockIssue", "create") && (
+                  <div className="flex gap-2">
+                    {job.status !== "cancelled" && (
+                      <Button asChild variant="outline" size="sm">
+                        <Link href={`/issue-to-job/new?job=${id}`}>Issue stock</Link>
+                      </Button>
+                    )}
+                    <Button asChild variant="outline" size="sm">
+                      <Link href={`/issue-to-job/new?job=${id}&kind=return`}>Return stock</Link>
+                    </Button>
+                  </div>
+                )}
+              </div>
+              {issues.length === 0 ? (
+                <p className="px-4 py-3 text-sm text-muted-foreground">No stock issued to this job yet.</p>
+              ) : (
+                <table className="w-full min-w-120 text-[13px]">
+                  <tbody>
+                    {issues.map((i) => (
+                      <tr key={i.id} className={i.status === "cancelled" ? "text-muted-foreground" : undefined}>
+                        <td className="border-b px-4 py-2 whitespace-nowrap">
+                          <Link href={`/issue-to-job/${i.id}`} className="text-primary hover:underline">
+                            <DocNumber number={i.number} status={i.status === "cancelled" ? "Cancelled" : undefined} />
+                          </Link>
+                        </td>
+                        <td className="border-b px-4 py-2">
+                          <DateText date={i.date} />
+                        </td>
+                        <td className="border-b px-4 py-2">{ISSUE_KIND[i.kind]}</td>
+                        <td className="border-b px-4 py-2">{i.items}</td>
+                        {"cost" in i && (
+                          <td className="border-b px-4 py-2 text-right">
+                            <Money paise={i.kind === "issue" ? i.cost.value : -i.cost.value} />
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </section>
           )}
         </TabsContent>

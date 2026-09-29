@@ -1,9 +1,9 @@
-import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, type Tx } from "@/db";
 import { stockItems, stockMoves, type StockSource } from "@/db/schema";
 import { UserError } from "@/lib/action";
-import type { PostLine, SystemKey } from "@/lib/ledger";
+import type { LineTarget, PostLine, SystemKey } from "@/lib/ledger";
 import { divRound, milliText } from "@/lib/num";
 
 // Stock moves (A§9, D20, D51, D52): the low-level helpers every stock document uses (opening, adjustment, purchase, issue).
@@ -121,7 +121,32 @@ export async function checkNotNegative(tx: Tx, itemIds: number[]) {
   );
 }
 
-const out = alias(stockMoves, "out_move");
+const later = alias(stockMoves, "later_move");
+
+/**
+ * The name of an item that has a move in force (not a reversal, not reversed) matching `where`, entered after the
+ * document first moved that item — or undefined.
+ */
+async function movedSince(tx: Tx, source: StockSource, sourceId: number, itemIds: number[], where: SQL) {
+  const ids = [...new Set(itemIds)];
+  if (!ids.length) return undefined;
+  const [hit] = await tx
+    .select({ name: stockItems.name })
+    .from(later)
+    .innerJoin(stockItems, eq(stockItems.id, later.itemId))
+    .leftJoin(mirror, eq(mirror.reversesMoveId, later.id))
+    .where(
+      and(
+        inArray(later.itemId, ids),
+        where,
+        isNull(later.reversesMoveId),
+        isNull(mirror.id),
+        sql`${later.id} > (select min(d.id) from stock_moves d where d.source = ${source} and d.source_id = ${sourceId} and d.item_id = ${later.itemId})`,
+      ),
+    )
+    .limit(1);
+  return hit?.name;
+}
 
 /**
  * D52: a document's stock can't be taken back (a cancel, or an edit that changes its stock lines) once any of that item
@@ -130,36 +155,32 @@ const out = alias(stockMoves, "out_move");
  * mirror move, took out exactly what it brought, so it doesn't count. Lock the items first.
  */
 export async function checkNothingOutSince(tx: Tx, source: StockSource, sourceId: number, itemIds: number[], what: string) {
-  const ids = [...new Set(itemIds)];
-  if (!ids.length) return;
-  const [hit] = await tx
-    .select({ name: stockItems.name })
-    .from(out)
-    .innerJoin(stockItems, eq(stockItems.id, out.itemId))
-    .leftJoin(mirror, eq(mirror.reversesMoveId, out.id))
-    .where(
-      and(
-        inArray(out.itemId, ids),
-        sql`${out.qtyMilli} < 0`,
-        isNull(out.reversesMoveId),
-        isNull(mirror.id),
-        sql`${out.id} > (select min(d.id) from stock_moves d where d.source = ${source} and d.source_id = ${sourceId} and d.item_id = ${out.itemId})`,
-      ),
-    )
-    .limit(1);
-  if (hit) {
+  const name = await movedSince(tx, source, sourceId, itemIds, sql`${later.qtyMilli} < 0`);
+  if (name) {
     throw new UserError(
-      `${hit.name} has been used or issued since this ${what} was entered, so its stock can't be taken back: correct it with a stock adjustment instead.`,
+      `${name} has been used or issued since this ${what} was entered, so its stock can't be taken back: correct it with a stock adjustment instead.`,
     );
   }
 }
 
+/**
+ * An issue to a job can't be cancelled once the job returned any of its items after it: the return was valued on that
+ * issue (D53) and would outlive it. Cancel the return first.
+ */
+export async function checkNoReturnSince(tx: Tx, issueId: number, jobId: number, itemIds: number[]) {
+  const name = await movedSince(tx, "issue", issueId, itemIds, and(eq(later.source, "return"), eq(later.jobId, jobId))!);
+  if (name) throw new UserError(`${name} came back from this job after this issue: cancel that return first.`);
+}
+
+type Side = SystemKey | number | LineTarget;
+const target = (s: Side): LineTarget => (typeof s === "object" ? s : { account: s });
+
 /** Dr `a` / Cr `b` for a positive value, the other way for a negative one; nothing for zero. */
-export function pair(value: bigint, a: SystemKey | number, b: SystemKey | number): PostLine[] {
+export function pair(value: bigint, a: Side, b: Side): PostLine[] {
   if (value === 0n) return [];
   return value > 0n
-    ? [{ account: a, debit: value }, { account: b, credit: value }]
-    : [{ account: b, debit: -value }, { account: a, credit: -value }];
+    ? [{ ...target(a), debit: value }, { ...target(b), credit: value }]
+    : [{ ...target(b), debit: -value }, { ...target(a), credit: -value }];
 }
 
 /** The books start date moved (Settings, D43): opening stock moves go with it, like the opening entries. */
