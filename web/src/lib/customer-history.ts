@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Status } from "@/components/status-badge";
 import { db } from "@/db";
 import {
@@ -77,10 +77,15 @@ export async function customerHistory(customerId: number): Promise<Chain[]> {
         amount: allocations.amountPaise,
         invoiceId: allocations.invoiceId,
         jobId: allocations.jobId,
+        noteInvoiceId: debitNotes.invoiceId, // a debit note's payment belongs to its invoice's chain
       })
       .from(allocations)
       .innerJoin(receipts, eq(receipts.id, allocations.receiptId))
-      .where(and(eq(receipts.customerId, customerId), eq(receipts.status, "active"), eq(allocations.active, true))),
+      .leftJoin(debitNotes, eq(debitNotes.id, allocations.debitNoteId))
+      // Money paid back by a refund JV (D55) pays nothing in a chain.
+      .where(
+        and(eq(receipts.customerId, customerId), eq(receipts.status, "active"), eq(allocations.active, true), isNull(allocations.refundAdjustmentId)),
+      ),
     noteRows(creditNotes),
     noteRows(debitNotes as unknown as typeof creditNotes), // same columns (lib/notes.ts)
   ]);
@@ -147,8 +152,9 @@ export async function customerHistory(customerId: number): Promise<Chain[]> {
     }
   }
   for (const p of pays) {
-    // A receipt only pays its own customer's invoices and jobs (checkAllocations), so the node is here.
-    const c = chain(p.invoiceId !== null ? `i${p.invoiceId}` : `j${p.jobId}`);
+    // A receipt only pays its own customer's invoices, debit notes and jobs (checkAllocations), so the node is here.
+    const invoiceId = p.invoiceId ?? p.noteInvoiceId;
+    const c = chain(invoiceId !== null ? `i${invoiceId}` : `j${p.jobId}`);
     const same = c.payments.find((x) => x.receiptId === p.receiptId);
     if (same) same.amount += p.amount;
     else c.payments.push({ receiptId: p.receiptId, number: p.number, date: p.date, amount: p.amount });

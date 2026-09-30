@@ -6,6 +6,7 @@ import { testOwner } from "@/db/test-owner";
 import { cancelAdjustment, createAdjustment, getAdjustment, type AdjustmentInput } from "@/lib/adjustments";
 import { onAccountSources, openInvoices } from "@/lib/allocations";
 import { approve, SENT_FOR_APPROVAL } from "@/lib/approvals";
+import { customerHistory } from "@/lib/customer-history";
 import { createCustomer, type CustomerInput } from "@/lib/customers";
 import { formatDate, todayIST } from "@/lib/dates";
 import { cancelInvoice, createInvoice, getInvoice, issueInvoice } from "@/lib/invoices";
@@ -168,6 +169,10 @@ test("a refund uses up on-account money (receipt rest, credit left) and can't be
   expect((await getReceipt(r1!))!).toMatchObject({ onAccount: 0n });
   expect((await getReceipt(r1!))!.lines.at(-1)).toMatchObject({ refundId: id, amount: 400_00n });
   await expect(createAdjustment(owner, refund("200.01", [[r2!, "200.01"]]))).rejects.toThrow("is more than the ₹200.00");
+  // Customer history: money paid back pays nothing in a chain (no stray card).
+  const chains = await customerHistory(c);
+  expect(chains.map((ch) => ch.key)).toEqual([`i${inv}`]);
+  expect(chains[0].payments).toEqual([expect.objectContaining({ receiptId: r1, amount: 600_00n })]);
   // The receipt it paid back can't be cancelled (or edited) under it.
   await expect(cancelReceipt(owner, r1!, "")).rejects.toThrow(/^Cancel JV\/26-27\/\d{4} first: it paid back part of this receipt\.$/);
 
@@ -199,6 +204,21 @@ test("a credit note's leftover credit can be refunded; the note can't be cancell
   expect(await posted(id!)).toEqual({ ar: 150_00n, cash: -150_00n });
   expect(await onAccount(c)).toBe(50_00n);
   await expect(cancelNote(owner, "credit", note, "")).rejects.toThrow(/^Cancel JV\/26-27\/\d{4} first: it paid back part of this note's credit\.$/);
+});
+
+test("customer history puts a debit note's payment in its invoice's chain", async () => {
+  const c = await createCustomer(owner, customerInput("JV History Customer"));
+  const inv = await invoice(c, "500");
+  const [line] = await invoiceLinesLeft(db, "debit", inv);
+  const note = await createNote(owner, "debit", inv, { date: formatDate(today), reason: "Extra fitting", notes: "", lines: JSON.stringify([{ invoiceLineId: String(line.id), qty: "1", amount: "100" }]) });
+  await issueNote(owner, "debit", note);
+  const { id: paid } = await createReceipt(owner, {
+    customerId: String(c), date: formatDate(today), amount: "100", mode: "cash", moneyAccountId: String(ids.cash), reference: "", chequeNo: "",
+    chequeDate: "", receivedBy: "", notes: "", allocations: JSON.stringify([{ target: "debit_note", id: String(note), amount: "100" }]),
+  });
+  const chains = await customerHistory(c);
+  expect(chains.map((ch) => ch.key)).toEqual([`i${inv}`]);
+  expect(chains[0].payments).toEqual([expect.objectContaining({ receiptId: paid, amount: 100_00n })]);
 });
 
 test("an accountant's JV waits for the owner: nothing is numbered or posted until it is approved", async () => {
