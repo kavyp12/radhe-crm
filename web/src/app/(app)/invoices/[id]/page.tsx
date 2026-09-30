@@ -20,6 +20,7 @@ import { stateName } from "@/lib/gstin";
 import { creditWarning, getInvoice, INVOICE_KIND, INVOICE_STATUS, type InvoiceKind, type InvoiceStatus } from "@/lib/invoices";
 import { NOTE_KIND, NOTE_STATUS, notesOfInvoice } from "@/lib/notes";
 import { can } from "@/lib/permissions";
+import { ADJUSTMENT_KIND } from "@/lib/adjustments";
 import { RECEIPT_MODE } from "@/lib/receipt-modes";
 import { invoicePayments } from "@/lib/receipts";
 import { getSettings } from "@/lib/settings";
@@ -220,7 +221,7 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
               <table className="w-full min-w-120 text-[13px]">
                 <thead>
                   <tr className="text-left text-xs text-muted-foreground">
-                    <th className="h-9 border-b px-3 font-medium">Receipt</th>
+                    <th className="h-9 border-b px-3 font-medium">Paid by</th>
                     <th className="h-9 border-b px-3 font-medium">Date</th>
                     <th className="h-9 border-b px-3 font-medium">Mode</th>
                     <th className="h-9 border-b px-3 text-right font-medium">Allocated here</th>
@@ -242,7 +243,7 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
                         <DateText date={p.date} />
                       </td>
                       <td className="border-b px-3 py-2">
-                        {p.mode ? RECEIPT_MODE[p.mode] : "Credit note"}
+                        {p.mode ? RECEIPT_MODE[p.mode] : p.kind ? ADJUSTMENT_KIND[p.kind] : "Credit note"}
                         {p.fromJob && <span className="text-muted-foreground"> · advance on job {p.fromJob}</span>}
                       </td>
                       <td className="border-b px-3 py-2 text-right">

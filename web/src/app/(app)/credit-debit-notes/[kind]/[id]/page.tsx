@@ -16,6 +16,7 @@ import { sizeText } from "@/lib/lines";
 import { getNote, kindOfPath, NOTE_KIND, NOTE_STATUS, type NoteStatus } from "@/lib/notes";
 import { amountInWords, bpText, milliText } from "@/lib/num";
 import { can } from "@/lib/permissions";
+import { ADJUSTMENT_KIND } from "@/lib/adjustments";
 import { RECEIPT_MODE } from "@/lib/receipt-modes";
 import { debitNotePayments } from "@/lib/receipts";
 import { getSettings } from "@/lib/settings";
@@ -236,7 +237,7 @@ export default async function NotePage({ params }: PageProps<"/credit-debit-note
               <table className="w-full min-w-100 text-[13px]">
                 <thead>
                   <tr>
-                    <th className={th}>Receipt</th>
+                    <th className={th}>Paid by</th>
                     <th className={th}>Date</th>
                     <th className={th}>Mode</th>
                     <th className={`${th} text-right`}>Allocated here</th>
@@ -257,7 +258,7 @@ export default async function NotePage({ params }: PageProps<"/credit-debit-note
                       <td className={td}>
                         <DateText date={p.date} />
                       </td>
-                      <td className={td}>{p.mode ? RECEIPT_MODE[p.mode] : "Credit note"}</td>
+                      <td className={td}>{p.mode ? RECEIPT_MODE[p.mode] : p.kind ? ADJUSTMENT_KIND[p.kind] : "Credit note"}</td>
                       <td className={`${td} text-right`}>
                         <Money paise={p.amount} />
                       </td>

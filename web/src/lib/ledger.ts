@@ -14,6 +14,7 @@ export const SYSTEM_KEYS = [
   "cash", "petty_cash", "upi", "bank_1", "bank_2", "ar", "stock", "gst_in_cgst", "gst_in_sgst", "gst_in_igst",
   "ap", "gst_out_cgst", "gst_out_sgst", "gst_out_igst", "grn_clearing", "capital", "opening_equity", "sales",
   "sales_returns", "round_off", "materials_consumed", "price_variance", "cash_short_excess", "bad_debts",
+  "discount_allowed", // D55, migration 0041
 ] as const;
 export type SystemKey = (typeof SYSTEM_KEYS)[number];
 type AccountRef = SystemKey | number; // a system key or an account id

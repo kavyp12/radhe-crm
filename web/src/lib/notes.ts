@@ -14,7 +14,16 @@ import {
   type NOTE_STATUSES,
 } from "@/db/schema";
 import { formText, UserError } from "@/lib/action";
-import { allocateCreditNote, liveAllocation, paidByDebitNote, paidTowardsDebitNotes, paymentStatus, releaseNote } from "@/lib/allocations";
+import {
+  adjustmentOn,
+  allocateCreditNote,
+  liveAllocation,
+  paidByDebitNote,
+  paidTowardsDebitNotes,
+  paymentStatus,
+  refundOf,
+  releaseNote,
+} from "@/lib/allocations";
 import { needsBackdateApproval, registerExecutor, runOrRequest } from "@/lib/approvals";
 import { formatDate } from "@/lib/dates";
 import { checkBooksDate, liveEntry, post, reverse, type PostLine } from "@/lib/ledger";
@@ -295,10 +304,20 @@ async function doIssue(tx: Tx, p: IssuePayload, by: SessionUser): Promise<string
 
 type CancelPayload = { kind: NoteKind; id: number };
 
+/** D55: a refund JV paying back a credit note's credit, or a write-off / discount JV on a debit note, goes first. */
+async function checkNoJv(tx: Tx, kind: NoteKind, id: number) {
+  const jv = kind === "credit" ? await refundOf(tx, { kind: "credit_note", id }) : await adjustmentOn(tx, { debitNoteId: id });
+  if (jv) {
+    const why = kind === "credit" ? "it paid back part of this note's credit" : "it settles part of this debit note";
+    throw new UserError(`Cancel ${jv} first: ${why}.`);
+  }
+}
+
 /** Issued → Cancelled: reverse on the note's own date (D45); its allocations stop (the invoice / receipts reopen). */
 async function doCancel(tx: Tx, p: CancelPayload) {
   const note = await lockNote(tx, p.kind, p.id);
   if (note.status !== "issued") throw new UserError("Only an issued note can be cancelled this way.");
+  await checkNoJv(tx, p.kind, note.id);
   const entry = await liveEntry(tx, NOTE_KIND[p.kind].docType, note.id);
   if (!entry) throw new Error(`Issued ${p.kind} note ${note.id} has no journal entry in force`);
   await reverse(tx, entry.id, note.date);
@@ -341,6 +360,7 @@ for (const kind of ["credit", "debit"] as const) {
     async describe(tx, p) {
       const { note, invoice, customer } = await describeNote(tx, kind, p.id);
       if (note.status !== "issued") throw new UserError("Only an issued note can be cancelled this way.");
+      await checkNoJv(tx, kind, note.id);
       return {
         summary: `Cancel ${title.toLowerCase()} ${note.number} against ${invoice} (${customer}, ${formatMoney(note.totalPaise)})`,
         target: { type: docType, id: p.id },

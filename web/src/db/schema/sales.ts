@@ -3,6 +3,7 @@ import { type AnyPgColumn, bigint, boolean, check, date, index, integer, pgTable
 import { RECEIPT_MODES } from "../../lib/receipt-modes"; // relative: drizzle-kit does not read tsconfig paths
 import { users } from "./auth";
 import { accounts, customers, productCategories } from "./masters";
+import { adjustments } from "./money";
 
 // Sales documents (A§2): quotation → job → invoice. Lines copy from one to the next (R0); every line has the same
 // columns (A§2 quotation_lines). Amount = qty × rate − discount (A§4, D46); W × H is the board size, printed only.
@@ -302,8 +303,9 @@ export const receipts = pgTable(
 );
 
 /**
- * Links money to what it pays (A§2): one source (a receipt, or a credit note) → one target (an invoice, a debit note,
- * or a job = an advance on it). A receipt's / credit note's unallocated remainder is on account. Allocations never post (A§3) and are never deleted: a
+ * Links money to what it pays (A§2): one source (a receipt, a credit note, or a write-off / discount JV) → one target
+ * (an invoice, a debit note, a job = an advance on it, or a refund JV that paid the money back, D55). A receipt's /
+ * credit note's unallocated remainder is on account. Allocations never post (A§3) and are never deleted: a
  * change deactivates the old rows and adds new ones (D49). Open amounts count only active rows from sources that
  * aren't cancelled. Audited.
  */
@@ -313,9 +315,12 @@ export const allocations = pgTable(
     id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
     receiptId: bigint("receipt_id", { mode: "number" }).references(() => receipts.id),
     creditNoteId: bigint("credit_note_id", { mode: "number" }).references(() => creditNotes.id),
+    // A JV and its allocations reference each other's modules; the references are lazy, so the import cycle is harmless.
+    adjustmentId: bigint("adjustment_id", { mode: "number" }).references(() => adjustments.id),
     invoiceId: bigint("invoice_id", { mode: "number" }).references(() => invoices.id),
     debitNoteId: bigint("debit_note_id", { mode: "number" }).references(() => debitNotes.id),
     jobId: bigint("job_id", { mode: "number" }).references(() => jobs.id),
+    refundAdjustmentId: bigint("refund_adjustment_id", { mode: "number" }).references(() => adjustments.id),
     // An invoice row that carries a job's advance (moved at Issue, T14): the job it goes back to if the invoice is
     // cancelled (D49), and what the invoice shows as "Advance adjusted".
     fromJobId: bigint("from_job_id", { mode: "number" }).references(() => jobs.id),
@@ -329,9 +334,19 @@ export const allocations = pgTable(
     index("allocations_job_idx").on(t.jobId),
     index("allocations_credit_note_idx").on(t.creditNoteId),
     index("allocations_debit_note_idx").on(t.debitNoteId),
+    index("allocations_adjustment_idx").on(t.adjustmentId),
+    index("allocations_refund_adjustment_idx").on(t.refundAdjustmentId),
     check("allocations_amount_positive", sql`${t.amountPaise} > 0`),
-    check("allocations_one_source", sql`num_nonnulls(${t.receiptId}, ${t.creditNoteId}) = 1`),
-    check("allocations_one_target", sql`num_nonnulls(${t.invoiceId}, ${t.jobId}, ${t.debitNoteId}) = 1`),
+    check("allocations_one_source", sql`num_nonnulls(${t.receiptId}, ${t.creditNoteId}, ${t.adjustmentId}) = 1`),
+    check(
+      "allocations_one_target",
+      sql`num_nonnulls(${t.invoiceId}, ${t.jobId}, ${t.debitNoteId}, ${t.refundAdjustmentId}) = 1`,
+    ),
     check("allocations_from_job_on_invoice", sql`${t.fromJobId} is null or ${t.invoiceId} is not null`),
+    // A write-off / discount settles invoices and debit notes only.
+    check(
+      "allocations_adjustment_settles",
+      sql`${t.adjustmentId} is null or ${t.invoiceId} is not null or ${t.debitNoteId} is not null`,
+    ),
   ],
 );

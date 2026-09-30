@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, notExists, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, writeTx, type Tx } from "@/db";
-import { accounts, allocations, creditNotes, customers, debitNotes, invoices, jobs, receipts, users } from "@/db/schema";
+import { accounts, adjustments, allocations, creditNotes, customers, debitNotes, invoices, jobs, receipts, users } from "@/db/schema";
 import { formMoney, formText, UserError } from "@/lib/action";
 import {
   activeAllocationsOf,
@@ -9,6 +9,7 @@ import {
   deactivate,
   liveAllocation,
   readAllocations,
+  refundOf,
   type AllocationLine,
   type AllocationTarget,
 } from "@/lib/allocations";
@@ -233,11 +234,18 @@ async function currentLines(tx: Tx, receiptId: number) {
 
 type EditPayload = { id: number; version: string; input: ReceiptInput };
 
+/** D55: a refund JV that paid back part of the receipt goes first (its allocation would outlive the change). */
+async function checkNotRefunded(tx: Tx, receiptId: number) {
+  const jv = await refundOf(tx, { kind: "receipt", id: receiptId });
+  if (jv) throw new UserError(`Cancel ${jv} first: it paid back part of this receipt.`);
+}
+
 /** Checks an edit against the receipt as it is now and lists what changes (old → new). */
 async function planEdit(tx: Tx, p: EditPayload) {
   const current = await lock(tx, p.id);
   if (current.status !== "active") throw new UserError("A cancelled receipt can't be changed.");
   checkVersion(current, p.version, "receipt");
+  await checkNotRefunded(tx, current.id);
   const r = await readReceipt(tx, p.input, current);
   if (fyKey(r.values.date) !== fyKey(current.date)) {
     throw new UserError("A receipt can't move to another financial year: cancel it and enter a new one.", "date");
@@ -323,6 +331,7 @@ type CancelPayload = { id: number };
 async function doCancel(tx: Tx, p: CancelPayload) {
   const r = await lock(tx, p.id);
   if (r.status !== "active") throw new UserError("This receipt is already cancelled.");
+  await checkNotRefunded(tx, r.id);
   const entry = await liveEntry(tx, "receipts", r.id);
   if (!entry) throw new Error(`Receipt ${r.id} has no journal entry in force`);
   await reverse(tx, entry.id, r.date);
@@ -335,6 +344,7 @@ registerExecutor<CancelPayload>("receipt.cancel", {
     const [r] = await tx.select().from(receipts).where(eq(receipts.id, p.id));
     if (!r) throw new UserError("That receipt doesn't exist.");
     if (r.status !== "active") throw new UserError("This receipt is already cancelled.");
+    await checkNotRefunded(tx, r.id);
     return {
       summary: `Cancel receipt ${r.number} (${formatMoney(r.amountPaise)})`,
       target: { type: "receipts", id: p.id },
@@ -423,11 +433,16 @@ export async function getReceipt(id: number) {
         job: jobs.number,
         jobDate: jobs.date,
         jobTotal: jobs.totalPaise,
+        refundId: allocations.refundAdjustmentId, // paid back by a refund JV (D55)
+        refund: adjustments.number,
+        refundDate: adjustments.date,
+        refundTotal: adjustments.amountPaise,
       })
       .from(allocations)
       .leftJoin(invoices, eq(invoices.id, allocations.invoiceId))
       .leftJoin(debitNotes, eq(debitNotes.id, allocations.debitNoteId))
       .leftJoin(jobs, eq(jobs.id, allocations.jobId))
+      .leftJoin(adjustments, eq(adjustments.id, allocations.refundAdjustmentId))
       .where(eq(allocations.receiptId, id))
       .orderBy(asc(allocations.id))
   ).map((l) => ({
@@ -435,13 +450,14 @@ export async function getReceipt(id: number) {
     invoiceId: l.invoiceId,
     debitNoteId: l.debitNoteId,
     jobId: l.jobId,
+    refundId: l.refundId,
     fromJobId: l.fromJobId,
     amount: l.amount,
     active: l.active,
     changedAt: l.changedAt,
-    number: l.job ?? l.debitNote ?? l.invoice ?? "",
-    date: (l.jobDate ?? l.debitNoteDate ?? l.invoiceDate)!,
-    total: (l.jobTotal ?? l.debitNoteTotal ?? l.invoiceTotal)!,
+    number: l.job ?? l.debitNote ?? l.invoice ?? l.refund ?? "",
+    date: (l.jobDate ?? l.debitNoteDate ?? l.invoiceDate ?? l.refundDate)!,
+    total: (l.jobTotal ?? l.debitNoteTotal ?? l.invoiceTotal ?? l.refundTotal)!,
   }));
   const lines = all.filter((l) => l.active);
   const allocated = lines.reduce((s, l) => s + l.amount, 0n);
@@ -459,28 +475,39 @@ export async function getReceipt(id: number) {
 }
 
 /**
- * The money paying a target (live allocations), oldest first: receipts, and credit notes applied to it (D50; a
- * receipt has `mode`, a credit note none). fromJob = a job's advance moved onto an invoice.
+ * The money paying a target (live allocations), oldest first: receipts, credit notes applied to it (D50) and write-off /
+ * discount JVs (D55; a receipt has `mode`, a JV `kind`, a credit note neither). fromJob = a job's advance moved onto an invoice.
  */
 async function paymentsTo(target: SQL) {
-  const date = sql<string>`coalesce(${receipts.date}, ${creditNotes.date})`;
+  const date = sql<string>`coalesce(${receipts.date}, ${creditNotes.date}, ${adjustments.date})`;
   const rows = await db
     .select({
       receiptId: allocations.receiptId,
       creditNoteId: allocations.creditNoteId,
-      number: sql<string>`coalesce(${receipts.number}, ${creditNotes.number})`,
+      adjustmentId: allocations.adjustmentId,
+      number: sql<string>`coalesce(${receipts.number}, ${creditNotes.number}, ${adjustments.number})`,
       date,
       mode: receipts.mode,
+      kind: adjustments.kind,
       amount: allocations.amountPaise,
       fromJob: jobs.number,
     })
     .from(allocations)
     .leftJoin(receipts, eq(receipts.id, allocations.receiptId))
     .leftJoin(creditNotes, eq(creditNotes.id, allocations.creditNoteId))
+    .leftJoin(adjustments, eq(adjustments.id, allocations.adjustmentId))
     .leftJoin(jobs, eq(jobs.id, allocations.fromJobId))
     .where(and(target, liveAllocation()))
     .orderBy(date, asc(allocations.id));
-  return rows.map((r) => ({ ...r, href: r.receiptId !== null ? `/receipts/${r.receiptId}` : `/credit-debit-notes/cn/${r.creditNoteId}` }));
+  return rows.map((r) => ({
+    ...r,
+    href:
+      r.receiptId !== null
+        ? `/receipts/${r.receiptId}`
+        : r.adjustmentId !== null
+          ? `/journal-vouchers/${r.adjustmentId}`
+          : `/credit-debit-notes/cn/${r.creditNoteId}`,
+  }));
 }
 
 /** What pays an invoice; its own credit notes are left out (the Payments tab lists them as notes). */

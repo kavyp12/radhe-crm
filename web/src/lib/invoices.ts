@@ -20,7 +20,7 @@ import {
   type INVOICE_STATUSES,
 } from "@/db/schema";
 import { formText, UserError } from "@/lib/action";
-import { advanceAdjusted, moveJobAdvances, paidByInvoice, paidTowards, paymentStatus, releaseInvoice } from "@/lib/allocations";
+import { adjustmentOn, advanceAdjusted, moveJobAdvances, paidByInvoice, paidTowards, paymentStatus, releaseInvoice } from "@/lib/allocations";
 import { registerExecutor, runOrRequest } from "@/lib/approvals";
 import { formatDate, todayIST } from "@/lib/dates";
 import { JOB_STATUS, liveJobFor, PRODUCTION_STATUSES } from "@/lib/jobs";
@@ -378,12 +378,19 @@ async function liveNoteOn(q: Tx | typeof db, invoiceId: number): Promise<string 
   return null;
 }
 
+/** Notes (T16) and write-off / discount JVs (D55) against the invoice must be cancelled before it. */
+async function checkNothingAgainst(tx: Tx, invoiceId: number) {
+  const note = await liveNoteOn(tx, invoiceId);
+  if (note) throw new UserError(`Cancel ${note} first: it is against this invoice.`);
+  const jv = await adjustmentOn(tx, { invoiceId });
+  if (jv) throw new UserError(`Cancel ${jv} first: it settles part of this invoice.`);
+}
+
 /** Issued → Cancelled: reverse the entry on the invoice's own date (D45), keep the number, jobs and advances back. */
 async function doCancelIssued(tx: Tx, p: CancelPayload, by: SessionUser) {
   const inv = await lock(tx, p.id);
   if (inv.status !== "issued") throw new UserError("Only an issued invoice can be cancelled this way.");
-  const note = await liveNoteOn(tx, inv.id);
-  if (note) throw new UserError(`Cancel ${note} first: it is against this invoice.`);
+  await checkNothingAgainst(tx, inv.id);
   const [entry] = await tx
     .select({ id: journalEntries.id })
     .from(journalEntries)
@@ -417,8 +424,7 @@ registerExecutor<CancelPayload>("invoice.cancel", {
   async describe(tx, p) {
     const { invoice: inv, customer } = await describeInvoice(tx, p.id);
     if (inv.status !== "issued") throw new UserError("Only an issued invoice can be cancelled this way.");
-    const note = await liveNoteOn(tx, inv.id);
-    if (note) throw new UserError(`Cancel ${note} first: it is against this invoice.`);
+    await checkNothingAgainst(tx, inv.id);
     return {
       summary: `Cancel ${INVOICE_KIND[inv.kind].toLowerCase()} ${inv.number} (${customer}, ${formatMoney(inv.totalPaise)})`,
       target: { type: "invoices", id: p.id },

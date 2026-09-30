@@ -83,7 +83,9 @@ export default async function VendorPage({ params, searchParams }: PageProps<"/v
       ? `/purchase-bills/${docId}`
       : docType === "vendor_payments" && can(user, "payments", "view")
         ? `/vendor-payments/${docId}`
-        : null;
+        : docType === "adjustments" && can(user, "books", "view")
+          ? `/journal-vouchers/${docId}`
+          : null;
 
   return (
     <div className="grid grid-cols-1 gap-5">

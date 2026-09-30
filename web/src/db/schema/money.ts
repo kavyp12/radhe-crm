@@ -4,6 +4,16 @@ import { users } from "./auth";
 import { accounts, customers, vendors } from "./masters";
 import { jobs } from "./sales";
 
+const stamps = () => ({
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: text("created_by").references(() => users.id),
+  // Also the version an approval request was made against (D44).
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
 /**
  * The journal (A§3, D14): each money-moving document posts one balanced entry through lib/ledger.ts post(), the
  * only code that inserts here (hard rule 2). Migration 0006 checks balance at commit and makes both tables
@@ -80,4 +90,60 @@ export const statementLinks = pgTable(
     createdBy: text("created_by").references(() => users.id),
   },
   (t) => [check("statement_links_one_party", sql`num_nonnulls(${t.customerId}, ${t.vendorId}) = 1`)],
+);
+
+export const ADJUSTMENT_KINDS = ["journal", "write_off", "discount", "refund"] as const;
+export const ADJUSTMENT_STATUSES = ["active", "cancelled"] as const;
+
+/**
+ * Adjustment entries (JV, S22, A§3, D55): numbered JV/ and posted as entered. A customer adjustment (write-off,
+ * settlement discount, refund of customer credit) is a guided JV for one customer; its allocations settle invoices /
+ * debit notes (write-off, discount) or use up on-account money (refund). No edit: cancel = reverse. Audited.
+ */
+export const adjustments = pgTable(
+  "adjustments",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    number: text("number").notNull().unique(),
+    date: date("date").notNull(),
+    kind: text("kind", { enum: ADJUSTMENT_KINDS }).notNull(),
+    customerId: bigint("customer_id", { mode: "number" }).references(() => customers.id), // customer adjustments
+    narration: text("narration").notNull(),
+    amountPaise: bigint("amount_paise", { mode: "bigint" }).notNull(), // Σ debits = Σ credits, as posted
+    status: text("status", { enum: ADJUSTMENT_STATUSES }).notNull().default("active"),
+    ...stamps(),
+  },
+  (t) => [
+    index("adjustments_customer_idx").on(t.customerId),
+    check("adjustments_amount_positive", sql`${t.amountPaise} > 0`),
+    check("adjustments_kind_check", sql`${t.kind} in ('journal', 'write_off', 'discount', 'refund')`),
+    check("adjustments_status_check", sql`${t.status} in ('active', 'cancelled')`),
+    check("adjustments_customer_kinds", sql`(${t.kind} = 'journal') = (${t.customerId} is null)`),
+  ],
+);
+
+/** A JV's lines as entered (and posted): never changed or deleted. */
+export const adjustmentLines = pgTable(
+  "adjustment_lines",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    adjustmentId: bigint("adjustment_id", { mode: "number" })
+      .notNull()
+      .references(() => adjustments.id),
+    accountId: bigint("account_id", { mode: "number" })
+      .notNull()
+      .references(() => accounts.id),
+    debitPaise: bigint("debit_paise", { mode: "bigint" }).notNull().default(sql`0`),
+    creditPaise: bigint("credit_paise", { mode: "bigint" }).notNull().default(sql`0`),
+    customerId: bigint("customer_id", { mode: "number" }).references(() => customers.id),
+    vendorId: bigint("vendor_id", { mode: "number" }).references(() => vendors.id),
+    jobId: bigint("job_id", { mode: "number" }).references(() => jobs.id),
+  },
+  (t) => [
+    index("adjustment_lines_adjustment_idx").on(t.adjustmentId),
+    check(
+      "adjustment_lines_one_side",
+      sql`${t.debitPaise} >= 0 and ${t.creditPaise} >= 0 and (${t.debitPaise} > 0) <> (${t.creditPaise} > 0)`,
+    ),
+  ],
 );

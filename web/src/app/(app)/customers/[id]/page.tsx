@@ -72,6 +72,7 @@ function docHref(docType: string, docId: number): string | null {
   if (docType === "receipts") return `/receipts/${docId}`;
   if (docType === "credit_notes") return `/credit-debit-notes/cn/${docId}`;
   if (docType === "debit_notes") return `/credit-debit-notes/dn/${docId}`;
+  if (docType === "adjustments") return `/journal-vouchers/${docId}`;
   return null;
 }
 
@@ -176,6 +177,7 @@ export default async function CustomerPage({ params, searchParams }: PageProps<"
   const { period, range, error: rangeError } = readRange(text("period") || undefined, text("from"), text("to"));
 
   const canApply = can(user, "payments", "create");
+  const canAdjust = can(user, "books", "create"); // write-off / discount / refund (T24, D55)
   const [overview, advance, files, people, chains, ledger, settings, sources] = await Promise.all([
     customerOverview(id),
     customerAdvance(id),
@@ -184,7 +186,7 @@ export default async function CustomerPage({ params, searchParams }: PageProps<"
     customerHistory(id),
     money ? customerLedger(id, range) : null,
     getSettings(),
-    canApply ? onAccountSources(db, id) : [],
+    canApply || canAdjust ? onAccountSources(db, id) : [],
   ]);
   const personName = (v: unknown) => people.find((p) => p.id === v)?.name ?? String(v);
   const tiles = [
@@ -208,10 +210,20 @@ export default async function CustomerPage({ params, searchParams }: PageProps<"
         title={c.name}
         description={[c.firmName, c.mobile, !c.active && "inactive"].filter(Boolean).join(" · ") || undefined}
         action={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {can(user, "payments", "create") && c.active && (
               <Button asChild variant="outline">
                 <Link href={`/receipts/new?customer=${id}`}>New receipt</Link>
+              </Button>
+            )}
+            {canAdjust && (
+              <Button asChild variant="outline">
+                <Link href={`/customers/${id}/adjust`}>Adjust</Link>
+              </Button>
+            )}
+            {canAdjust && sources.length > 0 && (
+              <Button asChild variant="outline">
+                <Link href={`/customers/${id}/adjust?kind=refund`}>Refund</Link>
               </Button>
             )}
             {can(user, "customers", "edit") && (
@@ -365,7 +377,12 @@ export default async function CustomerPage({ params, searchParams }: PageProps<"
                   </tr>
                   {ledger.rows.map((r, i) => {
                     const href = docHref(r.docType, r.docId);
-                    const allowed = r.docType === "receipts" ? can(user, "payments", "view") : can(user, "invoices", "view");
+                    const allowed =
+                      r.docType === "receipts"
+                        ? can(user, "payments", "view")
+                        : r.docType === "adjustments"
+                          ? can(user, "books", "view")
+                          : can(user, "invoices", "view");
                     return (
                       <tr key={i}>
                         <td className={td}>

@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray, isNotNull, notExists, sql, type SQL } from "drizzle-orm";
 import type { Status } from "@/components/status-badge";
 import { db, writeTx, type Tx } from "@/db";
-import { allocations, creditNotes, debitNotes, invoices, jobs, receipts } from "@/db/schema";
+import { adjustments, allocations, creditNotes, debitNotes, invoices, jobs, receipts } from "@/db/schema";
 import { UserError } from "@/lib/action";
 import { todayIST } from "@/lib/dates";
 import { PRODUCTION_STATUSES } from "@/lib/jobs";
@@ -9,8 +9,9 @@ import { formatMoney, parseMoney } from "@/lib/num";
 import { can, type SessionUser } from "@/lib/permissions";
 
 // Allocations (A§2, A§5, D49): which money (a receipt, a credit note) pays what — an invoice, a debit note, or a job
-// as an advance (S12). They never post. Open amounts and payment statuses are computed from them on every read,
-// never stored (hard rule 6).
+// as an advance (S12). A write-off / discount JV settles invoices the same way; a refund JV is the target of the
+// on-account money it paid back (D55, lib/adjustments.ts). They never post. Open amounts and payment statuses are
+// computed from them on every read, never stored (hard rule 6).
 
 type Q = Tx | typeof db;
 
@@ -374,8 +375,8 @@ export async function onAccountSources(q: Q, customerId: number) {
     .sort((a, b) => (a.date !== b.date ? (a.date < b.date ? -1 : 1) : a.number < b.number ? -1 : 1));
 }
 
-/** The source row, locked (two applies of the same money queue), and what it still has on account. */
-async function lockSource(tx: Tx, customerId: number, source: OnAccountSource) {
+/** The source row, locked (two applies / refunds of the same money queue), and what it still has on account. */
+export async function lockSource(tx: Tx, customerId: number, source: OnAccountSource) {
   const found =
     source.kind === "receipt"
       ? (await tx.select().from(receipts).where(eq(receipts.id, source.id)).for("update")).map((r) => ({
@@ -438,6 +439,41 @@ export async function applyOnAccount(actor: SessionUser, customerId: number, sou
     }
     return { message: `Applied ${formatMoney(total)} from ${s.number}.` };
   });
+}
+
+/**
+ * The live write-off / discount JV (D55) settling part of this invoice or debit note, or null. It must be cancelled
+ * first: its allocation would otherwise outlive what it settles.
+ */
+export async function adjustmentOn(q: Q, target: { invoiceId: number } | { debitNoteId: number }): Promise<string | null> {
+  const [row] = await q
+    .select({ number: adjustments.number })
+    .from(allocations)
+    .innerJoin(adjustments, eq(adjustments.id, allocations.adjustmentId))
+    .where(
+      and(
+        eq(allocations.active, true),
+        "invoiceId" in target ? eq(allocations.invoiceId, target.invoiceId) : eq(allocations.debitNoteId, target.debitNoteId),
+      ),
+    )
+    .limit(1);
+  return row?.number ?? null;
+}
+
+/** The live refund JV (D55) that paid back part of this receipt / credit note, or null. It must be cancelled first. */
+export async function refundOf(q: Q, source: OnAccountSource): Promise<string | null> {
+  const [row] = await q
+    .select({ number: adjustments.number })
+    .from(allocations)
+    .innerJoin(adjustments, eq(adjustments.id, allocations.refundAdjustmentId))
+    .where(
+      and(
+        eq(allocations.active, true),
+        source.kind === "receipt" ? eq(allocations.receiptId, source.id) : eq(allocations.creditNoteId, source.id),
+      ),
+    )
+    .limit(1);
+  return row?.number ?? null;
 }
 
 /** A cancelled credit note stops paying; a cancelled debit note's receipts go back on account (like an invoice, D49). */

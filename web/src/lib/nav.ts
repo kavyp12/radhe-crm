@@ -11,6 +11,7 @@ import {
   Landmark,
   LayoutDashboard,
   type LucideIcon,
+  NotebookPen,
   Package,
   PackageCheck,
   PackageMinus,
@@ -62,6 +63,7 @@ export const NAV: NavGroup[] = [
       { label: "Expenses", href: "/expenses", area: "books", icon: Wallet },
       { label: "Cash & Bank", href: "/cash-bank", area: "books", icon: Landmark },
       { label: "Cash Book", href: "/cash-book", area: "books", icon: BookOpen },
+      { label: "Journal Vouchers", href: "/journal-vouchers", area: "books", icon: NotebookPen }, // T24, D37
     ],
   },
   {
