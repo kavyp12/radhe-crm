@@ -89,15 +89,15 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
   Entry per S10; posts Dr category account / Cr money account; optional job tag; bill photo; list with filters; edit = reverse + repost, audited.
   Done when: posting test · job-tagged expense visible in job cost data · edit leaves reversal trail.
 
-- [ ] **T21 · Stock issue to jobs** — S17, S11
+- [x] **T21 · Stock issue to jobs** — S17, S11
   Issue / return materials to a job at average cost; posting; blocked beyond stock; production role enters qty only (no values shown).
   Done when: tests: issue value = qty × avg · return restores stock · production user sees no values.
 
-- [ ] **T22 · Material requests & purchase orders** — S18
+- [x] **T22 · Material requests & purchase orders** — S18
   Material request (production; optional job) → owner approval → purchase order (vendor, rates; PDF + WhatsApp to vendor); links between them.
   Done when: request → approve → PO flow works with permissions · PO PDF OK.
 
-- [ ] **T23 · Material receive & bill from GRN** — S18, D21
+- [x] **T23 · Material receive & bill from GRN** — S18, D21
   GRN against PO (partial allowed; stock in at PO rate via grn_clearing); vendor bill created from GRN (price variance); chain view MR → PO → GRN → Bill → Payment on every document.
   Done when: posting tests (GRN, bill with price difference) · partial receipts tracked · chain links work both ways.
 
@@ -201,7 +201,7 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
 - ✅ B5 T10 + T11 + T12
 - ✅ B6 T13 + T14 + T15 + T16 → 🚦 G1 demo (open)
 - ✅ B7 T17 + T18 + T19 + T20
-- B8 T21 + T22 + T23
+- ✅ B8 T21 + T22 + T23
 - B9 T24 + T25 + T26
 - B10 T27 + T28 + T29
 - B11 T31 + T30 🚦
