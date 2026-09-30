@@ -45,6 +45,16 @@ export async function moneySummary({ from, to }: Range): Promise<MoneyRow[]> {
   }));
 }
 
+/** The document behind a money account's journal line, for the owner / accountant (who may open all of these). */
+export function moneyDocHref(docType: string, docId: number): string | null {
+  if (docType === "receipts") return `/receipts/${docId}`;
+  if (docType === "vendor_payments") return `/vendor-payments/${docId}`;
+  if (docType === "expenses") return `/expenses/${docId}`;
+  if (docType === "transfers") return `/cash-bank/transfers/${docId}`;
+  if (docType === "adjustments") return `/journal-vouchers/${docId}`;
+  return null;
+}
+
 /** Adds up rows (a group's total line). */
 export function totalOf(rows: MoneyRow[]) {
   const sum = (k: "opening" | "received" | "paid" | "closing") => rows.reduce((s, r) => s + r[k], 0n);

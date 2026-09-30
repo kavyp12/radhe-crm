@@ -140,7 +140,7 @@ export async function reverse(tx: Tx, entryId: number, date: string): Promise<nu
 const reversal = alias(journalEntries, "reversal");
 
 /** Entries still in force (not reversals, not reversed), optionally only these documents. */
-function liveEntries(tx: Tx, where?: SQL) {
+function liveEntries(tx: Tx | typeof db, where?: SQL) {
   return tx
     .select({
       id: journalEntries.id,
@@ -155,7 +155,7 @@ function liveEntries(tx: Tx, where?: SQL) {
 }
 
 /** A document's entry in force (posted and not reversed), or undefined. */
-export async function liveEntry(tx: Tx, docType: string, docId: number) {
+export async function liveEntry(tx: Tx | typeof db, docType: string, docId: number) {
   const [entry] = await liveEntries(tx, and(eq(journalEntries.docType, docType), eq(journalEntries.docId, docId)));
   return entry;
 }

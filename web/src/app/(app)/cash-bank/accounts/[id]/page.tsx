@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { db } from "@/db";
 import { accounts } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
+import { moneyDocHref } from "@/lib/cash-bank";
 import { formatDate } from "@/lib/dates";
 import { ledger } from "@/lib/ledger";
 import { can } from "@/lib/permissions";
@@ -19,15 +20,10 @@ import { LedgerFilter } from "../../../customers/[id]/ledger-filter";
 const th = "h-9 border-b px-3 text-left text-xs font-medium whitespace-nowrap text-muted-foreground";
 const td = "border-b px-3 py-2 whitespace-nowrap";
 
-/** Where a money account's journal line comes from (owner / accountant may open all of these). */
+/** Where a money account's journal line comes from; a count difference opens that day's cash book. */
 function docHref(docType: string, docId: number, date: string, accountKey: string | null): string | null {
-  if (docType === "receipts") return `/receipts/${docId}`;
-  if (docType === "vendor_payments") return `/vendor-payments/${docId}`;
-  if (docType === "expenses") return `/expenses/${docId}`;
-  if (docType === "transfers") return `/cash-bank/transfers/${docId}`;
-  if (docType === "adjustments") return `/journal-vouchers/${docId}`;
   if (docType === "cash_counts" && accountKey) return `/cash-book?date=${formatDate(date)}&account=${accountKey}`;
-  return null;
+  return moneyDocHref(docType, docId);
 }
 
 /** An account book (S13): the money account's journal lines for the period with a running balance. */

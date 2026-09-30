@@ -62,6 +62,7 @@ const DOC_LABEL: Record<string, string> = {
   accounts: "Opening balance", // money accounts (D40)
   expenses: "Expense",
   transfers: "Transfer",
+  cash_counts: "Cash count", // a count difference (T26)
 };
 
 /** What a ledger line is: "Invoice", "Estimate", "Receipt", "Receipt (cancelled)" … */

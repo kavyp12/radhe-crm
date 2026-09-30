@@ -124,6 +124,29 @@ export const transfers = pgTable(
   ],
 );
 
+/**
+ * Cash counts (S14, A§2, D55): the cash counted in an account (Cash / Petty Cash) for a day, who counted it and when.
+ * A later count of the same day is a new row; the latest one is shown. Its difference from the book is posted only when
+ * asked (doc_type cash_counts): Dr cash_short_excess / Cr the account when short, the other way when excess (A§3).
+ * Never changed. Audited.
+ */
+export const cashCounts = pgTable(
+  "cash_counts",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    date: date("date").notNull(),
+    accountId: bigint("account_id", { mode: "number" })
+      .notNull()
+      .references(() => accounts.id),
+    countedPaise: bigint("counted_paise", { mode: "bigint" }).notNull(),
+    countedBy: text("counted_by")
+      .notNull()
+      .references(() => users.id),
+    countedAt: timestamp("counted_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("cash_counts_day_idx").on(t.accountId, t.date), check("cash_counts_counted_check", sql`${t.countedPaise} >= 0`)],
+);
+
 export const ADJUSTMENT_KINDS = ["journal", "write_off", "discount", "refund"] as const;
 export const ADJUSTMENT_STATUSES = ["active", "cancelled"] as const;
 

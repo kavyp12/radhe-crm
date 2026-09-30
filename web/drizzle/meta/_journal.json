@@ -309,6 +309,20 @@
       "when": 1790759673736,
       "tag": "0043_transfers_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1790760941868,
+      "tag": "0044_cash_counts",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1790760943275,
+      "tag": "0045_cash_counts_audit",
+      "breakpoints": true
     }
   ]
 }
