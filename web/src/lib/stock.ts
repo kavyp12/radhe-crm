@@ -21,7 +21,7 @@ import { divRound, formatMoney, milliText, parseMoney, parseQty } from "@/lib/nu
 import { nextNumber } from "@/lib/numbering";
 import { can, canViewCost, type SessionUser } from "@/lib/permissions";
 import { readDate } from "@/lib/sales";
-import { addMove, checkNotNegative, lockItems, outValue, pair, reverseMoves, type StockItem } from "@/lib/stock-moves";
+import { addMove, checkNothingOutSince, checkNotNegative, lockItems, outValue, pair, reverseMoves, type StockItem } from "@/lib/stock-moves";
 
 // Stock (S17, A§9, D20, D51): items, opening stock, adjustments and the stock card. The move helpers (locking,
 // valuing at the average, no negative stock) are in stock-moves.ts. Stock value, averages and rates only for
@@ -128,12 +128,15 @@ export async function updateItem(actor: SessionUser, id: number, input: ItemInpu
     if (active !== current.active && !can(actor, "stockItems", "cancel")) throw new UserError("You can't deactivate an item.", "active");
     const qty = opening?.qty ?? current.openingQtyMilli;
     const rate = opening?.rate ?? current.openingRatePaise;
+    const changed = qty !== current.openingQtyMilli || rate !== current.openingRatePaise;
+    // D54 (= D52 for opening stock): no change once any of it has gone out since.
+    if (changed) await checkNothingOutSince(tx, "opening", id, [id], "item's opening stock");
     const [row] = await tx
       .update(stockItems)
       .set({ ...v, active, openingQtyMilli: qty, openingRatePaise: rate })
       .where(eq(stockItems.id, id))
       .returning();
-    if (qty !== current.openingQtyMilli || rate !== current.openingRatePaise) await postOpeningStock(tx, row, qty, rate);
+    if (changed) await postOpeningStock(tx, row, qty, rate);
   });
 }
 

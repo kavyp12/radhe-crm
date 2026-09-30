@@ -138,9 +138,17 @@ test("opening stock: owner / accountant with cost only; a change is reversed and
   ]);
   expect(moves.every((m) => m.date === "2026-04-01")).toBe(true); // the books start date
   await expect(edit(noCost, "1", "1")).rejects.toThrow("Only the owner or the accountant can set opening stock.");
-  // Opening stock can't be cut below what has gone out since.
-  await adjust(owner, id, "-110", "", "Used");
-  await expect(edit(owner, "100", "12.50")).rejects.toThrow("Flex 10 ft would go below zero stock");
+  // D54: once any of it has gone out, the opening stock can't change at all (not even up, nor its rate).
+  await adjust(owner, id, "-10", "", "Used");
+  for (const [qty, rate] of [["100", "12.50"], ["130", "12.50"], ["120", "13"]]) {
+    await expect(edit(owner, qty, rate)).rejects.toThrow(
+      "Flex 10 ft has been used or issued since this item's opening stock was entered, so its stock can't be taken back",
+    );
+  }
+  expect(await posted("stock_items", id)).toEqual({ stock: 1500_00n, opening_equity: -1500_00n });
+  // Other fields still save.
+  await updateItem(owner, id, { name: "Flex 10 ft white", unit: "Sq Ft", categoryId, hsnSac: "", gstPercent: "", openingQty: "120", openingRate: "12.50" });
+  expect((await getItem(owner, id))!.name).toBe("Flex 10 ft white");
 });
 
 test("users without can_view_cost (production, a no-cost accountant) get no value, average or rate", async () => {
