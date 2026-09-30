@@ -92,6 +92,38 @@ export const statementLinks = pgTable(
   (t) => [check("statement_links_one_party", sql`num_nonnulls(${t.customerId}, ${t.vendorId}) = 1`)],
 );
 
+export const TRANSFER_STATUSES = ["active", "cancelled"] as const;
+
+/**
+ * Transfers (contra, S13, A§3, D55): money moved between two money accounts (cash → bank deposit, UPI → bank,
+ * bank → petty cash). Numbered TR/ and posted on save: Dr to-account / Cr from-account. Edit = reverse + repost,
+ * cancel = reverse on its date. Audited.
+ */
+export const transfers = pgTable(
+  "transfers",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    number: text("number").notNull().unique(),
+    date: date("date").notNull(),
+    fromAccountId: bigint("from_account_id", { mode: "number" })
+      .notNull()
+      .references(() => accounts.id),
+    toAccountId: bigint("to_account_id", { mode: "number" })
+      .notNull()
+      .references(() => accounts.id),
+    amountPaise: bigint("amount_paise", { mode: "bigint" }).notNull(),
+    reference: text("reference"), // deposit slip / UTR
+    notes: text("notes"),
+    status: text("status", { enum: TRANSFER_STATUSES }).notNull().default("active"),
+    ...stamps(),
+  },
+  (t) => [
+    check("transfers_amount_positive", sql`${t.amountPaise} > 0`),
+    check("transfers_two_accounts", sql`${t.fromAccountId} <> ${t.toAccountId}`),
+    check("transfers_status_check", sql`${t.status} in ('active', 'cancelled')`),
+  ],
+);
+
 export const ADJUSTMENT_KINDS = ["journal", "write_off", "discount", "refund"] as const;
 export const ADJUSTMENT_STATUSES = ["active", "cancelled"] as const;
 

@@ -295,6 +295,20 @@
       "when": 1790756586052,
       "tag": "0041_adjustments_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1790759665201,
+      "tag": "0042_transfers",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1790759673736,
+      "tag": "0043_transfers_audit",
+      "breakpoints": true
     }
   ]
 }

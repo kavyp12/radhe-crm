@@ -59,6 +59,9 @@ const DOC_LABEL: Record<string, string> = {
   purchase_bills: "Purchase bill",
   vendor_payments: "Payment",
   adjustments: "Adjustment", // JV (T24): write-off, discount, refund or a journal voucher
+  accounts: "Opening balance", // money accounts (D40)
+  expenses: "Expense",
+  transfers: "Transfer",
 };
 
 /** What a ledger line is: "Invoice", "Estimate", "Receipt", "Receipt (cancelled)" … */
