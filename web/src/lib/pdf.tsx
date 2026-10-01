@@ -9,13 +9,13 @@ import { formatDate, formatDateTime, todayIST } from "@/lib/dates";
 import { stateName } from "@/lib/gstin";
 import { lineTotals, sizeText } from "@/lib/lines";
 import { getNote, NOTE_KIND, type NoteKind } from "@/lib/notes";
-import { amountInWords, bpText, formatMoney, milliText, noteTotals, type GstMode } from "@/lib/num";
+import { amountInWords, bpText, drCr, formatMoney, milliText, noteTotals, type GstMode } from "@/lib/num";
 import { getInvoice, INVOICE_KIND } from "@/lib/invoices";
 import { getOrder } from "@/lib/purchase-orders";
 import { getQuotation } from "@/lib/quotations";
-import { columnTotal, hasTotals, isNumeric, type Report, type ReportColumn } from "@/lib/report";
+import { columnTotal, hasTotals, isNumeric, type Report, type ReportColumn, type ReportTable } from "@/lib/report";
 import { getSettings } from "@/lib/settings";
-import { customerLedger, drCr, entryLabel, rangeText, statementLink, vendorLedger, withoutReversed, type Range } from "@/lib/statements";
+import { customerLedger, entryLabel, rangeText, statementLink, vendorLedger, withoutReversed, type Range } from "@/lib/statements";
 import { storage } from "@/lib/storage";
 import { getVendor } from "@/lib/vendors";
 
@@ -441,18 +441,30 @@ async function renderStatement(d: {
 export async function reportPdf(report: Report): Promise<Buffer> {
   const b = await brand();
   const landscape = Math.max(...report.tables.map((t) => t.columns.length)) > 7;
-  const width = (c: ReportColumn) =>
-    c.type === "money" ? { width: 80 } : c.type === "date" ? { width: 58 } : c.type === "number" || c.type === "qty" ? { width: 50 } : { flex: 1 };
+  // A table with many amounts (job-wise profit) gets narrower amount columns, so its text columns keep some room.
+  const tight = (t: ReportTable) => t.columns.filter((c) => c.type === "money" || c.type === "balance").length > 7;
+  const width = (t: ReportTable, c: ReportColumn) =>
+    c.type === "money"
+      ? { width: tight(t) ? 66 : 80 }
+      : c.type === "balance"
+        ? { width: 92 }
+        : c.type === "date"
+          ? { width: 58 }
+          : c.type === "number" || c.type === "qty"
+            ? { width: 50 }
+            : { flex: 1 };
   const cellText = (c: ReportColumn, v: unknown) =>
     v === null || v === undefined
       ? ""
       : c.type === "money"
         ? formatMoney(v as bigint)
-        : c.type === "qty"
-          ? milliText(v as bigint)
-          : c.type === "date"
-            ? formatDate(v as string)
-            : String(v);
+        : c.type === "balance"
+          ? drCr(v as bigint)
+          : c.type === "qty"
+            ? milliText(v as bigint)
+            : c.type === "date"
+              ? formatDate(v as string)
+              : String(v);
   const generated = `Generated ${formatDateTime(report.generatedAt)}`;
   return renderToBuffer(
     <Document title={report.title} author={b.company}>
@@ -464,7 +476,7 @@ export async function reportPdf(report: Report): Promise<Buffer> {
             {t.title && <Text style={[s.bold, { fontSize: 10, marginBottom: 4 }]}>{t.title}</Text>}
             <View style={[s.row, s.th]} fixed>
               {t.columns.map((c) => (
-                <Text key={c.key} style={[s.cell, width(c), isNumeric(c) ? s.num : {}]}>
+                <Text key={c.key} style={[s.cell, width(t, c), isNumeric(c) ? s.num : {}]}>
                   {c.label}
                 </Text>
               ))}
@@ -472,7 +484,7 @@ export async function reportPdf(report: Report): Promise<Buffer> {
             {t.rows.map((r, i) => (
               <View key={i} style={[s.row, s.td]} wrap={false}>
                 {t.columns.map((c) => (
-                  <Text key={c.key} style={[s.cell, width(c), isNumeric(c) ? s.num : {}]}>
+                  <Text key={c.key} style={[s.cell, width(t, c), isNumeric(c) ? s.num : {}]}>
                     {cellText(c, r[c.key])}
                   </Text>
                 ))}
@@ -482,7 +494,7 @@ export async function reportPdf(report: Report): Promise<Buffer> {
             {hasTotals(t) && (
               <View style={[s.row, s.td, s.bold, { backgroundColor: "#fafafa" }]} wrap={false}>
                 {t.columns.map((c, i) => (
-                  <Text key={c.key} style={[s.cell, width(c), isNumeric(c) ? s.num : {}]}>
+                  <Text key={c.key} style={[s.cell, width(t, c), isNumeric(c) ? s.num : {}]}>
                     {c.total ? formatMoney(columnTotal(t, c.key)) : i === 0 ? `Total (${t.rows.length})` : ""}
                   </Text>
                 ))}

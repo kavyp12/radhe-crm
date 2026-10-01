@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { DataTable, tableColumns, type DataTableColumn } from "@/components/data-table";
 import { DateText } from "@/components/date-text";
 import { Money } from "@/components/money";
-import { milliText } from "@/lib/num";
+import { drCr, milliText } from "@/lib/num";
 import { columnTotal, hasTotals, isNumeric, type ReportCell, type ReportColumn, type ReportRow, type ReportTable } from "@/lib/report";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +25,7 @@ function columnsOf(table: ReportTable): DataTableColumn<ReportRow>[] {
 function cellOf(c: ReportColumn, value: ReportCell | undefined) {
   if (value === null || value === undefined) return "—";
   if (c.type === "money") return <Money paise={value as bigint} />;
+  if (c.type === "balance") return drCr(value as bigint);
   if (c.type === "qty") return milliText(value as bigint);
   if (c.type === "date") return <DateText date={value as string} />;
   return String(value);

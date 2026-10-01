@@ -8,6 +8,15 @@ import { listReceipts } from "@/lib/receipts";
 import type { Report, ReportColumn, ReportRow } from "@/lib/report";
 import { collectionReport, type ReportQuery, type ReportResult } from "@/lib/reports";
 import {
+  bankBookReport,
+  cashBookReport,
+  customerLedgerReport,
+  expenseReport,
+  purchaseReport,
+  stockValuationReport,
+  vendorLedgerReport,
+} from "@/lib/reports-books";
+import {
   advanceReport,
   collectionPersonReport,
   outstandingReport,
@@ -31,6 +40,13 @@ export const REPORTS: Record<string, (user: SessionUser, q: ReportQuery) => Prom
   "collection-person": collectionPersonReport,
   "pending-payment": pendingPaymentReport,
   advances: advanceReport,
+  "customer-ledger": customerLedgerReport,
+  "vendor-ledger": vendorLedgerReport,
+  purchase: purchaseReport,
+  expense: expenseReport,
+  "cash-book": cashBookReport,
+  "bank-book": bankBookReport,
+  "stock-valuation": stockValuationReport,
 };
 /** The loader of /reports/<name>, or undefined (own keys only: "constructor" is not a report). */
 export const reportLoader = (name: string) => (Object.hasOwn(REPORTS, name) ? REPORTS[name] : undefined);

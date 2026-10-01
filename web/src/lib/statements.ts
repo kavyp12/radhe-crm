@@ -3,7 +3,7 @@ import { db, writeTx } from "@/db";
 import { statementLinks } from "@/db/schema";
 import { formatDate, fyStart, parseDate, periodRange, todayIST } from "@/lib/dates";
 import { ledger } from "@/lib/ledger";
-import { formatMoney } from "@/lib/num";
+import { drCr } from "@/lib/num";
 import { can, type SessionUser } from "@/lib/permissions";
 import { newShareToken } from "@/lib/sales";
 
@@ -71,8 +71,7 @@ export function entryLabel(row: { docType: string; number: string | null; revers
   return row.reverses === null ? label : `${label} (reversed)`;
 }
 
-/** "₹1,500.00 Dr" / "₹200.00 Cr" / "₹0.00" (+ = Dr). */
-export const drCr = (paise: bigint) => (paise === 0n ? formatMoney(0n) : `${formatMoney(paise < 0n ? -paise : paise)} ${paise < 0n ? "Cr" : "Dr"}`);
+export { drCr }; // lives in num.ts so client components (report tables) can use it too
 
 /** The customer's AR ledger for the range, with Dr / Cr totals: what the Ledger tab and the statement PDF show. */
 export async function customerLedger(customerId: number, range: Range) {

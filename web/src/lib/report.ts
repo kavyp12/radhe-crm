@@ -2,10 +2,16 @@
 // built from it, so whatever the server loader stripped (cost, hard rule 5) is missing from all three.
 // No server imports here: client components render it too.
 
-/** Money = bigint paise; number = bigint count; qty = bigint thousandths (its unit in a column of its own, D60);
- * date = 'YYYY-MM-DD'; text = string. null = blank. */
+/** Money = bigint paise; balance = bigint paise shown Dr / Cr (+ = Dr), never totalled; number = bigint count;
+ * qty = bigint thousandths (its unit in a column of its own, D60); date = 'YYYY-MM-DD'; text = string. null = blank. */
 export type ReportCell = string | bigint | null;
-export type ReportColumn = { key: string; label: string; type?: "text" | "money" | "number" | "qty" | "date"; /** sum in the totals row */ total?: boolean };
+export type ReportColumn = {
+  key: string;
+  label: string;
+  type?: "text" | "money" | "balance" | "number" | "qty" | "date";
+  /** sum in the totals row (money only) */
+  total?: boolean;
+};
 export type ReportRow = Record<string, ReportCell> & { href?: string | null };
 export type ReportTable = { title?: string; columns: ReportColumn[]; rows: ReportRow[] };
 export type Report = {
@@ -20,8 +26,8 @@ export type Report = {
 export const columnTotal = (table: ReportTable, key: string) =>
   table.rows.reduce((sum, r) => sum + ((r[key] as bigint | null) ?? 0n), 0n);
 
-/** Right-aligned columns (money, counts, quantities). */
-export const isNumeric = (c: ReportColumn) => c.type === "money" || c.type === "number" || c.type === "qty";
+/** Right-aligned columns (money, balances, counts, quantities). */
+export const isNumeric = (c: ReportColumn) => c.type === "money" || c.type === "balance" || c.type === "number" || c.type === "qty";
 
 export const hasTotals = (table: ReportTable) => table.columns.some((c) => c.total);
 

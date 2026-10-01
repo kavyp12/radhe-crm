@@ -310,7 +310,7 @@ export function DataTable<T extends RowData>({
                     )}
                   >
                     {column.columnDef.meta?.total ? (
-                      <Money paise={filtered.reduce((sum, row) => sum + (row.getValue(column.id) as bigint), 0n)} />
+                      <Money paise={filtered.reduce((sum, row) => sum + ((row.getValue(column.id) as bigint | null) ?? 0n), 0n)} />
                     ) : i === 0 ? (
                       `Total (${filtered.length} ${filtered.length === 1 ? "row" : "rows"})`
                     ) : null}

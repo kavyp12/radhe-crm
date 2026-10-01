@@ -9,6 +9,9 @@ import { columnTotal, hasTotals, type Report, type ReportColumn } from "@/lib/re
 // Lakh / crore grouping needs Excel's two conditional sections. ponytail: negatives below −₹1 lakh fall into the last
 // section and group western-style (−₹500,000.00); add a negative-specific format if the accountant minds.
 export const INR_FORMAT = '[>=10000000]"₹"##\\,##\\,##\\,##0.00;[>=100000]"₹"##\\,##\\,##0.00;"₹"#,##0.00';
+// A ledger balance stays a signed number (+ = Dr) shown "₹1,500.00 Dr" / "₹200.00 Cr". ponytail: western grouping
+// (the sections are taken by Dr / Cr); a lakh-grouped variant needs conditions Excel can't combine with these.
+export const BALANCE_FORMAT = '"₹"#,##0.00" Dr";"₹"#,##0.00" Cr";"₹"0.00';
 const DATE_FORMAT = "dd/mm/yyyy";
 const HEADER_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF4F4F5" } } as const;
 
@@ -20,7 +23,7 @@ function excelDate(iso: string): Date {
 
 function cellValue(c: ReportColumn, v: unknown) {
   if (v === null || v === undefined) return null;
-  if (c.type === "money") return excelRupees(v as bigint);
+  if (c.type === "money" || c.type === "balance") return excelRupees(v as bigint);
   if (c.type === "qty") return excelQty(v as bigint); // General format: 12.5, 3
   if (c.type === "date") return excelDate(v as string);
   if (c.type === "number") return Number(v as bigint);
@@ -31,6 +34,7 @@ function styleCells(sheet: Worksheet, rowNumber: number, columns: ReportColumn[]
   columns.forEach((c, i) => {
     const cell = sheet.getRow(rowNumber).getCell(i + 1);
     if (c.type === "money") cell.numFmt = INR_FORMAT;
+    if (c.type === "balance") cell.numFmt = BALANCE_FORMAT;
     if (c.type === "date") cell.numFmt = DATE_FORMAT;
   });
 }
@@ -55,12 +59,12 @@ export async function reportXlsx(report: Report): Promise<Buffer> {
     const header = sheet.addRow(table.columns.map((c) => c.label));
     header.font = { bold: true };
     header.eachCell((cell) => (cell.fill = HEADER_FILL));
-    table.columns.forEach((c, i) => fit(i, c.type === "money" ? 16 : c.type === "date" ? 10 : c.label.length));
+    table.columns.forEach((c, i) => fit(i, c.type === "money" ? 16 : c.type === "balance" ? 19 : c.type === "date" ? 10 : c.label.length));
 
     for (const r of table.rows) {
       const row = sheet.addRow(table.columns.map((c) => cellValue(c, r[c.key])));
       styleCells(sheet, row.number, table.columns);
-      table.columns.forEach((c, i) => c.type !== "money" && c.type !== "date" && fit(i, String(cellValue(c, r[c.key]) ?? "").length));
+      table.columns.forEach((c, i) => c.type !== "money" && c.type !== "balance" && c.type !== "date" && fit(i, String(cellValue(c, r[c.key]) ?? "").length));
     }
     if (hasTotals(table)) {
       const values = table.columns.map((c, i) =>

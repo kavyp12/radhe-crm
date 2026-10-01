@@ -48,6 +48,9 @@ export function formatMoney(paise: bigint): string {
   return INR.format(moneyText(paise) as Intl.StringNumericLiteral);
 }
 
+/** A ledger balance: "₹1,500.00 Dr" / "₹200.00 Cr" / "₹0.00" (+ = Dr). */
+export const drCr = (paise: bigint) => (paise === 0n ? formatMoney(0n) : `${formatMoney(paise < 0n ? -paise : paise)} ${paise < 0n ? "Cr" : "Dr"}`);
+
 /**
  * Paise → rupees as a JS number, for Excel cells ONLY (D59): Excel needs numbers, so this is the one float in the app —
  * display, never maths. Read from the exact decimal text, so 123450n → 1234.5 exactly as Excel would type it.
