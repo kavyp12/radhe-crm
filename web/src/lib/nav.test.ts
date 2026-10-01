@@ -6,7 +6,7 @@ const user = (role: Role, canViewCost = DEFAULT_CAN_VIEW_COST[role]) => ({ role,
 const labels = (role: Role, canViewCost?: boolean) => navFor(user(role, canViewCost)).flatMap((group) => group.items.map((item) => item.label));
 
 test("owner sees every item", () => {
-  expect(labels("owner")).toHaveLength(27);
+  expect(labels("owner")).toHaveLength(28);
   expect(labels("owner")).toEqual(expect.arrayContaining(["Users", "Categories", "Settings", "Approvals", "Cash Book", "Journal Vouchers"]));
 });
 
@@ -27,6 +27,7 @@ test("sales: customers, quotations, jobs, invoices, follow-ups, reports — no m
     "Invoices",
     "Credit/Debit Notes",
     "Print Jobs",
+    "Outstanding",
     "Follow-ups",
     "Reports",
   ]);

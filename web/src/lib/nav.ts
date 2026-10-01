@@ -8,6 +8,7 @@ import {
   FileSpreadsheet,
   FileText,
   HandCoins,
+  Hourglass,
   Landmark,
   LayoutDashboard,
   type LucideIcon,
@@ -52,6 +53,7 @@ export const NAV: NavGroup[] = [
       { label: "Invoices", href: "/invoices", area: "invoices", icon: Receipt },
       { label: "Credit/Debit Notes", href: "/credit-debit-notes", area: "invoices", icon: FileMinus },
       { label: "Print Jobs", href: "/print-jobs", area: "printJobs", icon: Printer },
+      { label: "Outstanding", href: "/outstanding", area: "salesReports", icon: Hourglass }, // T28
       { label: "Follow-ups", href: "/follow-ups", area: "followUps", icon: PhoneCall, count: "followUps" },
     ],
   },
