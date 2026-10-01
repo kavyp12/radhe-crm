@@ -28,7 +28,8 @@ export default async function ReportPage({ params, searchParams }: PageProps<"/r
         back={{ href: "/reports", label: "Reports" }}
         action={<ReportActions name={name} query={query} title={report.title} pdfName={reportFileName(report.title, report.generatedAt, "pdf")} />}
       />
-      <ReportFilters periods={periods} period={period} from={q.from} to={q.to} picks={picks} />
+      {/* Keyed by the query: a drill-down link or Back must reset the selects, which keep their own state. */}
+      <ReportFilters key={`${name}?${query}`} periods={periods} period={period} from={q.from} to={q.to} picks={picks} />
       {error && <p className="text-sm text-red-700">{error}</p>}
       <ReportView tables={report.tables} />
     </div>

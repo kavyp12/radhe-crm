@@ -5,7 +5,17 @@ import { useState } from "react";
 import { DateInput } from "@/components/date-input";
 import { Button } from "@/components/ui/button";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { parseDate } from "@/lib/dates";
 import type { ReportPick } from "@/lib/reports";
+
+/** The query's DD/MM/YYYY text as DateInput's 'YYYY-MM-DD'; unreadable text → empty (the page shows the error). */
+function isoOf(text?: string) {
+  try {
+    return text?.trim() ? parseDate(text) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** A report's filters (S20): the period (picking a preset shows it at once; Custom asks for From / To) and pick-ones. */
 export function ReportFilters({
@@ -41,8 +51,8 @@ export function ReportFilters({
       </NativeSelect>
       {picked === "custom" && (
         <>
-          <DateInput name="from" aria-label="From date" defaultValue={from} className="w-32" />
-          <DateInput name="to" aria-label="To date" defaultValue={to} className="w-32" />
+          <DateInput name="from" aria-label="From date" defaultValue={isoOf(from)} className="w-32" />
+          <DateInput name="to" aria-label="To date" defaultValue={isoOf(to)} className="w-32" />
           <Button type="submit" variant="outline">
             Show
           </Button>

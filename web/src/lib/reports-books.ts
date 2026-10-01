@@ -457,7 +457,7 @@ export async function stockValuationReport(user: SessionUser, q: ReportQuery, no
   return {
     report: {
       title: "Stock valuation",
-      filters: [`As of ${formatDate(asOf)} (the period's last day)`, ...pickFilters(picks), "Weighted average cost (A§9)"],
+      filters: [`As of ${formatDate(asOf)} (the period's last day)`, ...pickFilters(picks), "Weighted average cost"],
       generatedAt: now,
       tables: [
         {

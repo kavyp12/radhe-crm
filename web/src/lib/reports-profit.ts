@@ -75,7 +75,7 @@ export async function profitReport(user: SessionUser, q: ReportQuery, now = new 
   return {
     report: {
       title: "Profit & loss",
-      filters: [`Period: ${rangeText(range)}`, "From the journal (A§12): stock counts when issued (materials consumed), not when bought"],
+      filters: [`Period: ${rangeText(range)}`, "From the books: stock counts as a cost when it is issued (materials consumed), not when it is bought"],
       generatedAt: now,
       tables: [
         {
@@ -92,7 +92,7 @@ export async function profitReport(user: SessionUser, q: ReportQuery, now = new 
           ],
         },
         {
-          title: "Gross profit (D59)",
+          title: "Gross profit",
           columns: [{ key: "label", label: "" }, amount],
           rows: [
             { label: "Sales (excl. GST)", amount: sale },
@@ -178,7 +178,7 @@ export async function jobProfitReport(user: SessionUser, q: ReportQuery, now = n
   return {
     report: {
       title: "Job-wise profit",
-      filters: [`Jobs dated: ${rangeText(range)}`, ...pickFilters(picks), "Sale and costs from the books, all dates (D57); a job not yet invoiced has no sale"],
+      filters: [`Jobs dated: ${rangeText(range)}`, ...pickFilters(picks), "Sale and costs from the books, all dates; a job not yet invoiced has no sale"],
       generatedAt: now,
       tables: [
         {
@@ -255,7 +255,7 @@ export async function productReport(user: SessionUser, q: ReportQuery, now = new
   return {
     report: {
       title: "Product-wise sales & profit",
-      filters: [`Period: ${rangeText(range)}`, "Sales excl. GST (invoices + estimates + debit notes − credit notes)", ...(cost ? ["Profit: each job's profit split pro-rata to its lines (A§10)"] : [])],
+      filters: [`Period: ${rangeText(range)}`, "Sales excl. GST (invoices + estimates + debit notes − credit notes)", ...(cost ? ["Profit: each job's profit shared over its lines by taxable value"] : [])],
       generatedAt: now,
       tables: [
         {
