@@ -142,7 +142,7 @@ export async function loadDashboard(user: SessionUser, today = todayIST()): Prom
   const [m, t] = [(k: Flow) => sum(k, month), (k: Flow) => sum(k, today)];
   const go = (href: string, area: Parameters<typeof can>[1]) => (can(user, area, "view") ? href : undefined);
   const links = {
-    sales: go("/invoices", "invoices"),
+    sales: (period: string) => go(`/reports/sales?period=${period}`, "salesReports"), // the same total (D60)
     collection: (period: string) => go(`/reports/collection?period=${period}`, "reports"),
     outstanding: go("/outstanding", "salesReports"),
     purchase: cost ? go("/purchase-bills", "books") : undefined,
@@ -171,7 +171,7 @@ export async function loadDashboard(user: SessionUser, today = todayIST()): Prom
 
   return {
     kpis: pick([
-      stat("sales", "sales", "Sales", () => m("sales"), links.sales),
+      stat("sales", "sales", "Sales", () => m("sales"), links.sales("month")),
       stat("all", "collection", "Collection", () => m("collection"), links.collection("month")),
       stat("sales", "outstanding", "Outstanding", () => ar.receivable, links.outstanding),
       stat("all", "purchase", "Purchase", () => m("purchase"), links.purchase),
@@ -181,7 +181,7 @@ export async function loadDashboard(user: SessionUser, today = todayIST()): Prom
       stat("all", "bank", "Bank", () => money!.bank, links.cashBank),
     ]),
     today: pick([
-      stat("sales", "todaySales", "Sales", () => t("sales"), links.sales),
+      stat("sales", "todaySales", "Sales", () => t("sales"), links.sales("today")),
       stat("all", "todayCollection", "Collection", () => t("collection"), links.collection("today")),
       stat("all", "todayPurchase", "Purchase", () => t("purchase"), links.purchase),
       stat("all", "todayExpense", "Expense", () => t("expense"), links.expense),
@@ -193,7 +193,7 @@ export async function loadDashboard(user: SessionUser, today = todayIST()): Prom
       stat("all", "bankBalance", "Bank balance", () => money!.bank, links.cashBank),
     ]),
     performance: pick([
-      stat("sales", "monthlySales", "Monthly sales", () => m("sales"), links.sales),
+      stat("sales", "monthlySales", "Monthly sales", () => m("sales"), links.sales("month")),
       stat("all", "monthlyCollection", "Monthly collection", () => m("collection"), links.collection("month")),
       stat("all", "monthlyExpense", "Monthly expense", () => m("expense"), links.expense),
       stat("cost", "grossProfit", "Gross profit", () => m("sales") - pnl!.jobCosts),

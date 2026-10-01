@@ -56,7 +56,7 @@ export function ReportFilters({
           defaultValue={p.value}
           onChange={(e) => e.currentTarget.form?.requestSubmit()}
         >
-          <NativeSelectOption value="">{`All (${p.label.toLowerCase()})`}</NativeSelectOption>
+          <NativeSelectOption value="">{p.empty ?? `All (${p.label.toLowerCase()})`}</NativeSelectOption>
           {p.options.map(([value, label]) => (
             <NativeSelectOption key={value} value={value}>
               {label}

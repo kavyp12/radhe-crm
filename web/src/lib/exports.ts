@@ -6,13 +6,34 @@ import { listPurchaseBills } from "@/lib/purchase-bills";
 import { RECEIPT_MODE } from "@/lib/receipt-modes";
 import { listReceipts } from "@/lib/receipts";
 import type { Report, ReportColumn, ReportRow } from "@/lib/report";
-import { collectionReport, type ReportQuery } from "@/lib/reports";
+import { collectionReport, type ReportQuery, type ReportResult } from "@/lib/reports";
+import {
+  advanceReport,
+  collectionPersonReport,
+  outstandingReport,
+  pendingPaymentReport,
+  salesPersonReport,
+  salesReport,
+} from "@/lib/reports-sales";
 import { listItems } from "@/lib/stock";
 import { listVendors } from "@/lib/vendors";
 
 // What /export/<name> can download (S27, D59): the reports and the main lists. Each goes through the same loader and
 // permission as its page, so a user gets exactly the rows and columns they see there — cost columns only with
 // can_view_cost (hard rule 5). null = not allowed. Lists export every row (the page's filters run in the browser).
+
+/** The S20 reports by their /reports/<name> (REPORT_INDEX): the page and the export both load through here. */
+export const REPORTS: Record<string, (user: SessionUser, q: ReportQuery) => Promise<ReportResult | null>> = {
+  sales: salesReport,
+  collection: collectionReport,
+  outstanding: outstandingReport,
+  "sales-person": salesPersonReport,
+  "collection-person": collectionPersonReport,
+  "pending-payment": pendingPaymentReport,
+  advances: advanceReport,
+};
+/** The loader of /reports/<name>, or undefined (own keys only: "constructor" is not a report). */
+export const reportLoader = (name: string) => (Object.hasOwn(REPORTS, name) ? REPORTS[name] : undefined);
 
 type Exporter = (user: SessionUser, q: ReportQuery) => Promise<Report | null>;
 
@@ -26,7 +47,7 @@ const party = (name: string, firm: string | null) => (firm ? `${name} · ${firm}
 const money = (key: string, label: string): ReportColumn => ({ key, label, type: "money", total: true });
 
 export const EXPORTS: Record<string, Exporter> = {
-  collection: async (user, q) => (await collectionReport(user, q))?.report ?? null,
+  ...Object.fromEntries(Object.entries(REPORTS).map(([name, load]): [string, Exporter] => [name, async (user, q) => (await load(user, q))?.report ?? null])),
 
   invoices: async (user) => {
     if (!can(user, "invoices", "view")) return null;

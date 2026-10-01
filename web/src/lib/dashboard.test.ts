@@ -219,7 +219,7 @@ test("roles: sales gets sales / outstanding / follow-ups only; profit needs can_
   expect(keys(s)).toEqual(["sales", "outstanding", "todaySales", "receivable", "monthlySales", "performanceOutstanding", "advances"]);
   expect(s.months.every((m) => m.collection === undefined && m.expense === undefined)).toBe(true);
   expect(s.followUps).not.toBeNull();
-  expect([...s.kpis, ...s.current].map((x) => x.href)).toEqual(["/invoices", "/outstanding", "/outstanding"]);
+  expect([...s.kpis, ...s.current].map((x) => x.href)).toEqual(["/reports/sales?period=month", "/outstanding", "/outstanding"]);
 
   const noProfit = (d: Dashboard) => !keys(d).some((k) => /profit/i.test(k));
   expect(noProfit(await loadDashboard({ ...owner, canViewCost: false }, today))).toBe(true);
