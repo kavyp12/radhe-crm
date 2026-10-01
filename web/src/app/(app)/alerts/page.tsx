@@ -25,10 +25,11 @@ export default async function AlertsPage() {
             <ul>
               {list.map((a) => (
                 <li key={a.key} className="border-b last:border-b-0">
-                  <Link href={a.href} className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 px-4 py-2.5 text-[13px] hover:bg-muted/40">
-                    <span className="min-w-40 font-medium">{a.title}</span>
-                    <span className="min-w-0 flex-1 text-muted-foreground">{a.detail}</span>
-                    {a.amount !== undefined && <Money paise={a.amount} className="font-medium" />}
+                  {/* Phone: name and amount on one line, the detail below; wider: one row. */}
+                  <Link href={a.href} className="grid grid-cols-[1fr_auto] items-baseline gap-x-4 gap-y-0.5 px-4 py-2.5 text-[13px] hover:bg-muted/40 sm:grid-cols-[10rem_1fr_auto]">
+                    <span className="font-medium">{a.title}</span>
+                    <span className="col-span-2 row-start-2 text-muted-foreground sm:col-span-1 sm:col-start-2 sm:row-start-1">{a.detail}</span>
+                    {a.amount !== undefined && <Money paise={a.amount} className="text-right font-medium sm:col-start-3 sm:row-start-1" />}
                   </Link>
                 </li>
               ))}

@@ -69,11 +69,14 @@ test("S11: sale ₹1,00,000 − cost ₹62,000 (material 42k, labour 8k, printin
   // Before the invoice: no sale yet; balance = job total ₹1,18,000 − advance ₹20,000.
   const before = (await jobCosting(owner, job))!;
   expect([before.sale, before.totalCost, before.marginBp, before.advance, before.balance.amount]).toEqual([0n, 62000_00n, null, 20000_00n, 98000_00n]);
+  // D58 estimate until invoiced: the job's value excl. GST − costs so far.
+  expect(before.expected).toEqual({ sale: 100000_00n, profit: 38000_00n });
 
   const invoice = await createInvoiceFromJobs(owner, [job], "tax");
   await issueInvoice(owner, invoice);
   const card = (await jobCosting(owner, job))!;
   expect(card.sale).toBe(100000_00n); // taxable value, GST excluded
+  expect(card.expected).toBeNull();
   expect(card.cost).toEqual({ material: 42000_00n, labour: 8000_00n, installation: 6000_00n, transport: 2000_00n, printing: 4000_00n, other: 0n });
   expect([card.totalCost, card.profit, card.marginBp]).toEqual([62000_00n, 38000_00n, 3800]);
   // The advance moved onto the invoice at Issue and still counts; the balance is the invoice's open amount.

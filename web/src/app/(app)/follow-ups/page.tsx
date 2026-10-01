@@ -54,7 +54,7 @@ export default async function FollowUpsPage({ searchParams }: PageProps<"/follow
                       Promised <Money paise={f.expected!} /> for <DateText date={f.promiseDate!} /> · {f.promise}
                     </span>
                   )}
-                  <span className="min-w-0 flex-1 truncate text-muted-foreground">{f.response}</span>
+                  <span className="min-w-0 basis-full truncate text-muted-foreground sm:flex-1">{f.response}</span>
                   <Button asChild variant="outline" size="sm">
                     <Link href={`/follow-ups/new?customer=${f.customerId}`}>Log follow-up</Link>
                   </Button>

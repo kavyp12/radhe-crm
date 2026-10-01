@@ -132,9 +132,13 @@ export async function myFollowUpsDueCount(user: SessionUser, today = todayIST())
   return row.n;
 }
 
-/** Promises not kept whose date is today or past (alerts, D57). */
+// No later follow-up with a promise for the customer: a newer promise supersedes older ones (D58).
+const latestPromise = sql`not exists (select 1 from follow_ups l where l.customer_id = ${followUps.customerId}
+  and l.promise_date is not null and (l.follow_up_date, l.id) > (${followUps.followUpDate}, ${followUps.id}))`;
+
+/** The customer's latest promise, if not kept and its date is today or past (alerts, D57, D58). */
 export const openPromises = (today = todayIST()) =>
-  listFollowUps(sql`${followUps.promiseDate} <= ${today} and ${followUps.expectedPaise} > ${receivedSince}`, today);
+  listFollowUps(sql`${followUps.promiseDate} <= ${today} and ${followUps.expectedPaise} > ${receivedSince} and ${latestPromise}`, today);
 
 /** Pick lists: active customers, their issued invoices, active staff. */
 export async function followUpFormOptions() {

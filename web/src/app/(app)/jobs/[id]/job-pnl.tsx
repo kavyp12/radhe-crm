@@ -100,6 +100,19 @@ export function JobPnl({ jobId, card, canEnter }: { jobId: number; card: Card; c
             </span>
             <Money paise={balance.amount} />
           </div>
+          {card.expected && (
+            <div aria-label="Estimate" className="border-b border-dashed bg-amber-50/60">
+              <p className="px-4 pt-2 text-xs font-medium text-amber-800">Estimate — until the job is invoiced</p>
+              <div className={cn(row, "border-b-0 text-muted-foreground")}>
+                <span>Expected sale (excl. GST)</span>
+                <Money paise={card.expected.sale} className="text-foreground" />
+              </div>
+              <div className={cn(row, "border-b-0 pt-0 text-muted-foreground")}>
+                <span>Expected profit</span>
+                <Money paise={card.expected.profit} className={card.expected.profit < 0n ? "text-red-700" : "text-foreground"} />
+              </div>
+            </div>
+          )}
           {card.sale === 0n && <p className="px-4 py-2 text-xs text-muted-foreground">The sale counts once the job&apos;s invoice is issued.</p>}
           {card.entries.length > 0 && (
             <div className="px-4 py-2">

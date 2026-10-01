@@ -80,6 +80,13 @@ test("a broken promise raises an alert until the expected amount is received sin
   expect(await find(owner, day(3), "promise_broken", key)).toBeUndefined(); // kept: cleared
   await cancelReceipt(owner, last, "Bounced");
   expect(await find(owner, day(3), "promise_broken", key)).toMatchObject({ amount: 2000_00n }); // computed, so it's back
+
+  // D58: a later follow-up without a promise leaves it standing; a newer promise supersedes it.
+  await followUp(owner, c, { followUpDate: formatDate(day(3)), response: "No answer" });
+  expect(await find(owner, day(3), "promise_broken", key)).toBeDefined();
+  const newer = await followUp(owner, c, { followUpDate: formatDate(day(3)), promiseDate: formatDate(day(5)), expected: "3,000" });
+  expect(await find(owner, day(3), "promise_broken", key)).toBeUndefined();
+  expect(await find(owner, day(6), "promise_broken", `promise:${newer.id}`)).toMatchObject({ amount: 3000_00n });
 });
 
 test("due today vs overdue, and credit limit exceeded", async () => {

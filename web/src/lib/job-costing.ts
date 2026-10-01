@@ -1,9 +1,10 @@
 import { and, asc, eq, ne, or, sql } from "drizzle-orm";
 import { db, writeTx } from "@/db";
-import { allocations, invoiceLines, invoices, jobCostEntries, jobs, users } from "@/db/schema";
+import { allocations, invoiceLines, invoices, jobCostEntries, jobLines, jobs, users } from "@/db/schema";
 import { formMoney, formText, UserError } from "@/lib/action";
 import { liveAllocation, paidTowards } from "@/lib/allocations";
 import { BUCKET_LABEL, JOB_COST_BUCKETS, type JobCostBucket } from "@/lib/cost-buckets";
+import { lineTotals } from "@/lib/lines";
 import { divRound, formatMoney } from "@/lib/num";
 import { can, canViewCost, type SessionUser } from "@/lib/permissions";
 import { jobsOnInvoices, readDate } from "@/lib/sales";
@@ -22,7 +23,7 @@ export const canEnterJobCost = (user: SessionUser) => can(user, "jobCosts", "cre
 /** The job P&L card, or undefined for users without cost access (or no such job). */
 export async function jobCosting(user: SessionUser, jobId: number) {
   if (!canSeeJobCost(user)) return undefined;
-  const [job] = await db.select({ totalPaise: jobs.totalPaise }).from(jobs).where(eq(jobs.id, jobId));
+  const [job] = await db.select({ totalPaise: jobs.totalPaise, status: jobs.status }).from(jobs).where(eq(jobs.id, jobId));
   if (!job) return undefined;
 
   const rows = await db.execute<{ key: string | null; bucket: string | null; net: string }>(sql`
@@ -84,8 +85,17 @@ export async function jobCosting(user: SessionUser, jobId: number) {
     }
   }
 
+  // D58: until the job is invoiced, an estimate from the job's own lines (taxable, excl. GST) next to the books' figures.
+  let expected: { sale: bigint; profit: bigint } | null = null;
+  if (job.status !== "invoiced" && job.status !== "cancelled") {
+    const lines = await db.select().from(jobLines).where(eq(jobLines.jobId, jobId));
+    const { taxable } = lineTotals(lines, "estimate");
+    expected = { sale: taxable, profit: taxable - totalCost };
+  }
+
   return {
     sale,
+    expected,
     cost,
     totalCost,
     profit,
