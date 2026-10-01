@@ -136,15 +136,15 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
   Report page pattern (filters with Today/Yesterday/Week/Month/Custom, table, totals); Excel export (exceljs) for any report or list; PDF export (table PDF); print; share.
   Done when: one sample report exports correct Excel + PDF.
 
-- [ ] **T32 · Reports A** — S20 #1, 2, 3, 11, 12, 17, 18
+- [x] **T32 · Reports A** — S20 #1, 2, 3, 11, 12, 17, 18
   Sales, Collection, Outstanding, Sales-person-wise, Collection-person-wise, Pending payment (D25), Advance received.
   Done when: each report's totals tie to journal/dashboard numbers on seeded data.
 
-- [ ] **T33 · Reports B** — S20 #4, 5, 6, 7, 14, 15, 16
+- [x] **T33 · Reports B** — S20 #4, 5, 6, 7, 14, 15, 16
   Customer ledger, Vendor ledger, Purchase, Expense, Cash book, Bank book, Stock valuation.
   Done when: totals tie out on seeded data.
 
-- [ ] **T34 · Reports C** — S20 #8, 9, 10, 13
+- [x] **T34 · Reports C** — S20 #8, 9, 10, 13
   Profit (P&L), Job-wise profit, Product-wise sales & profit, GST summary (output by rate & HSN, B2B/B2C, CN/DN, input GST, net).
   Done when: GST summary ties to journal GST accounts · job profit ties to T27.
 
@@ -204,8 +204,8 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
 - ✅ B8 T21 + T22 + T23
 - ✅ B9 T24 + T25 + T26
 - ✅ B10 T27 + T28 + T29
-- B11 T31 + T30 🚦
-- B12 T32 + T33 + T34
+- ✅ B11 T31 + T30 🚦 (T30 look check open)
+- ✅ B12 T32 + T33 + T34
 - B13 T35 + T36
 - B14 T37 + T38 + T39
 - B15 T40 + T41 (needs Q1) → 🚦 G2
