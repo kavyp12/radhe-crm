@@ -9,3 +9,6 @@ print-agent/**/obj/
 *.log
 Thumbs.db
 .DS_Store
+
+# browser-tool snapshots (may contain autofilled logins)
+.playwright-mcp/

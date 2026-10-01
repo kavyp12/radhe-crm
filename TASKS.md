@@ -102,15 +102,15 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
   Done when: posting tests (GRN, bill with price difference) · partial receipts tracked · chain links work both ways.
 
 ## Phase 4 — Money
-- [ ] **T24 · Adjustment entries (JV)** — S22, A§3
+- [x] **T24 · Adjustment entries (JV)** — S22, A§3
   Owner/accountant journal voucher (balanced lines, any account, optional party); customer outstanding adjustment (write-off/discount) that allocates to invoices; approval for non-owner and whenever a customer is touched.
   Done when: tests: unbalanced JV blocked · customer adjustment reduces invoice open amount · approval enforced.
 
-- [ ] **T25 · Cash & bank + transfers** — S13
+- [x] **T25 · Cash & bank + transfers** — S13
   Money accounts page: opening + receipts − payments = closing per period for each account; transfers (cash → bank deposit, UPI → bank, bank → petty cash); account book view with running balance.
   Done when: tests: transfer posts both sides · closing = journal balance for each account.
 
-- [ ] **T26 · Daily cash book & cash count** — S14
+- [x] **T26 · Daily cash book & cash count** — S14
   Daily view: opening cash, cash received, cash expense, cash purchase, deposit in bank, closing; enter counted cash → difference shown; owner can post the difference (cash short/excess).
   Done when: test: day totals match journal · difference posting works via approval.
 
@@ -202,7 +202,7 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
 - ✅ B6 T13 + T14 + T15 + T16 → 🚦 G1 demo (open)
 - ✅ B7 T17 + T18 + T19 + T20
 - ✅ B8 T21 + T22 + T23
-- B9 T24 + T25 + T26
+- ✅ B9 T24 + T25 + T26
 - B10 T27 + T28 + T29
 - B11 T31 + T30 🚦
 - B12 T32 + T33 + T34
