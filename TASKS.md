@@ -132,7 +132,7 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
   The 8 numbers + Today / Current / Performance sections from real data; monthly charts; top customers and services; auto refresh 60 s; role-appropriate.
   Done when: each number matches a hand-checked query on seeded data · Ronnie approves.
 
-- [ ] **T31 · Reports framework & export** — S20, S27
+- [x] **T31 · Reports framework & export** — S20, S27
   Report page pattern (filters with Today/Yesterday/Week/Month/Custom, table, totals); Excel export (exceljs) for any report or list; PDF export (table PDF); print; share.
   Done when: one sample report exports correct Excel + PDF.
 
