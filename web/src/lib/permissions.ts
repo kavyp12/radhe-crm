@@ -64,6 +64,7 @@ export const PERMISSIONS = {
   stockItems: { owner: FULL, accountant: FULL, production: ["view"] }, // production: items without any values
   categories: { owner: FULL, accountant: FULL }, // product + expense categories
   openingBalances: { owner: FULL, accountant: FULL }, // D40: they post to the journal
+  jobCosts: { owner: FULL, accountant: FULL }, // T27: manual job cost entries; also need can_view_cost
 } satisfies Record<string, Partial<Record<Role, Action[]>>>;
 
 export type Area = keyof typeof PERMISSIONS;

@@ -11,3 +11,7 @@ export const BUCKET_LABEL: Record<CostBucket, string> = {
   other: "Other",
   none: "None (overhead)",
 };
+
+/** The job P&L buckets (S3, S11), in card order. A "none" category tagged to a job counts as other (D57). */
+export const JOB_COST_BUCKETS = ["material", "labour", "installation", "transport", "printing", "other"] as const;
+export type JobCostBucket = (typeof JOB_COST_BUCKETS)[number];

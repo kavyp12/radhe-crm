@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { type AnyPgColumn, bigint, boolean, check, date, index, integer, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
-import { RECEIPT_MODES } from "../../lib/receipt-modes"; // relative: drizzle-kit does not read tsconfig paths
+import { JOB_COST_BUCKETS } from "../../lib/cost-buckets"; // relative: drizzle-kit does not read tsconfig paths
+import { RECEIPT_MODES } from "../../lib/receipt-modes";
 import { users } from "./auth";
 import { accounts, customers, productCategories } from "./masters";
 import { adjustments } from "./money";
@@ -141,6 +142,34 @@ export const jobStatusHistory = pgTable(
     changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("job_status_history_job_idx").on(t.jobId, t.id)],
+);
+
+/**
+ * Manual internal costs of a job (A§2, A§10, D57), e.g. printing done in-house: management only (can_view_cost), never
+ * posted to the journal. Never deleted: a wrong one is deactivated (audited) and entered again.
+ */
+export const jobCostEntries = pgTable(
+  "job_cost_entries",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    jobId: bigint("job_id", { mode: "number" })
+      .notNull()
+      .references(() => jobs.id),
+    bucket: text("bucket", { enum: JOB_COST_BUCKETS }).notNull(),
+    date: date("date").notNull(),
+    amountPaise: bigint("amount_paise", { mode: "bigint" }).notNull(),
+    note: text("note"),
+    active: boolean("active").notNull().default(true),
+    ...stamps(),
+  },
+  (t) => [
+    index("job_cost_entries_job_idx").on(t.jobId),
+    check("job_cost_entries_amount_positive", sql`${t.amountPaise} > 0`),
+    check(
+      "job_cost_entries_bucket_check",
+      sql`${t.bucket} in ('material', 'labour', 'installation', 'transport', 'printing', 'other')`,
+    ),
+  ],
 );
 
 export const INVOICE_KINDS = ["tax", "estimate"] as const;

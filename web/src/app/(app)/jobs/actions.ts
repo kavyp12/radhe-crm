@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { formAction, type FormState } from "@/lib/action";
-import { requirePermission } from "@/lib/auth";
+import { requireCostPermission, requirePermission } from "@/lib/auth";
+import { addJobCost, deactivateJobCost } from "@/lib/job-costing";
 import {
   cancelJob,
   createJob,
@@ -69,5 +70,25 @@ export async function cancelJobAction(id: number): Promise<FormState> {
   checkId(id);
   const state = await formAction(() => cancelJob(actor, id));
   revalidatePath(`/jobs/${id}`);
+  return state;
+}
+
+/** Manual internal cost on the job's P&L (T27): owner / accountant with can_view_cost (checked again in the lib). */
+export async function addJobCostAction(id: number, _: FormState, form: FormData): Promise<FormState> {
+  const actor = await requireCostPermission("jobCosts", "create");
+  checkId(id);
+  const state = await formAction(() =>
+    addJobCost(actor, id, { bucket: text(form, "bucket"), date: text(form, "date"), amount: text(form, "amount"), note: text(form, "note") }),
+  );
+  revalidatePath(`/jobs/${id}`);
+  return state;
+}
+
+export async function removeJobCostAction(jobId: number, entryId: number): Promise<FormState> {
+  const actor = await requireCostPermission("jobCosts", "cancel");
+  checkId(jobId);
+  checkId(entryId);
+  const state = await formAction(() => deactivateJobCost(actor, entryId));
+  revalidatePath(`/jobs/${jobId}`);
   return state;
 }

@@ -16,6 +16,7 @@ import { users } from "@/db/schema";
 import { canAttach, listAttachments } from "@/lib/attachments";
 import { requirePermission } from "@/lib/auth";
 import { todayIST } from "@/lib/dates";
+import { canEnterJobCost, jobCosting } from "@/lib/job-costing";
 import { getJob, JOB_STATUS, type JobStatus } from "@/lib/jobs";
 import { can } from "@/lib/permissions";
 import { RECEIPT_MODE } from "@/lib/receipt-modes";
@@ -25,6 +26,7 @@ import { ISSUE_KIND, listStockIssues } from "@/lib/stock-issues";
 import { invoiceJobAction } from "../../invoices/actions";
 import { cancelJobAction } from "../actions";
 import { StatusButtons } from "../status-buttons";
+import { JobPnl } from "./job-pnl";
 
 const LABELS = {
   number: "Job no",
@@ -45,7 +47,7 @@ export default async function JobPage({ params }: PageProps<"/jobs/[id]">) {
   const job = Number.isSafeInteger(id) ? await getJob(user, id) : undefined;
   if (!job) notFound();
   const materials = can(user, "stockIssue", "view");
-  const [files, people, [invoice], advances, issues] = await Promise.all([
+  const [files, people, [invoice], advances, issues, pnl] = await Promise.all([
     listAttachments("job", id),
     db.select({ id: users.id, name: users.name }).from(users),
     jobsOnInvoices(db, [id]),
@@ -53,6 +55,8 @@ export default async function JobPage({ params }: PageProps<"/jobs/[id]">) {
     job.money ? jobAdvances(id) : [],
     // Issues / returns (T21): values only for can_view_cost users (the loader strips them).
     materials ? listStockIssues(user, id) : [],
+    // Job P&L (T27): undefined unless the user has can_view_cost and may see the job's money (stripped in the loader).
+    jobCosting(user, id),
   ]);
   const open = job.status !== "invoiced" && job.status !== "cancelled";
   const overdue = open && job.status !== "delivered" && !!job.targetDate && job.targetDate < todayIST();
@@ -141,6 +145,7 @@ export default async function JobPage({ params }: PageProps<"/jobs/[id]">) {
             ]}
           />
           <DocLines lines={job.lines} totals={priced?.totals} mode={priced?.mode} />
+          {pnl && <JobPnl jobId={id} card={pnl} canEnter={canEnterJobCost(user) && job.status !== "cancelled"} />}
           {advances.length > 0 && (
             <section className="overflow-x-auto rounded-lg border bg-card">
               <h2 className="border-b px-4 py-3 text-sm font-medium">
