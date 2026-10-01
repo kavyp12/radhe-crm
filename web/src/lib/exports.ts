@@ -16,6 +16,7 @@ import {
   stockValuationReport,
   vendorLedgerReport,
 } from "@/lib/reports-books";
+import { gstReport, jobProfitReport, productReport, profitReport } from "@/lib/reports-profit";
 import {
   advanceReport,
   collectionPersonReport,
@@ -47,6 +48,10 @@ export const REPORTS: Record<string, (user: SessionUser, q: ReportQuery) => Prom
   "cash-book": cashBookReport,
   "bank-book": bankBookReport,
   "stock-valuation": stockValuationReport,
+  profit: profitReport,
+  "job-profit": jobProfitReport,
+  "product-sales": productReport,
+  "gst-summary": gstReport,
 };
 /** The loader of /reports/<name>, or undefined (own keys only: "constructor" is not a report). */
 export const reportLoader = (name: string) => (Object.hasOwn(REPORTS, name) ? REPORTS[name] : undefined);

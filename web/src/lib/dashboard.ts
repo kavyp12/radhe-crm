@@ -149,6 +149,7 @@ export async function loadDashboard(user: SessionUser, today = todayIST()): Prom
     expense: go("/expenses", "books"),
     cashBank: go("/cash-bank", "books"),
     payable: go("/vendors", "vendors"),
+    profit: cost ? "/reports/profit?period=month" : undefined, // the P&L report has both figures
   };
 
   // Each figure with who may see it: "sales" = everyone here, "all" = owner / accountant, "cost" = + can_view_cost.
@@ -176,7 +177,7 @@ export async function loadDashboard(user: SessionUser, today = todayIST()): Prom
       stat("sales", "outstanding", "Outstanding", () => ar.receivable, links.outstanding),
       stat("all", "purchase", "Purchase", () => m("purchase"), links.purchase),
       stat("all", "expense", "Expense", () => m("expense"), links.expense),
-      stat("cost", "profit", "Profit", () => pnl!.profit),
+      stat("cost", "profit", "Profit", () => pnl!.profit, links.profit),
       stat("all", "cash", "Cash", () => money!.cash, links.cashBank),
       stat("all", "bank", "Bank", () => money!.bank, links.cashBank),
     ]),
@@ -196,7 +197,7 @@ export async function loadDashboard(user: SessionUser, today = todayIST()): Prom
       stat("sales", "monthlySales", "Monthly sales", () => m("sales"), links.sales("month")),
       stat("all", "monthlyCollection", "Monthly collection", () => m("collection"), links.collection("month")),
       stat("all", "monthlyExpense", "Monthly expense", () => m("expense"), links.expense),
-      stat("cost", "grossProfit", "Gross profit", () => m("sales") - pnl!.jobCosts),
+      stat("cost", "grossProfit", "Gross profit", () => m("sales") - pnl!.jobCosts, links.profit),
       stat("sales", "performanceOutstanding", "Outstanding", () => ar.receivable, links.outstanding),
       stat("sales", "advances", "Advances received", () => ar.advances, links.outstanding),
     ]),

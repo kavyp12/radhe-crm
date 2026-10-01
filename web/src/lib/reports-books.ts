@@ -12,7 +12,7 @@ import { RECEIPT_MODE, type ReceiptMode } from "@/lib/receipt-modes";
 import type { ReportColumn, ReportRow, ReportTable } from "@/lib/report";
 import { inRange, moneyCol, party, pick, pickFilters, REPORT_PERIODS, reportRange, rollUp, type ReportQuery, type ReportResult } from "@/lib/reports";
 import { companyState } from "@/lib/sales";
-import { entryLabel, rangeText } from "@/lib/statements";
+import { entryLabel, rangeText, type Range } from "@/lib/statements";
 
 // Reports B (S20 #4, 5, 6, 7, 14, 15, 16; A§13): customer / vendor ledgers, purchase, expense, cash book, bank book and
 // stock valuation — all read from the journal, the purchase / expense documents or the stock moves. Owner / accountant
@@ -164,13 +164,11 @@ const PURCHASE_VIEWS: [string, string][] = [
 ];
 
 /**
- * S20 #6: the active lines of active purchase bills dated in the period — qty × rate = taxable, GST per line in the
- * bill's mode (as billTotals; round-off left out) — or by vendor / item / category / job. can_view_cost only (D51).
+ * The active lines of active purchase bills dated in the range: qty × rate = taxable, GST per line in the bill's mode
+ * (as billTotals; the round-off left out). The Purchase report's rows and the GST summary's input side.
  */
-export async function purchaseReport(user: SessionUser, q: ReportQuery, now = new Date()): Promise<ReportResult | null> {
-  if (!can(user, "reports", "view") || !canViewCost(user)) return null;
-  const { period, range, error } = reportRange(q);
-  const [state, rows, vendorList, categories] = await Promise.all([
+export async function purchaseLines(range: Range) {
+  const [state, rows] = await Promise.all([
     companyState(db),
     db.execute<{
       bill_id: string; number: string; vendor_bill_no: string; date: string; vendor_state_code: string; vendor_id: string; vendor: string;
@@ -188,6 +186,25 @@ export async function purchaseReport(user: SessionUser, q: ReportQuery, now = ne
       left join jobs j on j.id = l.job_id
       where b.status = 'active' and l.active and ${inRange(sql.raw("b.date"), range)}
       order by b.date, b.number, l.position`),
+  ]);
+  return rows.map((r) => {
+    const qty = BigInt(r.qty_milli);
+    const rate = BigInt(r.rate_paise);
+    const taxable = taxableOf({ qtyMilli: qty, ratePaise: rate });
+    const gst = gstOn(taxable, r.gst_bp, gstMode(r.vendor_state_code, state));
+    return { ...r, qty, rate, taxable, ...gst, total: taxable + gst.cgst + gst.sgst + gst.igst, what: r.item ?? r.category };
+  });
+}
+
+/**
+ * S20 #6: the purchase lines dated in the period (purchaseLines), or by vendor / item / category / job.
+ * can_view_cost only (D51).
+ */
+export async function purchaseReport(user: SessionUser, q: ReportQuery, now = new Date()): Promise<ReportResult | null> {
+  if (!can(user, "reports", "view") || !canViewCost(user)) return null;
+  const { period, range, error } = reportRange(q);
+  const [rows, vendorList, categories] = await Promise.all([
+    purchaseLines(range),
     db.select({ id: vendors.id, name: vendors.name }).from(vendors).orderBy(asc(vendors.name)),
     db.select({ id: expenseCategories.id, name: expenseCategories.name }).from(expenseCategories).orderBy(asc(expenseCategories.name)),
   ]);
@@ -197,15 +214,7 @@ export async function purchaseReport(user: SessionUser, q: ReportQuery, now = ne
     pick("category", "Category", categories.map((c): [string, string] => [String(c.id), c.name]), q),
   ];
   const [view, vendor, category] = picks.map((p) => p.value);
-  const lines = rows
-    .filter((r) => (!vendor || r.vendor_id === vendor) && (!category || r.category_id === category))
-    .map((r) => {
-      const qty = BigInt(r.qty_milli);
-      const rate = BigInt(r.rate_paise);
-      const taxable = taxableOf({ qtyMilli: qty, ratePaise: rate });
-      const gst = gstOn(taxable, r.gst_bp, gstMode(r.vendor_state_code, state));
-      return { ...r, qty, rate, taxable, ...gst, total: taxable + gst.cgst + gst.sgst + gst.igst, what: r.item ?? r.category };
-    });
+  const lines = rows.filter((r) => (!vendor || r.vendor_id === vendor) && (!category || r.category_id === category));
   const figures = (l: (typeof lines)[number]) => ({ taxable: l.taxable, cgst: l.cgst, sgst: l.sgst, igst: l.igst, total: l.total });
   const named = (key: string, label: string, keyOf: (l: (typeof lines)[number]) => string, labelOf: (l: (typeof lines)[number]) => ReportRow): ReportTable => ({
     columns: [{ key, label }, ...GST_MONEY],
