@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { db } from "@/db";
 import { attachments, creditNotes, debitNotes, invoices, purchaseOrders, quotations } from "@/db/schema";
 import { getCustomer } from "@/lib/customers";
-import { formatDate, todayIST } from "@/lib/dates";
+import { formatDate, formatDateTime, todayIST } from "@/lib/dates";
 import { stateName } from "@/lib/gstin";
 import { lineTotals, sizeText } from "@/lib/lines";
 import { getNote, NOTE_KIND, type NoteKind } from "@/lib/notes";
@@ -13,6 +13,7 @@ import { amountInWords, bpText, formatMoney, milliText, noteTotals, type GstMode
 import { getInvoice, INVOICE_KIND } from "@/lib/invoices";
 import { getOrder } from "@/lib/purchase-orders";
 import { getQuotation } from "@/lib/quotations";
+import { columnTotal, hasTotals, isNumeric, type Report, type ReportColumn } from "@/lib/report";
 import { getSettings } from "@/lib/settings";
 import { customerLedger, drCr, entryLabel, rangeText, statementLink, vendorLedger, withoutReversed, type Range } from "@/lib/statements";
 import { storage } from "@/lib/storage";
@@ -428,6 +429,59 @@ async function renderStatement(d: {
             ? `Balance: Dr = due to ${b.company}, Cr = in the customer's favour.`
             : `Balance: Cr = due to the vendor from ${b.company}, Dr = in ${b.company}'s favour.`}
         </Text>
+      </Page>
+    </Document>,
+  );
+}
+
+/**
+ * A report or list as an A4 table (S20, S27, D59): letterhead with the report's name, filters and generated-at, then
+ * each table (its header repeats on every page it runs onto), a totals row, page numbers. Landscape when wide.
+ */
+export async function reportPdf(report: Report): Promise<Buffer> {
+  const b = await brand();
+  const landscape = Math.max(...report.tables.map((t) => t.columns.length)) > 7;
+  const width = (c: ReportColumn) =>
+    c.type === "money" ? { width: 80 } : c.type === "date" ? { width: 58 } : c.type === "number" ? { width: 50 } : { flex: 1 };
+  const cellText = (c: ReportColumn, v: unknown) =>
+    v === null || v === undefined ? "" : c.type === "money" ? formatMoney(v as bigint) : c.type === "date" ? formatDate(v as string) : String(v);
+  const generated = `Generated ${formatDateTime(report.generatedAt)}`;
+  return renderToBuffer(
+    <Document title={report.title} author={b.company}>
+      <Page size="A4" orientation={landscape ? "landscape" : "portrait"} style={s.page}>
+        <PageChrome footer={`${report.title} · ${generated}`} />
+        <Letterhead b={b} title={report.title} facts={[...report.filters, generated]} />
+        {report.tables.map((t, ti) => (
+          <View key={ti} style={{ marginBottom: 14 }}>
+            {t.title && <Text style={[s.bold, { fontSize: 10, marginBottom: 4 }]}>{t.title}</Text>}
+            <View style={[s.row, s.th]} fixed>
+              {t.columns.map((c) => (
+                <Text key={c.key} style={[s.cell, width(c), isNumeric(c) ? s.num : {}]}>
+                  {c.label}
+                </Text>
+              ))}
+            </View>
+            {t.rows.map((r, i) => (
+              <View key={i} style={[s.row, s.td]} wrap={false}>
+                {t.columns.map((c) => (
+                  <Text key={c.key} style={[s.cell, width(c), isNumeric(c) ? s.num : {}]}>
+                    {cellText(c, r[c.key])}
+                  </Text>
+                ))}
+              </View>
+            ))}
+            {t.rows.length === 0 && <Text style={[s.cell, s.muted]}>Nothing in this period.</Text>}
+            {hasTotals(t) && (
+              <View style={[s.row, s.td, s.bold, { backgroundColor: "#fafafa" }]} wrap={false}>
+                {t.columns.map((c, i) => (
+                  <Text key={c.key} style={[s.cell, width(c), isNumeric(c) ? s.num : {}]}>
+                    {c.total ? formatMoney(columnTotal(t, c.key)) : i === 0 ? `Total (${t.rows.length})` : ""}
+                  </Text>
+                ))}
+              </View>
+            )}
+          </View>
+        ))}
       </Page>
     </Document>,
   );

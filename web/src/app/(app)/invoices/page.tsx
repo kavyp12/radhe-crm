@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
+import { ExportExcelButton } from "@/components/report-actions";
 import { Button } from "@/components/ui/button";
 import { requirePermission } from "@/lib/auth";
 import { INVOICE_KIND, INVOICE_STATUS, listInvoices } from "@/lib/invoices";
@@ -22,14 +23,17 @@ export default async function InvoicesPage() {
         title="Invoices"
         description="Tax invoices and estimates. Payment status comes from the receipts allocated to them."
         action={
-          create && (
-            <div className="flex gap-2">
-              <Button asChild variant="outline">
-                <Link href="/invoices/new/from">Bill jobs</Link>
-              </Button>
-              {newButton}
-            </div>
-          )
+          <div className="flex gap-2">
+            <ExportExcelButton name="invoices" />
+            {create && (
+              <>
+                <Button asChild variant="outline">
+                  <Link href="/invoices/new/from">Bill jobs</Link>
+                </Button>
+                {newButton}
+              </>
+            )}
+          </div>
         }
       />
       <InvoicesTable

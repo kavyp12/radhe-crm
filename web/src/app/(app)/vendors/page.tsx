@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
+import { ExportExcelButton } from "@/components/report-actions";
 import { Button } from "@/components/ui/button";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
@@ -17,7 +18,13 @@ export default async function VendorsPage() {
 
   return (
     <div className="grid grid-cols-1 gap-5">
-      <PageHeader title="Vendors" description="Suppliers. We owe = what we still have to pay each one, from the books." action={newButton} />
+      <PageHeader title="Vendors" description="Suppliers. We owe = what we still have to pay each one, from the books." action={
+          <div className="flex gap-2">
+            <ExportExcelButton name="vendors" />
+            {newButton}
+          </div>
+        }
+      />
       <VendorsTable rows={rows.map((r) => ({ ...r, mobile: r.mobile ?? "", gstin: r.gstin ?? "" }))} newButton={newButton} />
     </div>
   );

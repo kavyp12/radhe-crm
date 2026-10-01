@@ -7,6 +7,7 @@ const nextConfig: NextConfig = {
     "/share/**": ["./src/assets/fonts/*.ttf"],
     "/quotations/**": ["./src/assets/fonts/*.ttf"],
     "/invoices/**": ["./src/assets/fonts/*.ttf"],
+    "/export/**": ["./src/assets/fonts/*.ttf"],
   },
 };
 

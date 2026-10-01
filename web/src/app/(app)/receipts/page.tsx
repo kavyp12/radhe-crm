@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
+import { ExportExcelButton } from "@/components/report-actions";
 import { Button } from "@/components/ui/button";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
@@ -21,7 +22,12 @@ export default async function ReceiptsPage() {
       <PageHeader
         title="Receipts"
         description="Money received from customers, and the invoices it paid. What isn't allocated is on account."
-        action={newButton}
+        action={
+          <div className="flex gap-2">
+            <ExportExcelButton name="receipts" />
+            {newButton}
+          </div>
+        }
       />
       <ReceiptsTable
         rows={rows.map((r) => ({

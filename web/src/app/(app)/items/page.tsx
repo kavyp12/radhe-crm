@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
+import { ExportExcelButton } from "@/components/report-actions";
 import { Button } from "@/components/ui/button";
 import { requirePermission } from "@/lib/auth";
 import { can, canViewCost } from "@/lib/permissions";
@@ -23,6 +24,7 @@ export default async function ItemsPage() {
         description={cost ? "Stock items: what is in stock, at weighted average cost." : "Stock items and what is in stock."}
         action={
           <div className="flex gap-2">
+            <ExportExcelButton name="items" />
             {can(user, "stockAdjustment") && (
               <Button asChild variant="outline">
                 <Link href="/stock-adjustments">Adjustments</Link>

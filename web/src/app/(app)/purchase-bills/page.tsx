@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
+import { ExportExcelButton } from "@/components/report-actions";
 import { Button } from "@/components/ui/button";
 import { requireCostPermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
@@ -17,7 +18,13 @@ export default async function PurchaseBillsPage() {
 
   return (
     <div className="grid grid-cols-1 gap-5">
-      <PageHeader title="Purchase bills" description="Vendors' bills: material into stock, expenses to their category (and job)." action={newButton} />
+      <PageHeader title="Purchase bills" description="Vendors' bills: material into stock, expenses to their category (and job)." action={
+          <div className="flex gap-2">
+            <ExportExcelButton name="purchase-bills" />
+            {newButton}
+          </div>
+        }
+      />
       <BillsTable
         rows={rows.map((r) => ({ ...r, status: r.payment }))}
         newButton={newButton}

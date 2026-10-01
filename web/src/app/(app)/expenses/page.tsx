@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
+import { ExportExcelButton } from "@/components/report-actions";
 import { Button } from "@/components/ui/button";
 import { requirePermission } from "@/lib/auth";
 import { listExpenses } from "@/lib/expenses";
@@ -17,7 +18,13 @@ export default async function ExpensesPage() {
 
   return (
     <div className="grid grid-cols-1 gap-5">
-      <PageHeader title="Expenses" description="Day-to-day spending, by category; tagged to a job when it is for one." action={newButton} />
+      <PageHeader title="Expenses" description="Day-to-day spending, by category; tagged to a job when it is for one." action={
+          <div className="flex gap-2">
+            <ExportExcelButton name="expenses" />
+            {newButton}
+          </div>
+        }
+      />
       <ExpensesTable
         rows={rows.map((r) => ({
           id: r.id,

@@ -48,6 +48,12 @@ export function formatMoney(paise: bigint): string {
   return INR.format(moneyText(paise) as Intl.StringNumericLiteral);
 }
 
+/**
+ * Paise → rupees as a JS number, for Excel cells ONLY (D59): Excel needs numbers, so this is the one float in the app —
+ * display, never maths. Read from the exact decimal text, so 123450n → 1234.5 exactly as Excel would type it.
+ */
+export const excelRupees = (paise: bigint): number => Number(moneyText(paise));
+
 /** same_state → CGST + SGST · other_state → IGST · estimate → no GST (D18). */
 export type GstMode = "same_state" | "other_state" | "estimate";
 /** qty in thousandths · rate and discount in paise · gstBp in basis points. */
