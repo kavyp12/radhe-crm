@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
@@ -13,12 +14,13 @@ import { DocNumber, StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { db } from "@/db";
-import { users } from "@/db/schema";
+import { followUps, users } from "@/db/schema";
 import { onAccountSources } from "@/lib/allocations";
 import { listAttachments } from "@/lib/attachments";
 import { requirePermission } from "@/lib/auth";
 import { customerAdvance, customerHistory, type Chain } from "@/lib/customer-history";
 import { customerOverview, getCustomer } from "@/lib/customers";
+import { listFollowUps } from "@/lib/follow-ups";
 import { stateName } from "@/lib/gstin";
 import { formatMoney } from "@/lib/num";
 import { can, type SessionUser } from "@/lib/permissions";
@@ -178,7 +180,8 @@ export default async function CustomerPage({ params, searchParams }: PageProps<"
 
   const canApply = can(user, "payments", "create");
   const canAdjust = can(user, "books", "create"); // write-off / discount / refund (T24, D55)
-  const [overview, advance, files, people, chains, ledger, settings, sources] = await Promise.all([
+  const followUpsOn = can(user, "followUps", "view");
+  const [overview, advance, files, people, chains, ledger, settings, sources, calls] = await Promise.all([
     customerOverview(id),
     customerAdvance(id),
     listAttachments("customer", id),
@@ -187,6 +190,7 @@ export default async function CustomerPage({ params, searchParams }: PageProps<"
     money ? customerLedger(id, range) : null,
     getSettings(),
     canApply || canAdjust ? onAccountSources(db, id) : [],
+    followUpsOn ? listFollowUps(eq(followUps.customerId, id)) : [],
   ]);
   const personName = (v: unknown) => people.find((p) => p.id === v)?.name ?? String(v);
   const tiles = [
@@ -200,7 +204,7 @@ export default async function CustomerPage({ params, searchParams }: PageProps<"
       note: advance.onJobs ? `${formatMoney(advance.onJobs)} of it on jobs` : undefined,
     },
   ];
-  const tab = ["history", "ledger", "attachments", "changes"].includes(text("tab")) ? text("tab") : "overview";
+  const tab = ["history", "ledger", "follow-ups", "attachments", "changes"].includes(text("tab")) ? text("tab") : "overview";
   const rangeQuery = new URLSearchParams({ period, from: text("from"), to: text("to") }).toString();
 
   return (
@@ -214,6 +218,11 @@ export default async function CustomerPage({ params, searchParams }: PageProps<"
             {can(user, "payments", "create") && c.active && (
               <Button asChild variant="outline">
                 <Link href={`/receipts/new?customer=${id}`}>New receipt</Link>
+              </Button>
+            )}
+            {can(user, "followUps", "create") && c.active && (
+              <Button asChild variant="outline">
+                <Link href={`/follow-ups/new?customer=${id}&from=customer`}>Log follow-up</Link>
               </Button>
             )}
             {canAdjust && (
@@ -239,6 +248,7 @@ export default async function CustomerPage({ params, searchParams }: PageProps<"
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="history">History ({chains.length})</TabsTrigger>
           {money && <TabsTrigger value="ledger">Ledger</TabsTrigger>}
+          {followUpsOn && <TabsTrigger value="follow-ups">Follow-ups ({calls.length})</TabsTrigger>}
           <TabsTrigger value="attachments">Attachments ({files.length})</TabsTrigger>
           <TabsTrigger value="changes">Changes</TabsTrigger>
         </TabsList>
@@ -413,6 +423,48 @@ export default async function CustomerPage({ params, searchParams }: PageProps<"
                 </tbody>
               </table>
             </div>
+          </TabsContent>
+        )}
+
+        {followUpsOn && (
+          <TabsContent value="follow-ups">
+            {calls.length === 0 ? (
+              <EmptyState title="No follow-ups yet." />
+            ) : (
+              <div className="overflow-x-auto rounded-lg border bg-card">
+                <table className="w-full min-w-160 text-[13px]">
+                  <thead>
+                    <tr>
+                      {["Date", "By", "Invoice", "Response", "Promise", "Next reminder"].map((h) => (
+                        <th key={h} className={th}>
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {calls.map((f) => (
+                      <tr key={f.id}>
+                        <td className={td}>
+                          <DateText date={f.followUpDate} />
+                        </td>
+                        <td className={td}>{f.person}</td>
+                        <td className={td}>{f.invoice}</td>
+                        <td className="border-b px-3 py-2">{f.response}</td>
+                        <td className={td}>
+                          {f.promiseDate && (
+                            <>
+                              <Money paise={f.expected!} /> by <DateText date={f.promiseDate} /> · {f.promise}
+                            </>
+                          )}
+                        </td>
+                        <td className={td}>{f.nextReminderDate && <DateText date={f.nextReminderDate} />}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </TabsContent>
         )}
 

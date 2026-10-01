@@ -17,6 +17,7 @@ import { quotationInvoice } from "@/lib/sales";
 import { invoiceQuotationAction } from "../../invoices/actions";
 import { requirePermission } from "@/lib/auth";
 import { stateName } from "@/lib/gstin";
+import { creditWarning } from "@/lib/invoices";
 import { can } from "@/lib/permissions";
 import { getQuotation, QUOTATION_STATUS, type QuotationStatus } from "@/lib/quotations";
 import { getSettings } from "@/lib/settings";
@@ -45,12 +46,14 @@ export default async function QuotationPage({ params }: PageProps<"/quotations/[
   const id = Number((await params).id);
   const q = Number.isSafeInteger(id) ? await getQuotation(id) : undefined;
   if (!q) notFound();
-  const [files, settings, names, job, invoice] = await Promise.all([
+  const [files, settings, names, job, invoice, warning] = await Promise.all([
     listAttachments("quotation", id),
     getSettings(),
     db.select({ id: customers.id, name: customers.name }).from(customers),
     liveJobFor(db, id),
     quotationInvoice(db, id),
+    // S25: warn (never block) before Send, like a draft invoice.
+    q.status === "draft" && can(user, "quotations", "edit") ? creditWarning(q.customerId, q.totalPaise) : null,
   ]);
   const c = q.customer;
   const edit = can(user, "quotations", "edit");
@@ -136,6 +139,12 @@ export default async function QuotationPage({ params }: PageProps<"/quotations/[
           />
         )}
       </div>
+
+      {warning && (
+        <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {warning}
+        </p>
+      )}
 
       <Tabs defaultValue="details" className="gap-4">
         <TabsList variant="line">

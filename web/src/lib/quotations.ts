@@ -5,6 +5,7 @@ import { customers, productCategories, quotationLines, quotations, type QUOTATIO
 import { formText, UserError } from "@/lib/action";
 import { registerExecutor, runOrRequest } from "@/lib/approvals";
 import { todayIST } from "@/lib/dates";
+import { creditWarning } from "@/lib/invoices";
 import { liveJobFor } from "@/lib/jobs";
 import { checkBooksDate } from "@/lib/ledger";
 import { gstMode, lineTotals } from "@/lib/lines";
@@ -149,7 +150,8 @@ export async function sendQuotation(actor: SessionUser, id: number): Promise<{ m
   } else {
     await writeTx(actor, (tx) => markSent(tx, payload));
   }
-  return { message: "Marked as sent." };
+  // Warn, never block (S25), like invoice Issue.
+  return { message: ["Marked as sent.", await creditWarning(q.customerId, q.totalPaise)].filter(Boolean).join(" ") };
 }
 
 /** Sent → Approved: the customer said yes. */

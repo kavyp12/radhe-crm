@@ -18,7 +18,7 @@ import {
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { navFor, navItemFor, newMenuFor, SIDEBAR_COOKIE, type NavCount, type NavItem } from "@/lib/nav";
-import { can, ROLE_LABEL, type SessionUser } from "@/lib/permissions";
+import { ROLE_LABEL, type SessionUser } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 
 export type ShellCounts = Record<NavCount | "alerts", number>;
@@ -287,13 +287,13 @@ function TopBar({ user, alerts, collapsed, onToggle, onMenu }: TopBarProps) {
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-        {/* Pending approvals for the owner; the other alerts arrive in T29. */}
+        {/* T29: every alert this user may see (/alerts). */}
         <Button
           variant="ghost"
           size="icon-sm"
           className="relative text-muted-foreground"
           aria-label={`Alerts (${alerts})`}
-          onClick={() => (can(user, "approvals") ? router.push("/approvals") : toast("Alerts are coming soon."))}
+          onClick={() => router.push("/alerts")}
         >
           <Bell />
           {alerts > 0 && (

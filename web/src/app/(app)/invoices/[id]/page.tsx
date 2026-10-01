@@ -95,6 +95,11 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
             <Link href={`/receipts/new?customer=${inv.customerId}&invoice=${id}`}>Record payment</Link>
           </Button>
         )}
+        {inv.status === "issued" && inv.open > 0n && can(user, "followUps", "create") && (
+          <Button asChild variant="outline">
+            <Link href={`/follow-ups/new?invoice=${id}&from=invoice`}>Log follow-up</Link>
+          </Button>
+        )}
         {inv.status === "issued" && can(user, "invoices", "create") && (
           <>
             <Button asChild variant="outline">

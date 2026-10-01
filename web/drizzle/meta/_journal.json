@@ -337,6 +337,20 @@
       "when": 1790837253963,
       "tag": "0047_job_cost_entries_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1790838098650,
+      "tag": "0048_follow_ups",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1790838099979,
+      "tag": "0049_follow_ups_audit",
+      "breakpoints": true
     }
   ]
 }

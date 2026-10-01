@@ -16,6 +16,7 @@ import { users } from "@/db/schema";
 import { canAttach, listAttachments } from "@/lib/attachments";
 import { requirePermission } from "@/lib/auth";
 import { todayIST } from "@/lib/dates";
+import { creditWarning } from "@/lib/invoices";
 import { canEnterJobCost, jobCosting } from "@/lib/job-costing";
 import { getJob, JOB_STATUS, type JobStatus } from "@/lib/jobs";
 import { can } from "@/lib/permissions";
@@ -47,7 +48,8 @@ export default async function JobPage({ params }: PageProps<"/jobs/[id]">) {
   const job = Number.isSafeInteger(id) ? await getJob(user, id) : undefined;
   if (!job) notFound();
   const materials = can(user, "stockIssue", "view");
-  const [files, people, [invoice], advances, issues, pnl] = await Promise.all([
+  const open = job.status !== "invoiced" && job.status !== "cancelled";
+  const [files, people, [invoice], advances, issues, pnl, warning] = await Promise.all([
     listAttachments("job", id),
     db.select({ id: users.id, name: users.name }).from(users),
     jobsOnInvoices(db, [id]),
@@ -57,8 +59,9 @@ export default async function JobPage({ params }: PageProps<"/jobs/[id]">) {
     materials ? listStockIssues(user, id) : [],
     // Job P&L (T27): undefined unless the user has can_view_cost and may see the job's money (stripped in the loader).
     jobCosting(user, id),
+    // S25: credit limit with this job added — a warning from job create until it's invoiced (never a block).
+    open && job.money ? creditWarning(job.customerId, job.totals.total) : null,
   ]);
-  const open = job.status !== "invoiced" && job.status !== "cancelled";
   const overdue = open && job.status !== "delivered" && !!job.targetDate && job.targetDate < todayIST();
   // Money only reaches this page for users who may see it (getJob leaves it out otherwise).
   const priced = job.money ? job : null;
@@ -103,6 +106,12 @@ export default async function JobPage({ params }: PageProps<"/jobs/[id]">) {
           />
         )}
       </div>
+
+      {warning && (
+        <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {warning}
+        </p>
+      )}
 
       <Tabs defaultValue="details" className="gap-4">
         <TabsList variant="line">

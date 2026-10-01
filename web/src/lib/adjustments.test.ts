@@ -269,7 +269,7 @@ test("cancel reverses the JV on its own date and the invoice's open amount comes
   expect((await cancelAdjustment(owner, id!, "Discount not agreed")).message).toMatch(/^Cancelled JV\/26-27\/\d{4}; its entry is reversed\.$/);
   expect(await open(c, inv)).toBe(900_00n);
   expect(await posted(id!)).toEqual({ discount_allowed: 0n, ar: 0n });
-  const trail = await db.select().from(journalEntries).where(and(eq(journalEntries.docType, "adjustments"), eq(journalEntries.docId, id!)));
+  const trail = await db.select().from(journalEntries).where(and(eq(journalEntries.docType, "adjustments"), eq(journalEntries.docId, id!))).orderBy(asc(journalEntries.id));
   expect(trail.map((e) => [e.date, e.reversesEntryId !== null])).toEqual([[today, false], [today, true]]);
   const got = (await getAdjustment(id!))!;
   expect(got.status).toBe("cancelled");

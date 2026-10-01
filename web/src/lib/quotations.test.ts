@@ -138,6 +138,11 @@ test("status rules: Draft → Sent → Approved; only Draft / Sent editable; edi
   expect(await status()).toBe("draft");
   expect((await getQuotation(id))!.lines).toHaveLength(1);
 
+  // S25 (T29): over the credit limit (₹200 + 18% GST) → Send still works, with a warning.
+  const tight = await createCustomer(owner, customer({ name: "Tight Limit Signs", creditLimit: "100" }));
+  const over = await createQuotation(owner, input(tight, [line({ rate: "200" })]));
+  expect((await sendQuotation(owner, over)).message).toBe("Marked as sent. Over the credit limit: ₹0.00 due + ₹236.00 = ₹236.00, limit ₹100.00.");
+
   await sendQuotation(owner, id);
   await expect(sendQuotation(owner, id)).rejects.toThrow("Only a draft");
   await approveQuotation(owner, id);

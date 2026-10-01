@@ -379,3 +379,34 @@ export const allocations = pgTable(
     ),
   ],
 );
+
+/**
+ * Payment follow-ups (S8, A§2): who followed up when, what the customer said, the promise to pay (date + expected
+ * amount, both or neither) and the next reminder. A log: never changed or deleted — the next follow-up for the
+ * customer takes over the reminder. Promise status is computed from receipts (D57), never stored. Audited.
+ */
+export const followUps = pgTable(
+  "follow_ups",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    customerId: bigint("customer_id", { mode: "number" })
+      .notNull()
+      .references(() => customers.id),
+    invoiceId: bigint("invoice_id", { mode: "number" }).references(() => invoices.id),
+    followUpDate: date("follow_up_date").notNull(),
+    personId: text("person_id")
+      .notNull()
+      .references(() => users.id),
+    response: text("response"),
+    promiseDate: date("promise_date"),
+    expectedPaise: bigint("expected_paise", { mode: "bigint" }),
+    nextReminderDate: date("next_reminder_date"),
+    ...stamps(),
+  },
+  (t) => [
+    index("follow_ups_customer_idx").on(t.customerId, t.id),
+    index("follow_ups_person_idx").on(t.personId),
+    check("follow_ups_expected_positive", sql`${t.expectedPaise} is null or ${t.expectedPaise} > 0`),
+    check("follow_ups_promise_pair", sql`(${t.promiseDate} is null) = (${t.expectedPaise} is null)`),
+  ],
+);

@@ -73,11 +73,18 @@ export default async function OutstandingPage({ searchParams }: PageProps<"/outs
           title={customer.name}
           description={asOf}
           action={
-            can(user, "customers", "view") ? (
-              <Button asChild variant="outline">
-                <Link href={`/customers/${id}`}>Customer page</Link>
-              </Button>
-            ) : undefined
+            <div className="flex flex-wrap gap-2">
+              {can(user, "followUps", "create") && (
+                <Button asChild variant="outline">
+                  <Link href={`/follow-ups/new?customer=${id}&from=outstanding`}>Log follow-up</Link>
+                </Button>
+              )}
+              {can(user, "customers", "view") && (
+                <Button asChild variant="outline">
+                  <Link href={`/customers/${id}`}>Customer page</Link>
+                </Button>
+              )}
+            </div>
           }
         />
         <Summary totals={totals} />
