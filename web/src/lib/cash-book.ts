@@ -11,17 +11,18 @@ import { readDate } from "@/lib/sales";
 
 // Daily cash book (S14, D55): one day of the Cash account (Petty Cash selectable), from the journal — opening (the
 // balance before the day), the day's lines grouped by document type, closing. Groups: received (receipts), expense
-// (expenses), purchase (vendor payments), deposited in bank (transfers out to a bank / UPI account), other (transfers in,
-// JVs, count differences, anything else). A cash count stores what was counted; its difference from the book closing
+// (expenses), purchase (vendor payments), refunds (customer refund JVs, D56), deposited in bank (transfers out to a bank /
+// UPI account), other (transfers in, other JVs, count differences, anything else). A cash count stores what was counted; its difference from the book closing
 // posts to cash_short_excess (A§3) only when asked — the owner at once, anyone else through approval.
 
 export const CASH_BOOK_KEYS = ["cash", "petty_cash"] as const;
-export const CASH_BOOK_GROUPS = ["received", "expense", "purchase", "deposited", "other"] as const;
+export const CASH_BOOK_GROUPS = ["received", "expense", "purchase", "refunds", "deposited", "other"] as const;
 export type CashBookGroup = (typeof CASH_BOOK_GROUPS)[number];
 export const GROUP_LABEL: Record<CashBookGroup, string> = {
   received: "Cash received",
   expense: "Cash expense",
   purchase: "Cash purchase (vendor payments)",
+  refunds: "Refunds (to customers)",
   deposited: "Deposited in bank",
   other: "Other (transfers in, JVs, count differences)",
 };
@@ -49,10 +50,11 @@ async function balances(q: Tx | typeof db, accountId: number, date: string) {
 }
 
 /** A transfer line is a deposit when it moves money out of this account into a bank / UPI (its reversal: back in). */
-function groupOf(line: { docType: string; debit: bigint; credit: bigint; reversal: boolean; counter: string | null }): CashBookGroup {
+function groupOf(line: { docType: string; debit: bigint; credit: bigint; reversal: boolean; counter: string | null; refund: boolean }): CashBookGroup {
   if (line.docType === "receipts") return "received";
   if (line.docType === "expenses") return "expense";
   if (line.docType === "vendor_payments") return "purchase";
+  if (line.refund) return "refunds";
   const out = line.reversal ? line.debit > 0n : line.credit > 0n;
   if (line.docType === "transfers" && out && BANKS.includes(line.counter ?? "")) return "deposited";
   return "other";
@@ -71,11 +73,13 @@ export async function cashBook(accountId: number, date: string) {
     debit: string;
     credit: string;
     counter: string | null;
+    refund: boolean;
   }>(sql`
     select e.id as entry_id, e.number, e.doc_type, e.doc_id, e.narration, e.reverses_entry_id,
       l.debit_paise as debit, l.credit_paise as credit,
       (select a.system_key from journal_lines o join accounts a on a.id = o.account_id
-        where o.entry_id = e.id and o.id <> l.id order by o.id limit 1) as counter
+        where o.entry_id = e.id and o.id <> l.id order by o.id limit 1) as counter,
+      exists (select 1 from adjustments a where e.doc_type = 'adjustments' and a.id = e.doc_id and a.kind = 'refund') as refund
     from journal_lines l
     join journal_entries e on e.id = l.entry_id
     where l.account_id = ${accountId} and e.date = ${date}
@@ -93,6 +97,7 @@ export async function cashBook(accountId: number, date: string) {
       credit: BigInt(r.credit),
       reversal: r.reverses_entry_id !== null,
       counter: r.counter,
+      refund: r.refund,
     };
     const group = groups.find((g) => g.key === groupOf(line))!;
     const amount = line.debit - line.credit;

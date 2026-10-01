@@ -54,7 +54,7 @@ test("the day's groups add up to the journal movement on the Cash account; each 
   const move = (from: string, to: string, amount: string) =>
     createTransfer(owner, { date: formatDate(DAY), fromAccountId: String(ids[from]), toAccountId: String(ids[to]), amount, reference: "", notes: "" });
 
-  await createReceipt(owner, { ...moneyInput(DAY, "5,000"), customerId: String(customer), receivedBy: "", allocations: "[]" });
+  const { id: receipt } = await createReceipt(owner, { ...moneyInput(DAY, "5,000"), customerId: String(customer), receivedBy: "", allocations: "[]" });
   await expense("1,200");
   const { id: twice } = await expense("400");
   await cancelExpense(owner, twice!, "Entered twice"); // a pair: nets to zero in its group
@@ -67,10 +67,14 @@ test("the day's groups add up to the journal movement on the Cash account; each 
     kind: "journal", date: formatDate(DAY), narration: "Found in the drawer", customerId: "", amount: "", moneyAccountId: "", allocations: "[]",
     lines: JSON.stringify([{ accountId: String(ids.cash), debit: "50" }, { accountId: String(ids.cash_short_excess), credit: "50" }]),
   });
+  await createAdjustment(owner, {
+    kind: "refund", date: formatDate(DAY), narration: "", customerId: String(customer), amount: "600", moneyAccountId: String(ids.cash), lines: "[]",
+    allocations: JSON.stringify([{ target: "receipt", id: String(receipt), amount: "600" }]),
+  }); // D56: refunds get their own group
 
   const book = await cashBook(ids.cash, DAY);
   const total = Object.fromEntries(book.groups.map((g) => [g.key, g.total]));
-  expect(total).toEqual({ received: 5000_00n, expense: -1200_00n, purchase: -2000_00n, deposited: -1600_00n, other: 450_00n });
+  expect(total).toEqual({ received: 5000_00n, expense: -1200_00n, purchase: -2000_00n, refunds: -600_00n, deposited: -1600_00n, other: 450_00n });
   expect(book.groups.find((g) => g.key === "expense")!.entries.map((e) => [e.amount, e.reversal])).toEqual([
     [-1200_00n, false],
     [-400_00n, false],

@@ -106,6 +106,12 @@ test("a JV posts as entered; an unbalanced one (or one line, or AR without the c
   await expect(createAdjustment(owner, jv([{ accountId: ids.cash, debit: "10" }, { accountId: ids.capital, credit: "10" }], "  "))).rejects.toThrow(
     "Say what the entry is for.",
   );
+  // D56: stock and GRN clearing belong to stock moves / GRNs.
+  for (const key of ["stock", "grn_clearing"]) {
+    await expect(createAdjustment(owner, jv([{ accountId: ids[key], debit: "10" }, { accountId: ids.capital, credit: "10" }]))).rejects.toThrow(
+      /^Line 1: .+ can't be used in a JV \(use a stock adjustment\)\.$/,
+    );
+  }
   expect(await count()).toBe(before);
 
   const { id, message } = await createAdjustment(

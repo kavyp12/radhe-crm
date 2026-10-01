@@ -86,7 +86,9 @@ function parseRows(json: string): Record<string, unknown>[] {
 const text = (v: unknown) => (typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : "");
 const idOf = (v: unknown) => (text(v) ? Number(text(v)) : null);
 
-/** A JV's lines: any active account (inactive expense categories' accounts are out), Dr or Cr, optional tags. */
+const JV_BLOCKED = ["stock", "grn_clearing"];
+
+/** A JV's lines: any active account (inactive expense categories' accounts and JV_BLOCKED are out), Dr or Cr, optional tags. */
 async function readJournalLines(tx: Tx, json: string): Promise<Line[]> {
   const rows = parseRows(json).filter((o) => ["accountId", "debit", "credit"].some((k) => text(o[k])));
   if (rows.length > MAX_LINES) throw new UserError(`A JV can have ${MAX_LINES} lines at most.`, "lines");
@@ -123,6 +125,8 @@ async function readJournalLines(tx: Tx, json: string): Promise<Line[]> {
     if ((debit > 0n) === (credit > 0n)) fail("enter a debit or a credit (one of them).");
     const account = all.find((a) => a.id === idOf(o.accountId));
     if (!account || account.active === false) fail("pick the account.");
+    // D56: stock moves and GRNs own these (stock is corrected by a stock adjustment).
+    if (JV_BLOCKED.includes(account!.key ?? "")) fail(`${account!.name} can't be used in a JV (use a stock adjustment).`);
     const pick = <T extends { id: number }>(key: string, list: T[], what: string) => {
       const id = idOf(o[key]);
       if (id === null) return null;
@@ -487,11 +491,11 @@ export async function getAdjustment(id: number) {
   return { ...row.adjustment, customer: row.customer, createdByName: row.createdBy, lines, allocated };
 }
 
-/** The JV form's pick lists: accounts (not those of inactive expense categories), active customers / vendors, open jobs. */
+/** The JV form's pick lists: accounts (not those of inactive expense categories, nor JV_BLOCKED), active customers / vendors, open jobs. */
 export async function journalFormOptions() {
   const [accountRows, customerRows, vendorRows, jobRows] = await Promise.all([
     db
-      .select({ id: accounts.id, code: accounts.code, name: accounts.name, type: accounts.type, active: expenseCategories.active })
+      .select({ id: accounts.id, code: accounts.code, name: accounts.name, type: accounts.type, key: accounts.systemKey, active: expenseCategories.active })
       .from(accounts)
       .leftJoin(expenseCategories, eq(expenseCategories.accountId, accounts.id))
       .orderBy(asc(accounts.code)),
@@ -505,7 +509,7 @@ export async function journalFormOptions() {
       .orderBy(desc(jobs.id)),
   ]);
   return {
-    accounts: accountRows.filter((a) => a.active !== false).map((a) => ({ id: a.id, name: `${a.code} · ${a.name}`, type: a.type })),
+    accounts: accountRows.filter((a) => a.active !== false && !JV_BLOCKED.includes(a.key ?? "")).map((a) => ({ id: a.id, name: `${a.code} · ${a.name}`, type: a.type })),
     customers: customerRows.filter((c) => c.active).map((c) => ({ id: c.id, name: c.name })),
     vendors: vendorRows.filter((v) => v.active).map((v) => ({ id: v.id, name: v.name })),
     jobs: jobRows.map((j) => ({ id: j.id, name: `${j.number} · ${j.customer}` })),
