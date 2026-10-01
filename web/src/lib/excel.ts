@@ -1,6 +1,6 @@
 import { Workbook, type Worksheet } from "exceljs";
 import { dateParts, formatDateTime } from "@/lib/dates";
-import { excelRupees } from "@/lib/num";
+import { excelQty, excelRupees } from "@/lib/num";
 import { columnTotal, hasTotals, type Report, type ReportColumn } from "@/lib/report";
 
 // Excel export (S27, D07, D59) with exceljs: a title block (report name, filters, generated-at), then each table with
@@ -21,6 +21,7 @@ function excelDate(iso: string): Date {
 function cellValue(c: ReportColumn, v: unknown) {
   if (v === null || v === undefined) return null;
   if (c.type === "money") return excelRupees(v as bigint);
+  if (c.type === "qty") return excelQty(v as bigint); // General format: 12.5, 3
   if (c.type === "date") return excelDate(v as string);
   if (c.type === "number") return Number(v as bigint);
   return String(v);
@@ -59,7 +60,7 @@ export async function reportXlsx(report: Report): Promise<Buffer> {
     for (const r of table.rows) {
       const row = sheet.addRow(table.columns.map((c) => cellValue(c, r[c.key])));
       styleCells(sheet, row.number, table.columns);
-      table.columns.forEach((c, i) => c.type !== "money" && c.type !== "date" && fit(i, String(r[c.key] ?? "").length));
+      table.columns.forEach((c, i) => c.type !== "money" && c.type !== "date" && fit(i, String(cellValue(c, r[c.key]) ?? "").length));
     }
     if (hasTotals(table)) {
       const values = table.columns.map((c, i) =>

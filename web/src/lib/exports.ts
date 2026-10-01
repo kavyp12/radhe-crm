@@ -1,7 +1,6 @@
 import { listCustomers } from "@/lib/customers";
 import { listExpenses } from "@/lib/expenses";
 import { INVOICE_KIND, INVOICE_STATUS, listInvoices } from "@/lib/invoices";
-import { milliText } from "@/lib/num";
 import { can, canViewCost, type SessionUser } from "@/lib/permissions";
 import { listPurchaseBills } from "@/lib/purchase-bills";
 import { RECEIPT_MODE } from "@/lib/receipt-modes";
@@ -180,14 +179,16 @@ export const EXPORTS: Record<string, Exporter> = {
       [
         { key: "name", label: "Item" },
         { key: "category", label: "Category" },
-        { key: "qty", label: "In stock" },
+        { key: "qty", label: "In stock", type: "qty" },
+        { key: "unit", label: "Unit" },
         { key: "status", label: "Status" },
         ...(cost ? [{ key: "average", label: "Average cost", type: "money" } as const, money("value", "Stock value")] : []),
       ],
       rows.map((r) => ({
         name: r.name,
         category: r.category,
-        qty: `${milliText(r.qty)} ${r.unit}`,
+        qty: r.qty,
+        unit: r.unit,
         status: r.active ? "Active" : "Inactive",
         ...("cost" in r ? { average: r.cost.average, value: r.cost.value } : {}),
       })),

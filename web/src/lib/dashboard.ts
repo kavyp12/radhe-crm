@@ -7,8 +7,8 @@ import { outstanding } from "@/lib/outstanding";
 import { can, canViewCost, type SessionUser } from "@/lib/permissions";
 
 // Owner dashboard (R1, S19, A§12, D24, D59), read when the page loads (it refreshes itself every 60 s, D22):
-// - Sales = taxable value of issued invoices + estimates − issued credit notes (excl. GST) · Collection = active
-//   receipts · Purchase = active purchase bills' taxable · Expense = active expenses — each by document date.
+// - Sales = taxable value of issued invoices + estimates + debit notes − credit notes (excl. GST, D60) · Collection =
+//   active receipts · Purchase = active purchase bills' taxable · Expense = active expenses — each by document date.
 // - Outstanding = open invoices + debit notes + each customer's positive opening / unallocated remainder; Advances =
 //   the negative remainders, so Outstanding − Advances = AR (D59). Payable = AP balance. Cash = cash + petty cash;
 //   Bank = bank 1 + bank 2 + UPI (journal balances).
@@ -38,11 +38,16 @@ const MONTH = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "O
 type Flow = "sales" | "collection" | "purchase" | "expense";
 
 // One row per sales line in [from, to]: issued invoice / estimate lines at their taxable value (A§4: round(qty × rate)
-// half away from zero − discount; numeric, never float) less issued credit-note lines (stored taxable).
+// half away from zero − discount; numeric, never float), plus issued debit-note lines, less issued credit-note lines
+// (both stored taxable, D60).
 const salesLines = (from: string, to: string) => sql`
   select i.date, i.customer_id, l.category_id, round(l.qty_milli::numeric * l.rate_paise / 1000) - l.discount_paise as paise
   from invoice_lines l join invoices i on i.id = l.invoice_id
   where i.status = 'issued' and i.date between ${from} and ${to}
+  union all
+  select n.date, n.customer_id, il.category_id, nl.taxable_paise
+  from debit_note_lines nl join debit_notes n on n.id = nl.note_id join invoice_lines il on il.id = nl.invoice_line_id
+  where n.status = 'issued' and n.date between ${from} and ${to}
   union all
   select n.date, n.customer_id, il.category_id, -nl.taxable_paise
   from credit_note_lines nl join credit_notes n on n.id = nl.note_id join invoice_lines il on il.id = nl.invoice_line_id

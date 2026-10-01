@@ -137,7 +137,9 @@ test("bills from GRNs: a higher and a lower rate → price_variance ±, grn_clea
   expect((await billLinesFromReceipts([first])).lines).toEqual([]);
   const [line] = (await getReceipt(first))!.lines;
   const again = billInput("GS-3", [{ what: `item:${sheet}`, description: "", qty: "4", rate: "105", gst: "18", jobId: "", grnLineId: String(line.id) }]);
-  await expect(createPurchaseBill(owner, again)).rejects.toThrow(`already billed on ${(await getPurchaseBill(higher))!.number}`);
+  // Read the number first: an await inside toThrow(…) would leave the rejection unhandled until it resolved (B12).
+  const billed = (await getPurchaseBill(higher))!.number;
+  await expect(createPurchaseBill(owner, again)).rejects.toThrow(`already billed on ${billed}`);
   // The item and qty stay as received.
   await expect(updatePurchaseBill(owner, higher, billInput("GS-1", [{ ...JSON.parse(again.lines)[0], qty: "3" }]), "")).rejects.toThrow(
     "the item and qty stay as received",

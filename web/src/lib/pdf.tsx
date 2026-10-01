@@ -442,9 +442,17 @@ export async function reportPdf(report: Report): Promise<Buffer> {
   const b = await brand();
   const landscape = Math.max(...report.tables.map((t) => t.columns.length)) > 7;
   const width = (c: ReportColumn) =>
-    c.type === "money" ? { width: 80 } : c.type === "date" ? { width: 58 } : c.type === "number" ? { width: 50 } : { flex: 1 };
+    c.type === "money" ? { width: 80 } : c.type === "date" ? { width: 58 } : c.type === "number" || c.type === "qty" ? { width: 50 } : { flex: 1 };
   const cellText = (c: ReportColumn, v: unknown) =>
-    v === null || v === undefined ? "" : c.type === "money" ? formatMoney(v as bigint) : c.type === "date" ? formatDate(v as string) : String(v);
+    v === null || v === undefined
+      ? ""
+      : c.type === "money"
+        ? formatMoney(v as bigint)
+        : c.type === "qty"
+          ? milliText(v as bigint)
+          : c.type === "date"
+            ? formatDate(v as string)
+            : String(v);
   const generated = `Generated ${formatDateTime(report.generatedAt)}`;
   return renderToBuffer(
     <Document title={report.title} author={b.company}>

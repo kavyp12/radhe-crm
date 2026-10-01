@@ -54,6 +54,9 @@ export function formatMoney(paise: bigint): string {
  */
 export const excelRupees = (paise: bigint): number => Number(moneyText(paise));
 
+/** Thousandths → a JS number for Excel cells ONLY (D60), like excelRupees: 12500n → 12.5. Display, never maths. */
+export const excelQty = (milli: bigint): number => Number(milliText(milli));
+
 /** same_state → CGST + SGST · other_state → IGST · estimate → no GST (D18). */
 export type GstMode = "same_state" | "other_state" | "estimate";
 /** qty in thousandths · rate and discount in paise · gstBp in basis points. */

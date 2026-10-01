@@ -5,6 +5,8 @@ import {
   accounts,
   creditNoteLines,
   creditNotes,
+  debitNoteLines,
+  debitNotes,
   expenseCategories,
   expenses,
   invoiceLines,
@@ -35,8 +37,8 @@ import { saveBooks } from "@/lib/settings";
 import { createUser } from "@/lib/users";
 import { createVendor } from "@/lib/vendors";
 
-// T30 (S19, R1, A§12, D24, D59): every dashboard figure equals a direct check on the books — Sales vs invoice lines −
-// credit notes, Collection vs receipts, Outstanding − Advances = AR, Payable = AP, Cash / Bank vs ledger(), Profit vs
+// T30 (S19, R1, A§12, D24, D59, D60): every dashboard figure equals a direct check on the books — Sales vs invoice lines
+// + debit notes − credit notes, Collection vs receipts, Outstanding − Advances = AR, Payable = AP, Cash / Bank vs ledger(), Profit vs
 // journal income − expense, Gross profit vs Sales − job costs in the period — and each role sees only its figures.
 // Other test files share the DB, so the checks run over everything in it.
 
@@ -80,6 +82,8 @@ beforeAll(async () => {
   const [first] = await invoiceLinesLeft(db, "credit", inv);
   const cn = await createNote(owner, "credit", inv, { date: formatDate(today), reason: "Rate corrected", notes: "", lines: JSON.stringify([{ invoiceLineId: String(first.id), qty: "", amount: "1,000" }]) });
   await issueNote(owner, "credit", cn);
+  const dn = await createNote(owner, "debit", inv, { date: formatDate(today), reason: "Extra fitting", notes: "", lines: JSON.stringify([{ invoiceLineId: String(first.id), qty: "", amount: "600" }]) });
+  await issueNote(owner, "debit", dn);
 
   const money = { date: formatDate(today), mode: "cash", moneyAccountId: String(cash.id), reference: "", chequeNo: "", chequeDate: "", notes: "", receivedBy: "" };
   await createReceipt(owner, { ...money, customerId: String(big), amount: "5,000", allocations: "[]" });
@@ -104,19 +108,28 @@ beforeAll(async () => {
   });
 });
 
-/** Issued invoice / estimate lines at their taxable value (num.ts) − issued credit-note lines, by document date. */
+/** Issued invoice / estimate lines at their taxable value (num.ts) + issued debit-note − credit-note lines, by document date (D60). */
 async function directSales(from: string, to: string) {
   const lines = await db
     .select({ qty: invoiceLines.qtyMilli, rate: invoiceLines.ratePaise, discount: invoiceLines.discountPaise })
     .from(invoiceLines)
     .innerJoin(invoices, eq(invoices.id, invoiceLines.invoiceId))
     .where(and(eq(invoices.status, "issued"), between(invoices.date, from, to)));
-  const notes = await db
+  const credits = await db
     .select({ taxable: creditNoteLines.taxablePaise })
     .from(creditNoteLines)
     .innerJoin(creditNotes, eq(creditNotes.id, creditNoteLines.noteId))
     .where(and(eq(creditNotes.status, "issued"), between(creditNotes.date, from, to)));
-  return sumOf(lines, (l) => lineCalc({ qty: l.qty, rate: l.rate, discount: l.discount, gstBp: 0 }, "estimate").taxable) - sumOf(notes, (n) => n.taxable);
+  const debits = await db
+    .select({ taxable: debitNoteLines.taxablePaise })
+    .from(debitNoteLines)
+    .innerJoin(debitNotes, eq(debitNotes.id, debitNoteLines.noteId))
+    .where(and(eq(debitNotes.status, "issued"), between(debitNotes.date, from, to)));
+  return (
+    sumOf(lines, (l) => lineCalc({ qty: l.qty, rate: l.rate, discount: l.discount, gstBp: 0 }, "estimate").taxable) +
+    sumOf(debits, (n) => n.taxable) -
+    sumOf(credits, (n) => n.taxable)
+  );
 }
 const directCollection = async (from: string, to: string) =>
   sumOf(await db.select().from(receipts).where(and(eq(receipts.status, "active"), between(receipts.date, from, to))), (r) => r.amountPaise);
@@ -138,8 +151,9 @@ test("owner: each figure equals a direct check on the books", async () => {
   expect(d.kpis.map((s) => s.key)).toEqual(["sales", "collection", "outstanding", "purchase", "expense", "profit", "cash", "bank"]);
 
   const sales = await directSales(month, today);
-  // Seeded: 1.5 × ₹33,33,333.33 = ₹50,00,000.00 (half-up) − ₹10 + 1.5 × ₹1,000 + estimate ₹3,000 − CN ₹1,000 — plus other files' sales.
-  expect(sales).toBeGreaterThanOrEqual(50000_00_00n - 10_00n + 1500_00n + 3000_00n - 1000_00n);
+  // Seeded: 1.5 × ₹33,33,333.33 = ₹50,00,000.00 (half-up) − ₹10 + 1.5 × ₹1,000 + estimate ₹3,000 − CN ₹1,000 + DN ₹600
+  // — plus other files' sales.
+  expect(sales).toBeGreaterThanOrEqual(50000_00_00n - 10_00n + 1500_00n + 3000_00n - 1000_00n + 600_00n);
   expect([value(d, "sales"), value(d, "monthlySales")]).toEqual([sales, sales]);
   expect(value(d, "todaySales")).toBe(await directSales(today, today));
 

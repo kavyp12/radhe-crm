@@ -5,7 +5,7 @@ import { NextRequest } from "next/server";
 import { beforeAll, expect, test } from "vitest";
 import { GET } from "@/app/export/[name]/route";
 import { db } from "@/db";
-import { accounts, receipts } from "@/db/schema";
+import { accounts, expenseCategories, receipts } from "@/db/schema";
 import { OWNER, signedIn, testOwner } from "@/db/test-owner";
 import { createCustomer } from "@/lib/customers";
 import { INR_FORMAT, reportXlsx } from "@/lib/excel";
@@ -16,6 +16,7 @@ import { cancelReceipt, createReceipt } from "@/lib/receipts";
 import { columnTotal } from "@/lib/report";
 import { collectionReport } from "@/lib/reports";
 import { saveBooks } from "@/lib/settings";
+import { createItem } from "@/lib/stock";
 import { createUser } from "@/lib/users";
 
 // T31 (S20, S27, D59): a report is one shape — page, Excel and PDF come from the same loader. The Collection report
@@ -118,17 +119,23 @@ test("exports keep the page's permissions: no cost columns without can_view_cost
   const owners = await signedIn(OWNER.username, OWNER.password);
   const accountant = await signedIn("rp.acct", "rp-acct-pass-1"); // can_view_cost off
   const sales = await signedIn("rp.collector", "collector-pass-1");
-  const headerOf = async (res: Response) => {
+  const sheetOf = async (res: Response) => {
     const book = new Workbook();
     await book.xlsx.load(Buffer.from(await res.arrayBuffer()) as unknown as Parameters<typeof book.xlsx.load>[0]);
-    return Array.from(book.worksheets[0].getSheetValues(), (r) => (Array.isArray(r) ? r.slice(1) : [])).find((r) => r[0] === "Item");
+    return Array.from(book.worksheets[0].getSheetValues(), (r) => (Array.isArray(r) ? r.slice(1) : []));
   };
+  const headerOf = async (res: Response) => (await sheetOf(res)).find((r) => r[0] === "Item");
+  const [acrylic] = await db.select().from(expenseCategories).where(eq(expenseCategories.name, "Acrylic"));
+  await createItem(owner, { name: "RP Qty Sheet", unit: "Sheet", categoryId: String(acrylic.id), hsnSac: "", gstPercent: "18", openingQty: "12.5", openingRate: "100" });
 
   expect((await get("items", "", undefined)).status).toBe(401);
   const full = await get("items", "", owners);
   expect(full.headers.get("content-disposition")).toMatch(/^attachment; filename="Items-\d\d-\d\d-\d{4}\.xlsx"$/);
-  expect(await headerOf(full)).toEqual(["Item", "Category", "In stock", "Status", "Average cost", "Stock value"]);
-  expect(await headerOf(await get("items", "", accountant))).toEqual(["Item", "Category", "In stock", "Status"]);
+  const fullSheet = await sheetOf(full);
+  expect(fullSheet.find((r) => r[0] === "Item")).toEqual(["Item", "Category", "In stock", "Unit", "Status", "Average cost", "Stock value"]);
+  // D60: the quantity is a number in Excel, its unit in a column of its own.
+  expect(fullSheet.find((r) => r[0] === "RP Qty Sheet")!.slice(2, 4)).toEqual([12.5, "Sheet"]);
+  expect(await headerOf(await get("items", "", accountant))).toEqual(["Item", "Category", "In stock", "Unit", "Status"]);
   expect((await get("purchase-bills", "", accountant)).status).toBe(403); // purchase rates: the whole list is cost
   expect((await get("purchase-bills", "", owners)).status).toBe(200);
 
