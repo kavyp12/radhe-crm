@@ -115,15 +115,15 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
   Done when: test: day totals match journal · difference posting works via approval.
 
 ## Phase 5 — Profit & collections
-- [ ] **T27 · Job costing** — S3, S11, A§10
+- [x] **T27 · Job costing** — S3, S11, A§10
   Job P&L card: sale, cost buckets (auto from stock issues, job-tagged expenses/purchase lines, attached print jobs; + manual internal cost entries), profit, margin, advance, balance. Hidden without can_view_cost.
   Done when: test reproduces the S11 example exactly (1,00,000 − 62,000 = 38,000) · sales/production users get no cost fields.
 
-- [ ] **T28 · Outstanding & aging** — S7, D17
+- [x] **T28 · Outstanding & aging** — S7, D17
   Total receivable, due today, overdue, aging buckets; customer-wise, invoice-wise, sales-person-wise, collection-person-wise views with drill-down.
   Done when: tests for bucket boundaries (7/8, 15/16, 30/31, 60/61 days) · totals equal AR open amounts.
 
-- [ ] **T29 · Follow-ups & alerts** — S8, S25
+- [x] **T29 · Follow-ups & alerts** — S8, S25
   Follow-up entries (date, person, response, promise date, expected amount, next reminder); "my follow-ups today"; alerts page + bell: payment due today, overdue, promise due, promise broken, vendor payment due, credit limit exceeded, pending approvals; credit-limit warning on quotation/job/invoice.
   Done when: test: broken promise (date passed, expected not received) raises alert · alert clears after payment.
 
@@ -203,7 +203,7 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
 - ✅ B7 T17 + T18 + T19 + T20
 - ✅ B8 T21 + T22 + T23
 - ✅ B9 T24 + T25 + T26
-- B10 T27 + T28 + T29
+- ✅ B10 T27 + T28 + T29
 - B11 T31 + T30 🚦
 - B12 T32 + T33 + T34
 - B13 T35 + T36
