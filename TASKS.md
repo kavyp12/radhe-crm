@@ -158,15 +158,15 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
   Done when: export opens in Excel correctly · backup + restore tested on a copy of radhe_dev.
 
 ## Phase 8 — Print jobs
-- [ ] **T37 · Print jobs in CRM** — P2–P8, A§11, D19
+- [x] **T37 · Print jobs in CRM** — P2–P8, A§11, D19
   Machines + printing types masters (printer-name mapping, sale rate, cost rate); print_jobs; manual "New Print Job" form (same fields as the popup); Paid/Unpaid/Credit + amount received + mode → receipt; attach to existing job (job cost) vs new (sale); derived 🔴🟡🟢🔵 status; "Bill selected print jobs" → invoice/estimate; reprint (reprint_of); customer Print History tab; edit/cancel audited.
   Done when: tests: sq ft & amount calc (P3 example = 36 sq ft, ₹900) · statuses per A§5 · billing moves allocations · attached job gets printing cost.
 
-- [ ] **T38 · Print dashboard, report, open file** — P6, P7, P9
+- [x] **T38 · Print dashboard, report, open file** — P6, P7, P9
   Dashboard tiles (today's print jobs, value, received, pending); "Printed But Payment Pending" report; unbilled print jobs list; Open File button (radhe-crm:// link) + thumbnail display.
   Done when: tile numbers tie to print job data · report lists exactly unpaid/part/credit jobs.
 
-- [ ] **T39 · Agent API & device pairing** — A§11
+- [x] **T39 · Agent API & device pairing** — A§11
   print_devices; owner creates a pairing code → agent exchanges it for a device token; revoke; proxy.ts must let /api/agent/* through (Bearer token, no cookie); endpoints: bootstrap, create print job (idempotent by client_uuid), reprint check, thumbnail upload.
   Done when: tests: same client_uuid twice → one print job · revoked token rejected · endpoints never accept user-session-only calls.
 
@@ -207,10 +207,10 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
 - ✅ B11 T31 + T30 🚦 (T30 look check open)
 - ✅ B12 T32 + T33 + T34
 - ✅ B13 T35 + T36
-- B14 T37 + T38 + T39
+- ✅ B14 T37 + T38 + T39
 - B15a T41 (agent foundation; may run alongside B14, D65)
 - B15b T40 (needs Q1 + B14) → 🚦 G2
-- B16 T42 + T43
+- B16 T42 + T43 (may run alongside B15a — web/ vs print-agent/, D65)
 - B17 T44 (push only with Ronnie's OK) → 🚦 G3
 
 ## Spec coverage (reviewer keeps this in sync)
