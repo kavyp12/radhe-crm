@@ -98,6 +98,11 @@ export default async function SettingsPage() {
           />
         </TabsContent>
         <TabsContent value="data" className="grid grid-cols-1 gap-4">
+          <FormSection title="Import opening data" description="Day one: customers, vendors and their unpaid old bills, stock in hand and cash / bank balances on the books start date, from one Excel template. Checked first; then saved all at once.">
+            <Button asChild variant="outline" className="w-fit">
+              <Link href="/settings/opening-import">Import opening data</Link>
+            </Button>
+          </FormSection>
           {/* S27, T36: take the data out. Backups proper are pg_dump files on the server (docs/BACKUP.md). */}
           {canExportAll(user) ? (
             <>

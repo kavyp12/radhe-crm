@@ -414,6 +414,20 @@
       "when": 1790934520851,
       "tag": "0058_date_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1790934935756,
+      "tag": "0059_opening_bills",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1790934943959,
+      "tag": "0060_opening_bills_audit",
+      "breakpoints": true
     }
   ]
 }

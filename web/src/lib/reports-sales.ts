@@ -1,11 +1,12 @@
 import { asc, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { productCategories, vendors } from "@/db/schema";
+import { openingBillLabel } from "@/lib/allocations";
 import { staffOptions } from "@/lib/customers";
 import { formatDate, todayIST } from "@/lib/dates";
 import { gstMode } from "@/lib/lines";
 import { gstOn, lineCalc } from "@/lib/num";
-import { AGING, agingBucket, daysBetween, emptyTotals, outstanding, type OutstandingDoc, type Totals } from "@/lib/outstanding";
+import { AGING, agingBucket, daysBetween, docHref, docKind, emptyTotals, outstanding, type OutstandingDoc, type Totals } from "@/lib/outstanding";
 import { can, canViewCost, type SessionUser } from "@/lib/permissions";
 import { listPurchaseBills } from "@/lib/purchase-bills";
 import { RECEIPT_MODE, RECEIPT_MODES, type ReceiptMode } from "@/lib/receipt-modes";
@@ -26,6 +27,7 @@ import {
 } from "@/lib/reports";
 import { companyState } from "@/lib/sales";
 import { rangeText, type Range } from "@/lib/statements";
+import { vendorOpeningBills } from "@/lib/vendor-payments";
 
 // Reports A (S20 #1, 3, 11, 12, 17, 18; A§13): sales, outstanding, sales-person-wise, collection-person-wise, pending
 // vendor bills (D25) and advances received. Each loader checks the user's area and returns one ReportResult that the
@@ -274,8 +276,6 @@ export const salesPersonReport = (user: SessionUser, q: ReportQuery, now = new D
 
 const AGING_COLUMNS: ReportColumn[] = AGING.map((b) => moneyCol(b.key, b.label));
 const agingOf = (t: Totals) => Object.fromEntries(AGING.map((b) => [b.key, t.aging[b.key]]));
-const docKind = (d: OutstandingDoc) => (d.target === "debit_note" ? "Debit note" : d.number.startsWith("EST/") ? "Estimate" : "Invoice");
-const docHref = (d: OutstandingDoc) => (d.target === "invoice" ? `/invoices/${d.id}` : `/credit-debit-notes/dn/${d.id}`);
 
 function totalsOf(docs: OutstandingDoc[]): Totals {
   const t = emptyTotals();
@@ -487,10 +487,19 @@ export async function pendingPaymentReport(user: SessionUser, q: ReportQuery, no
   if (!can(user, "reports", "view")) return null;
   const { period, range, error } = reportRange(q, "all");
   const today = todayIST(now);
-  const [bills, vendorList] = await Promise.all([
+  const [purchaseBills, openingBills, vendorList] = await Promise.all([
     listPurchaseBills(),
+    vendorOpeningBills(),
     db.select({ id: vendors.id, name: vendors.name }).from(vendors).orderBy(asc(vendors.name)),
   ]);
+  // Opening bills (T43) are pending payments too, aged by their bill date; they have no page (→ the vendor).
+  const bills = [
+    ...purchaseBills.map((b) => ({ ...b, href: `/purchase-bills/${b.id}` })),
+    ...openingBills.map((b) => ({
+      id: b.id, number: openingBillLabel(b.billNo), vendorBillNo: b.billNo, date: b.billDate, dueDate: b.dueDate, vendorId: b.vendorId, vendor: b.vendor,
+      status: "active" as const, total: b.amountPaise, open: b.open, payment: b.payment, href: `/vendors/${b.vendorId}`,
+    })),
+  ];
   const picks = [
     pick("vendor", "Vendor", vendorList.map((v): [string, string] => [String(v.id), v.name]), q),
     pick("aging", "Aging", AGING.map((b): [string, string] => [b.key, b.label]), q),
@@ -531,7 +540,7 @@ export async function pendingPaymentReport(user: SessionUser, q: ReportQuery, no
             moneyCol("open", "Open"),
           ],
           rows: rows.map((b) => ({
-            href: cost ? `/purchase-bills/${b.id}` : `/vendors/${b.vendorId}`,
+            href: cost ? b.href : `/vendors/${b.vendorId}`,
             number: b.number,
             vendorBillNo: b.vendorBillNo,
             date: b.date,

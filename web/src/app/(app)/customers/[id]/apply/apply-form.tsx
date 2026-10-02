@@ -15,7 +15,7 @@ import { moneyText, parseMoney } from "@/lib/num";
 import { cn } from "@/lib/utils";
 import type { OpenItems } from "../../../receipts/receipt-form";
 
-type Row = { key: string; target: "invoice" | "debit_note" | "print_job" | "job"; id: number; open: bigint | null; amount: string };
+type Row = { key: string; target: "invoice" | "debit_note" | "print_job" | "opening_bill" | "job"; id: number; open: bigint | null; amount: string };
 
 function paise(text: string): bigint | null {
   if (!text.trim()) return 0n;

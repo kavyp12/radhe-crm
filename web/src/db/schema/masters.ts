@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, boolean, check, date, integer, pgTable, smallint, text, timestamp } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, date, index, integer, pgTable, smallint, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { COST_BUCKETS } from "../../lib/cost-buckets"; // relative: drizzle-kit does not read tsconfig paths
 import { users } from "./auth";
 import { attachments } from "./control";
@@ -113,6 +113,41 @@ export const vendors = pgTable("vendors", {
     .defaultNow()
     .$onUpdate(() => new Date()),
 });
+
+/**
+ * Opening bills (T43, D67): a customer's or vendor's dues bill by bill on the books start date — bill no, bill date
+ * (on or before the books start date), due date, amount still due. Allocation targets for receipts / vendor payments
+ * and aged by bill date; they post nothing themselves: the party's opening balance (Σ its opening bills + any lump,
+ * customers / vendors.opening_balance_paise) is posted once through setOpening (D40). Never deleted. Audited.
+ */
+export const openingBills = pgTable(
+  "opening_bills",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    customerId: bigint("customer_id", { mode: "number" }).references(() => customers.id),
+    vendorId: bigint("vendor_id", { mode: "number" }).references(() => vendors.id),
+    billNo: text("bill_no").notNull(),
+    billDate: date("bill_date").notNull(),
+    dueDate: date("due_date").notNull(),
+    amountPaise: bigint("amount_paise", { mode: "bigint" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdBy: text("created_by").references(() => users.id),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index("opening_bills_customer_idx").on(t.customerId),
+    index("opening_bills_vendor_idx").on(t.vendorId),
+    // D67's natural key: party + bill no.
+    uniqueIndex("opening_bills_customer_bill_no").on(t.customerId, sql`lower(${t.billNo})`),
+    uniqueIndex("opening_bills_vendor_bill_no").on(t.vendorId, sql`lower(${t.billNo})`),
+    check("opening_bills_one_party", sql`num_nonnulls(${t.customerId}, ${t.vendorId}) = 1`),
+    check("opening_bills_amount_positive", sql`${t.amountPaise} > 0`),
+    check("opening_bills_due_after_bill", sql`${t.dueDate} >= ${t.billDate}`),
+  ],
+);
 
 /** S4 categories (14 inserted by migration 0012). HSN/SAC and GST % wait for the client's CA (Q2). Audited. */
 export const productCategories = pgTable("product_categories", {

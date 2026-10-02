@@ -84,17 +84,20 @@ const postOpening = (tx: Tx, id: number, name: string, amount: bigint) =>
 
 export async function createCustomer(actor: SessionUser, input: CustomerInput): Promise<number> {
   if (!can(actor, "customers", "create")) throw new Error("Not allowed");
-  const opening = openingFrom(actor, input) ?? 0n;
   const { defaultCreditDays } = await getSettings();
-  return writeTx(actor, async (tx) => {
-    const v = await values(tx, input);
-    const [row] = await tx
-      .insert(customers)
-      .values({ ...v, creditDays: v.creditDays ?? defaultCreditDays, openingBalancePaise: opening, createdBy: actor.id })
-      .returning({ id: customers.id });
-    if (opening !== 0n) await postOpening(tx, row.id, v.name, opening);
-    return row.id;
-  });
+  return writeTx(actor, (tx) => insertCustomer(tx, actor, input, defaultCreditDays));
+}
+
+/** createCustomer inside the caller's transaction (the opening import, T43): the row and its opening balance. */
+export async function insertCustomer(tx: Tx, actor: SessionUser, input: CustomerInput, defaultCreditDays: number | null) {
+  const opening = openingFrom(actor, input) ?? 0n;
+  const v = await values(tx, input);
+  const [row] = await tx
+    .insert(customers)
+    .values({ ...v, creditDays: v.creditDays ?? defaultCreditDays, openingBalancePaise: opening, createdBy: actor.id })
+    .returning({ id: customers.id });
+  if (opening !== 0n) await postOpening(tx, row.id, v.name, opening);
+  return row.id;
 }
 
 export async function updateCustomer(actor: SessionUser, id: number, input: CustomerInput): Promise<void> {

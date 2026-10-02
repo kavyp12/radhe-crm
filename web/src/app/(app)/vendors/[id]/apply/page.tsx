@@ -31,7 +31,16 @@ export default async function VendorApplyPage({ params, searchParams }: PageProp
         vendor
         available={source.rest}
         open={{
-          invoices: bills.map((b) => ({ target: "invoice", id: b.id, number: `${b.number} · ${b.vendorBillNo}`, date: b.date, dueDate: b.dueDate, total: b.total, open: b.open })),
+          // The customer panel's rows: a purchase bill rides as "invoice", an opening bill as itself (T43).
+          invoices: bills.map((b) => ({
+            target: b.target === "bill" ? "invoice" : "opening_bill",
+            id: b.id,
+            number: b.target === "bill" ? `${b.number} · ${b.vendorBillNo}` : b.number,
+            date: b.date,
+            dueDate: b.dueDate,
+            total: b.total,
+            open: b.open,
+          })),
           jobs: [],
         }}
         back={`/vendors/${id}`}

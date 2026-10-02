@@ -51,8 +51,20 @@ export default async function ReceiptPage({ params }: PageProps<"/receipts/[id]"
   const c = r.customer;
   const active = r.status === "active";
   const isOwner = can(user, "approvals", "approve");
-  /** An invoice, a job the money is an advance for (S12), a print job (D64), or a refund JV that paid it back (D55). */
-  const target = (l: { invoiceId: number | null; debitNoteId: number | null; jobId: number | null; printJobId: number | null; refundId: number | null; number: string }) => {
+  /**
+   * An invoice, a job the money is an advance for (S12), a print job (D64), a refund JV that paid it back (D55), or an
+   * opening bill (T43, no page of its own: the customer's).
+   */
+  const target = (l: {
+    invoiceId: number | null;
+    debitNoteId: number | null;
+    jobId: number | null;
+    printJobId: number | null;
+    openingBillId: number | null;
+    refundId: number | null;
+    number: string;
+  }) => {
+    if (l.openingBillId !== null) return <span className="font-medium tabular-nums">{l.number}</span>;
     const [href, area] =
       l.jobId !== null
         ? [`/jobs/${l.jobId}`, "jobs" as const]

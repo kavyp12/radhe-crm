@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { type AnyPgColumn, bigint, boolean, check, date, index, integer, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { RECEIPT_MODES } from "../../lib/receipt-modes"; // relative: drizzle-kit does not read tsconfig paths
 import { users } from "./auth";
-import { accounts, expenseCategories, stockItems, vendors } from "./masters";
+import { accounts, expenseCategories, openingBills, stockItems, vendors } from "./masters";
 import { jobs } from "./sales";
 
 // Purchase / stock (A§2): stock moves and adjustments; purchase bills, vendor payments and expenses follow.
@@ -403,9 +403,8 @@ export const vendorAllocations = pgTable(
     paymentId: bigint("payment_id", { mode: "number" })
       .notNull()
       .references(() => vendorPayments.id),
-    purchaseBillId: bigint("purchase_bill_id", { mode: "number" })
-      .notNull()
-      .references(() => purchaseBills.id),
+    purchaseBillId: bigint("purchase_bill_id", { mode: "number" }).references(() => purchaseBills.id),
+    openingBillId: bigint("opening_bill_id", { mode: "number" }).references(() => openingBills.id), // T43
     amountPaise: bigint("amount_paise", { mode: "bigint" }).notNull(),
     active: boolean("active").notNull().default(true),
     ...stamps(),
@@ -413,7 +412,9 @@ export const vendorAllocations = pgTable(
   (t) => [
     index("vendor_allocations_payment_idx").on(t.paymentId),
     index("vendor_allocations_bill_idx").on(t.purchaseBillId),
+    index("vendor_allocations_opening_bill_idx").on(t.openingBillId),
     check("vendor_allocations_amount_positive", sql`${t.amountPaise} > 0`),
+    check("vendor_allocations_one_target", sql`num_nonnulls(${t.purchaseBillId}, ${t.openingBillId}) = 1`),
   ],
 );
 

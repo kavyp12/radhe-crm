@@ -49,9 +49,9 @@ export default async function VendorPaymentPage({ params }: PageProps<"/vendor-p
   ]);
   const active = p.status === "active";
   const isOwner = can(user, "approvals", "approve");
-  // Bill pages show purchase rates: linked only for can_view_cost users (D51).
-  const bill = (l: { billId: number; number: string }) =>
-    can(user, "books", "view") && canViewCost(user) ? (
+  // Bill pages show purchase rates: linked only for can_view_cost users (D51). Opening bills (T43) have no page.
+  const bill = (l: { target: string; billId: number; number: string }) =>
+    l.target === "bill" && can(user, "books", "view") && canViewCost(user) ? (
       <Link href={`/purchase-bills/${l.billId}`} className="font-medium text-primary tabular-nums hover:underline">
         {l.number}
       </Link>

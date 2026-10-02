@@ -24,7 +24,7 @@ import { advanceReport, collectionPersonReport, outstandingReport, pendingPaymen
 import { saveBooks } from "@/lib/settings";
 import { createUser } from "@/lib/users";
 import { createVendor } from "@/lib/vendors";
-import { createVendorPayment } from "@/lib/vendor-payments";
+import { createVendorPayment, vendorOpeningBills } from "@/lib/vendor-payments";
 
 // T32 (S20 #1, 3, 11, 12, 17, 18): each report ties out — Sales = the dashboard's Sales and the journal's sales −
 // returns, Outstanding = AR, person-wise totals = the overall totals, Pending payment = the open vendor bills = the
@@ -259,7 +259,8 @@ test("Pending payment = open vendor bills = the vendor's AP; whole DB = Σ open 
 
   const all = await pendingPaymentReport(owner, {});
   const open = (await listPurchaseBills()).filter((b) => b.status === "active" && b.open > 0n);
-  expect(total(mainOf(all), "open")).toBe(open.reduce((s, b) => s + b.open, 0n));
+  const opening = await vendorOpeningBills(); // T43: vendors' opening bills are pending payments too
+  expect(total(mainOf(all), "open")).toBe(open.reduce((s, b) => s + b.open, 0n) + opening.reduce((s, b) => s + b.open, 0n));
   expect(total(all!.report.tables[1], "amount")).toBe(total(mainOf(all), "open"));
   expect(total(mainOf(await pendingPaymentReport(owner, MAY)), "open")).toBe(1370_00n); // bill dates in May: only RA's
 });

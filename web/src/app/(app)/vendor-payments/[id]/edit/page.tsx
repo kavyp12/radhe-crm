@@ -38,7 +38,7 @@ export default async function EditVendorPaymentPage({ params }: PageProps<"/vend
           chequeNo: p.chequeNo ?? "",
           chequeDate: p.chequeDate ?? "",
           notes: p.notes ?? "",
-          allocated: Object.fromEntries(p.lines.map((l) => [String(l.billId), moneyText(l.amount)])),
+          allocated: Object.fromEntries(p.lines.map((l) => [`${l.target}:${l.billId}`, moneyText(l.amount)])),
         }}
         {...options}
         open={open}

@@ -49,7 +49,9 @@ export default async function EditReceiptPage({ params }: PageProps<"/receipts/[
                       ? `job:${l.jobId}`
                       : l.printJobId !== null
                         ? `print_job:${l.printJobId}`
-                        : l.debitNoteId !== null
+                        : l.openingBillId !== null
+                          ? `opening_bill:${l.openingBillId}`
+                          : l.debitNoteId !== null
                           ? `debit_note:${l.debitNoteId}`
                           : `invoice:${l.invoiceId}`;
                   return sum.set(key, (sum.get(key) ?? 0n) + l.amount);

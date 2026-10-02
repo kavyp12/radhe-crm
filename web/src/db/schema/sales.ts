@@ -3,7 +3,7 @@ import { type AnyPgColumn, bigint, boolean, check, date, index, integer, pgTable
 import { JOB_COST_BUCKETS } from "../../lib/cost-buckets"; // relative: drizzle-kit does not read tsconfig paths
 import { RECEIPT_MODES } from "../../lib/receipt-modes";
 import { users } from "./auth";
-import { accounts, customers, productCategories } from "./masters";
+import { accounts, customers, openingBills, productCategories } from "./masters";
 import { adjustments } from "./money";
 import { printJobs } from "./print";
 
@@ -338,8 +338,8 @@ export const receipts = pgTable(
 
 /**
  * Links money to what it pays (A§2): one source (a receipt, a credit note, or a write-off / discount JV) → one target
- * (an invoice, a debit note, a job = an advance on it, a print job = money taken at the print, or a refund JV that paid
- * the money back, D55). A receipt's / credit note's unallocated remainder is on account. Allocations never post (A§3) and
+ * (an invoice, a debit note, a job = an advance on it, a print job = money taken at the print, a refund JV that paid
+ * the money back, D55, or a customer's opening bill, T43). A receipt's / credit note's unallocated remainder is on account. Allocations never post (A§3) and
  * are never deleted: a change deactivates the old rows and adds new ones (D49). Open amounts count only active rows
  * from sources that aren't cancelled. Audited.
  */
@@ -356,6 +356,7 @@ export const allocations = pgTable(
     jobId: bigint("job_id", { mode: "number" }).references(() => jobs.id),
     printJobId: bigint("print_job_id", { mode: "number" }).references(() => printJobs.id), // money taken at the print (D64)
     refundAdjustmentId: bigint("refund_adjustment_id", { mode: "number" }).references(() => adjustments.id),
+    openingBillId: bigint("opening_bill_id", { mode: "number" }).references(() => openingBills.id), // T43
     // An invoice row that carries a job's advance (moved at Issue, T14): the job it goes back to if the invoice is
     // cancelled (D49), and what the invoice shows as "Advance adjusted".
     fromJobId: bigint("from_job_id", { mode: "number" }).references(() => jobs.id),
@@ -374,11 +375,12 @@ export const allocations = pgTable(
     index("allocations_debit_note_idx").on(t.debitNoteId),
     index("allocations_adjustment_idx").on(t.adjustmentId),
     index("allocations_refund_adjustment_idx").on(t.refundAdjustmentId),
+    index("allocations_opening_bill_idx").on(t.openingBillId),
     check("allocations_amount_positive", sql`${t.amountPaise} > 0`),
     check("allocations_one_source", sql`num_nonnulls(${t.receiptId}, ${t.creditNoteId}, ${t.adjustmentId}) = 1`),
     check(
       "allocations_one_target",
-      sql`num_nonnulls(${t.invoiceId}, ${t.jobId}, ${t.debitNoteId}, ${t.refundAdjustmentId}, ${t.printJobId}) = 1`,
+      sql`num_nonnulls(${t.invoiceId}, ${t.jobId}, ${t.debitNoteId}, ${t.refundAdjustmentId}, ${t.printJobId}, ${t.openingBillId}) = 1`,
     ),
     check("allocations_from_job_on_invoice", sql`${t.fromJobId} is null or ${t.invoiceId} is not null`),
     check("allocations_from_print_job_on_invoice", sql`${t.fromPrintJobId} is null or ${t.invoiceId} is not null`),

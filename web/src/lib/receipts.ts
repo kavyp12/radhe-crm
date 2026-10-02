@@ -1,13 +1,14 @@
 import { and, asc, desc, eq, notExists, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, writeTx, type Tx } from "@/db";
-import { accounts, adjustments, allocations, creditNotes, customers, debitNotes, invoices, jobs, printJobs, receipts, users } from "@/db/schema";
+import { accounts, adjustments, allocations, creditNotes, customers, debitNotes, invoices, jobs, openingBills, printJobs, receipts, users } from "@/db/schema";
 import { formMoney, formText, UserError } from "@/lib/action";
 import {
   activeAllocationsOf,
   checkAllocations,
   deactivate,
   liveAllocation,
+  openingBillLabel,
   readAllocations,
   refundOf,
   type AllocationLine,
@@ -133,6 +134,7 @@ const insertAllocations = (
           debitNoteId: l.target === "debit_note" ? l.id : null,
           jobId: l.target === "job" ? l.id : null,
           printJobId: l.target === "print_job" ? l.id : null,
+          openingBillId: l.target === "opening_bill" ? l.id : null,
           fromJobId: l.target === "invoice" ? (fromJob.get(l.id)?.jobId ?? null) : null,
           fromPrintJobId: l.target === "invoice" ? (fromJob.get(l.id)?.printJobId ?? null) : null,
           amountPaise: l.amount,
@@ -449,6 +451,10 @@ export async function getReceipt(id: number) {
         printJob: printJobs.number,
         printJobDate: printJobs.date,
         printJobTotal: printJobs.amountPaise,
+        openingBillId: allocations.openingBillId, // T43
+        openingBillNo: openingBills.billNo,
+        openingBillDate: openingBills.billDate,
+        openingBillTotal: openingBills.amountPaise,
         refundId: allocations.refundAdjustmentId, // paid back by a refund JV (D55)
         refund: adjustments.number,
         refundDate: adjustments.date,
@@ -459,6 +465,7 @@ export async function getReceipt(id: number) {
       .leftJoin(debitNotes, eq(debitNotes.id, allocations.debitNoteId))
       .leftJoin(jobs, eq(jobs.id, allocations.jobId))
       .leftJoin(printJobs, eq(printJobs.id, allocations.printJobId))
+      .leftJoin(openingBills, eq(openingBills.id, allocations.openingBillId))
       .leftJoin(adjustments, eq(adjustments.id, allocations.refundAdjustmentId))
       .where(eq(allocations.receiptId, id))
       .orderBy(asc(allocations.id))
@@ -468,14 +475,15 @@ export async function getReceipt(id: number) {
     debitNoteId: l.debitNoteId,
     jobId: l.jobId,
     printJobId: l.printJobId,
+    openingBillId: l.openingBillId,
     refundId: l.refundId,
     fromJobId: l.fromJobId,
     amount: l.amount,
     active: l.active,
     changedAt: l.changedAt,
-    number: l.job ?? l.printJob ?? l.debitNote ?? l.invoice ?? l.refund ?? "",
-    date: (l.jobDate ?? l.printJobDate ?? l.debitNoteDate ?? l.invoiceDate ?? l.refundDate)!,
-    total: (l.jobTotal ?? l.printJobTotal ?? l.debitNoteTotal ?? l.invoiceTotal ?? l.refundTotal)!,
+    number: l.job ?? l.printJob ?? l.debitNote ?? l.invoice ?? l.refund ?? (l.openingBillNo ? openingBillLabel(l.openingBillNo) : ""),
+    date: (l.jobDate ?? l.printJobDate ?? l.debitNoteDate ?? l.invoiceDate ?? l.refundDate ?? l.openingBillDate)!,
+    total: (l.jobTotal ?? l.printJobTotal ?? l.debitNoteTotal ?? l.invoiceTotal ?? l.refundTotal ?? l.openingBillTotal)!,
   }));
   const lines = all.filter((l) => l.active);
   const allocated = lines.reduce((s, l) => s + l.amount, 0n);

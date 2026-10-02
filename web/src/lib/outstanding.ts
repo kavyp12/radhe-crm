@@ -1,16 +1,16 @@
-import { eq, sql } from "drizzle-orm";
+import { eq, isNotNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/db";
-import { customers, debitNotes, invoices, journalLines, users } from "@/db/schema";
-import { paidByDebitNote, paidByInvoice } from "@/lib/allocations";
+import { customers, debitNotes, invoices, journalLines, openingBills, users } from "@/db/schema";
+import { openingBillLabel, paidByDebitNote, paidByInvoice, paidByOpeningBill } from "@/lib/allocations";
 import { dateParts, todayIST } from "@/lib/dates";
 import { systemAccountId } from "@/lib/ledger";
 
 // Outstanding & aging (S7, D17, D57). A customer's total is their AR balance from the journal. Aging covers the open
-// issued invoices (estimates included, D18) and debit notes, by invoice-date age in days; "due today" / "overdue"
-// compare the due date (date + credit days) with today. What's left of the AR balance — opening balances, on-account
-// money and job advances (negative), JVs not settling a document — is its own "Opening / on account" line, so every
-// view adds up to AR. Nothing here is a cost field (sales may open it, A§8).
+// issued invoices (estimates included, D18), debit notes and opening bills (T43, by their bill date), by age in days;
+// "due today" / "overdue" compare the due date (date + credit days) with today. What's left of the AR balance — an
+// opening balance that isn't bill-wise, on-account money and job advances (negative), JVs not settling a document —
+// is its own "Opening / on account" line, so every view adds up to AR. Nothing here is a cost field (sales may open it, A§8).
 
 export const AGING = [
   { key: "d0_7", label: "0–7 days", upTo: 7 },
@@ -49,7 +49,7 @@ export function addTotals(into: Totals, t: Totals) {
 }
 
 export type OutstandingDoc = {
-  target: "invoice" | "debit_note";
+  target: "invoice" | "debit_note" | "opening_bill";
   id: number;
   number: string;
   customerId: number;
@@ -62,14 +62,23 @@ export type OutstandingDoc = {
   due: "today" | "overdue" | null;
 };
 
+/** What an outstanding document is, and where it opens (an opening bill has no page: the customer's). */
+export const docKind = (d: OutstandingDoc) =>
+  d.target === "opening_bill" ? "Opening bill" : d.target === "debit_note" ? "Debit note" : d.number.startsWith("EST/") ? "Estimate" : "Invoice";
+export const docHref = (d: OutstandingDoc) =>
+  d.target === "invoice" ? `/invoices/${d.id}` : d.target === "debit_note" ? `/credit-debit-notes/dn/${d.id}` : `/customers/${d.customerId}`;
+
+const ORDER = { opening_bill: 0, invoice: 1, debit_note: 2 } as const;
+
 /** Every customer with an AR balance or an open document, as of `today`: totals (= AR) and open documents (oldest first). */
 export async function outstanding(today = todayIST()) {
   const ar = await systemAccountId("ar");
   const paid = paidByInvoice();
   const dnPaid = paidByDebitNote();
+  const obPaid = paidByOpeningBill();
   const salesPerson = alias(users, "sales_person");
   const collectionPerson = alias(users, "collection_person");
-  const [balances, invoiceRows, noteRows, people] = await Promise.all([
+  const [balances, invoiceRows, noteRows, openingRows, people] = await Promise.all([
     db
       .select({ customerId: journalLines.customerId, paise: sql<string>`sum(${journalLines.debitPaise} - ${journalLines.creditPaise})` })
       .from(journalLines)
@@ -85,6 +94,11 @@ export async function outstanding(today = todayIST()) {
       .from(debitNotes)
       .leftJoin(dnPaid, eq(dnPaid.debitNoteId, debitNotes.id))
       .where(eq(debitNotes.status, "issued")),
+    db
+      .select({ id: openingBills.id, billNo: openingBills.billNo, customerId: openingBills.customerId, date: openingBills.billDate, dueDate: openingBills.dueDate, total: openingBills.amountPaise, paid: obPaid.paise })
+      .from(openingBills)
+      .leftJoin(obPaid, eq(obPaid.openingBillId, openingBills.id))
+      .where(isNotNull(openingBills.customerId)),
     db
       .select({
         id: customers.id,
@@ -104,6 +118,7 @@ export async function outstanding(today = todayIST()) {
   const docs: OutstandingDoc[] = [
     ...invoiceRows.map((r) => ({ ...r, target: "invoice" as const })),
     ...noteRows.map((r) => ({ ...r, target: "debit_note" as const })),
+    ...openingRows.map(({ billNo, customerId, ...r }) => ({ ...r, customerId: customerId!, number: openingBillLabel(billNo), target: "opening_bill" as const })),
   ]
     .map((r) => {
       const dueDate = r.dueDate ?? r.date;
@@ -123,12 +138,12 @@ export async function outstanding(today = todayIST()) {
       };
     })
     .filter((d) => d.open > 0n)
-    // Oldest first; same date: invoices before debit notes, then by number (as openInvoices).
+    // Oldest first; same date: opening bills, invoices, then debit notes, then by number (as openInvoices).
     .sort((a, b) =>
       a.date !== b.date
         ? a.date < b.date ? -1 : 1
         : a.target !== b.target
-          ? a.target === "invoice" ? -1 : 1
+          ? ORDER[a.target] - ORDER[b.target]
           : a.number < b.number ? -1 : a.number > b.number ? 1 : 0,
     );
 

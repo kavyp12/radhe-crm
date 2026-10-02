@@ -56,16 +56,19 @@ const postOpening = (tx: Tx, id: number, name: string, amount: bigint) =>
 
 export async function createVendor(actor: SessionUser, input: VendorInput): Promise<number> {
   if (!can(actor, "vendors", "create")) throw new Error("Not allowed");
+  return writeTx(actor, (tx) => insertVendor(tx, actor, input));
+}
+
+/** createVendor inside the caller's transaction (the opening import, T43): the row and its opening balance. */
+export async function insertVendor(tx: Tx, actor: SessionUser, input: VendorInput) {
   const opening = openingFrom(actor, input) ?? 0n;
   const v = values(input);
-  return writeTx(actor, async (tx) => {
-    const [row] = await tx
-      .insert(vendors)
-      .values({ ...v, openingBalancePaise: opening, createdBy: actor.id })
-      .returning({ id: vendors.id });
-    if (opening !== 0n) await postOpening(tx, row.id, v.name, opening);
-    return row.id;
-  });
+  const [row] = await tx
+    .insert(vendors)
+    .values({ ...v, openingBalancePaise: opening, createdBy: actor.id })
+    .returning({ id: vendors.id });
+  if (opening !== 0n) await postOpening(tx, row.id, v.name, opening);
+  return row.id;
 }
 
 export async function updateVendor(actor: SessionUser, id: number, input: VendorInput): Promise<void> {

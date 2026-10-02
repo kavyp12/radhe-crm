@@ -18,7 +18,8 @@ import { MODE_ACCOUNT, RECEIPT_MODE, RECEIPT_MODES, type ReceiptMode } from "@/l
 import { cn } from "@/lib/utils";
 
 /** A vendor's open bill (oldest first). */
-export type OpenBill = { id: number; number: string; vendorBillNo: string; date: string; dueDate: string; total: bigint; open: bigint };
+/** An open purchase bill, or an opening bill (T43). */
+export type OpenBill = { target: "bill" | "opening_bill"; id: number; number: string; vendorBillNo: string; date: string; dueDate: string; total: bigint; open: bigint };
 type Row = OpenBill & { amount: string };
 
 export type PaymentFormValues = {
@@ -93,7 +94,7 @@ export function PaymentForm({
   const [accountId, setAccountId] = useState(v.moneyAccountId);
   const typed = paymentId !== undefined || Object.keys(v.allocated).length > 0;
   const [rows, setRows] = useState<Row[]>(() => {
-    const start = open.map((b) => ({ ...b, amount: v.allocated[String(b.id)] ?? "" }));
+    const start = open.map((b) => ({ ...b, amount: v.allocated[`${b.target}:${b.id}`] ?? "" }));
     return typed ? start : fill(start, paise(v.amount) ?? 0n);
   });
   const [manual, setManual] = useState(typed);
@@ -123,7 +124,7 @@ export function PaymentForm({
   const readable = shares.every((s) => s !== null);
   const allocated = shares.reduce<bigint>((s, a) => s + (a ?? 0n), 0n);
   const over = total !== null && allocated > total;
-  const json = JSON.stringify(rows.map((r) => ({ id: String(r.id), amount: r.amount })));
+  const json = JSON.stringify(rows.map((r) => ({ target: r.target, id: String(r.id), amount: r.amount })));
 
   return (
     <form onSubmit={onSubmit} className="grid max-w-5xl grid-cols-1 gap-4">
@@ -204,7 +205,7 @@ export function PaymentForm({
               </thead>
               <tbody>
                 {rows.map((r, i) => (
-                  <tr key={r.id}>
+                  <tr key={`${r.target}:${r.id}`}>
                     <td className={`${td} font-medium tabular-nums`}>{r.number}</td>
                     <td className={td}>{r.vendorBillNo}</td>
                     <td className={td}>
@@ -228,7 +229,7 @@ export function PaymentForm({
                         onChange={(e) => {
                           setManual(true);
                           const text = e.target.value;
-                          setRows((current) => current.map((x) => (x.id === r.id ? { ...x, amount: text } : x)));
+                          setRows((current) => current.map((x) => (x.id === r.id && x.target === r.target ? { ...x, amount: text } : x)));
                         }}
                         className="h-8 text-right tabular-nums"
                       />

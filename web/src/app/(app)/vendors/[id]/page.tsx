@@ -8,6 +8,7 @@ import { DocFacts } from "@/components/doc-share";
 import { EmptyState } from "@/components/empty-state";
 import { db } from "@/db";
 import { History } from "@/components/history";
+import { OpeningBills } from "@/components/opening-bills";
 import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
 import { DocNumber, StatusBadge } from "@/components/status-badge";
@@ -21,7 +22,7 @@ import { can, canViewCost } from "@/lib/permissions";
 import { listPurchaseBills } from "@/lib/purchase-bills";
 import { getSettings } from "@/lib/settings";
 import { drCr, entryLabel, LEDGER_PERIODS, rangeText, readRange, statementMessage, vendorLedger } from "@/lib/statements";
-import { vendorOnAccount } from "@/lib/vendor-payments";
+import { vendorOnAccount, vendorOpeningBills } from "@/lib/vendor-payments";
 import { getVendor, vendorOverview } from "@/lib/vendors";
 import { LedgerFilter } from "../../customers/[id]/ledger-filter";
 import { emailVendorStatementAction, vendorStatementShareAction } from "../actions";
@@ -62,13 +63,14 @@ export default async function VendorPage({ params, searchParams }: PageProps<"/v
   // Bills show purchase amounts per bill: only for can_view_cost users (D51).
   const bills = can(user, "books", "view") && canViewCost(user);
   const canApply = can(user, "payments", "create");
-  const [overview, files, ledger, billRows, settings, onAccount] = await Promise.all([
+  const [overview, files, ledger, billRows, settings, onAccount, openingBills] = await Promise.all([
     vendorOverview(id),
     listAttachments("vendor", id),
     vendorLedger(id, range),
     bills ? listPurchaseBills(id) : [],
     getSettings(),
     canApply ? vendorOnAccount(db, id) : [],
+    vendorOpeningBills(id),
   ]);
   const tiles = [
     { label: "Total billed", value: <Money paise={overview.billed} /> },
@@ -335,7 +337,8 @@ export default async function VendorPage({ params, searchParams }: PageProps<"/v
           <AttachmentsPanel entityType="vendor" entityId={id} items={files} canUpload={can(user, "vendors", "edit")} />
         </TabsContent>
 
-        <TabsContent value="history">
+        <TabsContent value="history" className="grid grid-cols-1 gap-4">
+          <OpeningBills rows={openingBills} />
           <History
             table="vendors"
             rowId={id}

@@ -18,9 +18,9 @@ import { moneyText, parseMoney } from "@/lib/num";
 import { MODE_ACCOUNT, RECEIPT_MODE, RECEIPT_MODES, type ReceiptMode } from "@/lib/receipt-modes";
 import { cn } from "@/lib/utils";
 
-/** An open receivable: an invoice, a debit note (T16) or a print job not yet billed (D64). */
+/** An open receivable: an invoice, a debit note (T16), a print job not yet billed (D64) or an opening bill (T43). */
 export type OpenInvoice = {
-  target: "invoice" | "debit_note" | "print_job";
+  target: "invoice" | "debit_note" | "print_job" | "opening_bill";
   id: number;
   number: string;
   date: string;

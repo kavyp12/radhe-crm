@@ -1,8 +1,8 @@
-import { and, eq } from "drizzle-orm";
-import { db, writeTx } from "@/db";
-import { accounts, attachments, settings } from "@/db/schema";
+import { and, eq, sql } from "drizzle-orm";
+import { db, writeTx, type Tx } from "@/db";
+import { accounts, attachments, openingBills, settings } from "@/db/schema";
 import { formDays, formMoney, formText, UserError } from "@/lib/action";
-import { parseDate } from "@/lib/dates";
+import { formatDate, parseDate } from "@/lib/dates";
 import { gstinProblem } from "@/lib/gstin";
 import { firstDocumentDate, liveOpenings, moveOpenings, setOpening } from "@/lib/ledger";
 import { moveOpeningStock } from "@/lib/stock-moves";
@@ -120,6 +120,11 @@ export async function saveBooks(actor: SessionUser, input: BooksInput): Promise<
   await writeTx(actor, async (tx) => {
     const [s] = await tx.select({ date: settings.booksStartDate }).from(settings).where(eq(settings.id, 1)).for("update");
     if (date !== s.date) {
+      // T43: an opening bill is dated on or before the books start date.
+      const [latest] = await tx.select({ date: sql<string | null>`max(${openingBills.billDate})` }).from(openingBills);
+      if (date && latest.date && date < latest.date) {
+        throw new UserError(`Opening bills are dated up to ${formatDate(latest.date)}: the books start date can't be before that.`, "booksStartDate");
+      }
       // D43: once documents have posted the date is locked; a first date can still be set if none is before it.
       const first = await firstDocumentDate(tx);
       if (first && (s.date || !date || date > first)) {
@@ -143,11 +148,15 @@ export async function saveBooks(actor: SessionUser, input: BooksInput): Promise<
       if (!name) throw new UserError("Give the account a name.", `name.${row.id}`);
       const opening = formMoney(row.opening, `opening.${row.id}`) ?? 0n;
       if (name === account.name && opening === account.openingBalancePaise) continue;
-      await tx.update(accounts).set({ name, openingBalancePaise: opening }).where(eq(accounts.id, account.id));
-      if (opening !== account.openingBalancePaise) {
-        const doc = { type: "accounts" as const, id: account.id, narration: `Opening balance: ${name}` };
-        await setOpening(tx, doc, opening, { account: account.id }, { account: "opening_equity" });
-      }
+      await tx.update(accounts).set({ name }).where(eq(accounts.id, account.id));
+      if (opening !== account.openingBalancePaise) await setMoneyOpening(tx, { ...account, name }, opening);
     }
   });
+}
+
+/** A money account's opening balance (D40): stored on the row and posted on the books start date (Dr it / Cr opening_equity). */
+export async function setMoneyOpening(tx: Tx, account: { id: number; name: string }, opening: bigint) {
+  await tx.update(accounts).set({ openingBalancePaise: opening }).where(eq(accounts.id, account.id));
+  const doc = { type: "accounts" as const, id: account.id, narration: `Opening balance: ${account.name}` };
+  await setOpening(tx, doc, opening, { account: account.id }, { account: "opening_equity" });
 }

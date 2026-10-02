@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { requirePermission } from "@/lib/auth";
 import { getCustomer } from "@/lib/customers";
-import { AGING, byPerson, emptyTotals, outstanding, type OutstandingCustomer, type OutstandingDoc, type Totals } from "@/lib/outstanding";
+import { AGING, byPerson, docHref, docKind, emptyTotals, outstanding, type OutstandingCustomer, type OutstandingDoc, type Totals } from "@/lib/outstanding";
 import { can } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import { CustomerTable, DocTable, PersonTable, type DocRow, type Figures } from "./outstanding-tables";
@@ -24,7 +24,7 @@ const flat = (t: Totals): Figures => ({ ...t.aging, onAccount: t.onAccount, tota
 const docRow = (d: OutstandingDoc, customer: string): DocRow => ({
   key: `${d.target}:${d.id}`,
   number: d.number,
-  kind: d.target === "invoice" ? "Invoice" : "Debit note",
+  kind: docKind(d),
   customer,
   date: d.date,
   dueDate: d.dueDate,
@@ -32,7 +32,7 @@ const docRow = (d: OutstandingDoc, customer: string): DocRow => ({
   bucket: AGING.find((b) => b.key === d.bucket)!.label,
   due: d.due === "today" ? "Due today" : d.due === "overdue" ? "Overdue" : "Not due",
   open: d.open,
-  href: d.target === "invoice" ? `/invoices/${d.id}` : `/credit-debit-notes/dn/${d.id}`,
+  href: docHref(d),
 });
 const customerRows = (rows: OutstandingCustomer[], from: Record<string, string> = {}) =>
   rows.map((c) => ({

@@ -106,15 +106,18 @@ async function postOpeningStock(tx: Tx, item: StockItem, qty: bigint, rate: bigi
 export async function createItem(actor: SessionUser, input: ItemInput): Promise<number> {
   if (!can(actor, "stockItems", "create")) throw new Error("Not allowed");
   const opening = openingFrom(actor, input);
-  return writeTx(actor, async (tx) => {
-    const v = await readItem(tx, input);
-    const [row] = await tx
-      .insert(stockItems)
-      .values({ ...v, openingQtyMilli: opening?.qty ?? 0n, openingRatePaise: opening?.rate ?? 0n, createdBy: actor.id })
-      .returning();
-    if (opening && opening.qty !== 0n) await postOpeningStock(tx, row, opening.qty, opening.rate);
-    return row.id;
-  });
+  return writeTx(actor, (tx) => insertItem(tx, actor, input, opening));
+}
+
+/** createItem inside the caller's transaction (the opening import, T43): the item and its opening stock. */
+export async function insertItem(tx: Tx, actor: SessionUser, input: ItemInput, opening = openingFrom(actor, input)) {
+  const v = await readItem(tx, input);
+  const [row] = await tx
+    .insert(stockItems)
+    .values({ ...v, openingQtyMilli: opening?.qty ?? 0n, openingRatePaise: opening?.rate ?? 0n, createdBy: actor.id })
+    .returning();
+  if (opening && opening.qty !== 0n) await postOpeningStock(tx, row, opening.qty, opening.rate);
+  return row.id;
 }
 
 export async function updateItem(actor: SessionUser, id: number, input: ItemInput): Promise<void> {

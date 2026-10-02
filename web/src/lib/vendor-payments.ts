@@ -1,8 +1,8 @@
 import { and, asc, desc, eq, inArray, isNotNull, notExists, sql, type SQL } from "drizzle-orm";
 import { db, writeTx, type Tx } from "@/db";
-import { accounts, purchaseBills, vendorAllocations, vendorPayments, vendors } from "@/db/schema";
+import { accounts, openingBills, purchaseBills, vendorAllocations, vendorPayments, vendors } from "@/db/schema";
 import { formMoney, formText, UserError } from "@/lib/action";
-import { paymentStatus, type PaymentStatus } from "@/lib/allocations";
+import { openingBillLabel, paymentStatus, type PaymentStatus } from "@/lib/allocations";
 import { type Change, needsBackdateApproval, registerExecutor, runOrRequest } from "@/lib/approvals";
 import { formatDate, fyKey, parseDate } from "@/lib/dates";
 import { checkBooksDate, liveEntry, moneyAccounts, post, reverse } from "@/lib/ledger";
@@ -13,7 +13,8 @@ import { RECEIPT_MODE, RECEIPT_MODES } from "@/lib/receipt-modes";
 import { checkVersion, readDate } from "@/lib/sales";
 
 // Vendor payments (S9, A§2, A§3, A§5, D49, D51): money out to a vendor, numbered VP/ and posted on save (Dr ap /
-// Cr money account). Vendor allocations link it to the vendor's purchase bills, oldest bill first; what isn't
+// Cr money account). Vendor allocations link it to the vendor's purchase bills and opening bills (T43), oldest bill
+// first; what isn't
 // allocated is on account. Allocations never post and are never deleted. Bill statuses are computed from them
 // (A§5), never stored. Edit / cancel: the owner at once, anyone else through approval; a backdated save by a
 // non-owner is a request too. What is on account is put on bills later for free (applyVendorOnAccount, D52).
@@ -35,21 +36,26 @@ const liveVendorAllocation = (): SQL =>
     ),
   )!;
 
-/** Σ live allocations per bill, leaving out one payment's own (the payment being edited). */
-export async function paidTowardsBills(q: Q, billIds: number[], exceptPaymentId?: number): Promise<Map<number, bigint>> {
+/** What a vendor allocation pays: a purchase bill, or an opening bill (T43). */
+export type BillTarget = "bill" | "opening_bill";
+const targetColumn = (target: BillTarget) => (target === "bill" ? vendorAllocations.purchaseBillId : vendorAllocations.openingBillId);
+
+/** Σ live allocations per bill (or opening bill), leaving out one payment's own (the payment being edited). */
+export async function paidTowardsBills(q: Q, billIds: number[], exceptPaymentId?: number, target: BillTarget = "bill"): Promise<Map<number, bigint>> {
   if (!billIds.length) return new Map();
+  const column = targetColumn(target);
   const rows = await q
-    .select({ id: vendorAllocations.purchaseBillId, paise: sql<string>`sum(${vendorAllocations.amountPaise})` })
+    .select({ id: column, paise: sql<string>`sum(${vendorAllocations.amountPaise})` })
     .from(vendorAllocations)
     .where(
       and(
         liveVendorAllocation(),
-        inArray(vendorAllocations.purchaseBillId, billIds),
+        inArray(column, billIds),
         exceptPaymentId ? sql`${vendorAllocations.paymentId} <> ${exceptPaymentId}` : undefined,
       ),
     )
-    .groupBy(vendorAllocations.purchaseBillId);
-  return new Map(rows.map((r) => [r.id, BigInt(r.paise)]));
+    .groupBy(column);
+  return new Map(rows.map((r) => [r.id!, BigInt(r.paise)]));
 }
 
 /** Σ live allocations per bill, as a subquery to join in lists. */
@@ -65,20 +71,69 @@ export const paidByBill = () =>
 export const billStatus = (bill: { status: string; totalPaise: bigint; dueDate: string }, open: bigint, today?: string): PaymentStatus =>
   paymentStatus({ ...bill, status: bill.status === "active" ? "issued" : "cancelled" }, open, today)!;
 
-/** A vendor's live bills with something still open, oldest bill date first, then number (D49, D51). */
+/**
+ * A vendor's live bills and opening bills (T43) with something still open, oldest bill date first, then number
+ * (D49, D51) — opening bills, dated on or before the books start date, come first.
+ */
 export async function openBills(q: Q, vendorId: number, exceptPaymentId?: number) {
-  const rows = await q
-    .select({ id: purchaseBills.id, number: purchaseBills.number, vendorBillNo: purchaseBills.vendorBillNo, date: purchaseBills.date, dueDate: purchaseBills.dueDate, total: purchaseBills.totalPaise })
-    .from(purchaseBills)
-    .where(and(eq(purchaseBills.vendorId, vendorId), eq(purchaseBills.status, "active")))
-    .orderBy(asc(purchaseBills.date), asc(purchaseBills.number));
-  const paid = await paidTowardsBills(q, rows.map((r) => r.id), exceptPaymentId);
-  return rows.map((r) => ({ ...r, open: r.total - (paid.get(r.id) ?? 0n) })).filter((r) => r.open > 0n);
+  const [rows, opening] = await Promise.all([
+    q
+      .select({ id: purchaseBills.id, number: purchaseBills.number, vendorBillNo: purchaseBills.vendorBillNo, date: purchaseBills.date, dueDate: purchaseBills.dueDate, total: purchaseBills.totalPaise })
+      .from(purchaseBills)
+      .where(and(eq(purchaseBills.vendorId, vendorId), eq(purchaseBills.status, "active"))),
+    q
+      .select({ id: openingBills.id, billNo: openingBills.billNo, date: openingBills.billDate, dueDate: openingBills.dueDate, total: openingBills.amountPaise })
+      .from(openingBills)
+      .where(eq(openingBills.vendorId, vendorId)),
+  ]);
+  const [paid, openingPaid] = await Promise.all([
+    paidTowardsBills(q, rows.map((r) => r.id), exceptPaymentId),
+    paidTowardsBills(q, opening.map((r) => r.id), exceptPaymentId, "opening_bill"),
+  ]);
+  return [
+    ...opening.map((r) => ({
+      target: "opening_bill" as BillTarget,
+      id: r.id,
+      number: openingBillLabel(r.billNo),
+      vendorBillNo: r.billNo,
+      date: r.date,
+      dueDate: r.dueDate,
+      total: r.total,
+      open: r.total - (openingPaid.get(r.id) ?? 0n),
+    })),
+    ...rows.map((r) => ({ ...r, target: "bill" as BillTarget, open: r.total - (paid.get(r.id) ?? 0n) })),
+  ]
+    .filter((r) => r.open > 0n)
+    .sort((a, b) =>
+      a.date !== b.date
+        ? a.date < b.date ? -1 : 1
+        : a.target !== b.target
+          ? a.target === "opening_bill" ? -1 : 1
+          : a.number < b.number ? -1 : a.number > b.number ? 1 : 0,
+    );
 }
 
-export type BillAllocation = { billId: number; amount: bigint };
+/**
+ * Vendors' opening bills (T43) — one vendor's, or all — with what is still open and their A§5 status, oldest first:
+ * the vendor's History tab and the pending payment report.
+ */
+export async function vendorOpeningBills(vendorId?: number) {
+  const rows = await db
+    .select({ bill: openingBills, vendor: vendors.name })
+    .from(openingBills)
+    .innerJoin(vendors, eq(vendors.id, openingBills.vendorId))
+    .where(vendorId === undefined ? undefined : eq(openingBills.vendorId, vendorId))
+    .orderBy(asc(openingBills.billDate), asc(openingBills.id));
+  const paid = await paidTowardsBills(db, rows.map((r) => r.bill.id), undefined, "opening_bill");
+  return rows.map(({ bill: b, vendor }) => {
+    const open = b.amountPaise - (paid.get(b.id) ?? 0n);
+    return { ...b, vendorId: b.vendorId!, vendor, open, payment: billStatus({ status: "active", totalPaise: b.amountPaise, dueDate: b.dueDate }, open) };
+  });
+}
 
-/** The panel as typed (JSON of { id, amount }) → lines; blank / zero skipped; each bill once. */
+export type BillAllocation = { target: BillTarget; billId: number; amount: bigint };
+
+/** The panel as typed (JSON of { target: "bill" (default) | "opening_bill", id, amount }) → lines; blank / zero skipped; each bill once. */
 export function readBillAllocations(json: string): BillAllocation[] {
   const fail = (message: string): never => {
     throw new UserError(message, "allocations");
@@ -105,27 +160,40 @@ export function readBillAllocations(json: string): BillAllocation[] {
     if (amount === 0n) continue;
     const billId = Number(o.id);
     if (!Number.isSafeInteger(billId) || billId < 1) fail("The allocations couldn't be read: reload the page.");
-    lines.push({ billId, amount });
+    lines.push({ target: o.target === "opening_bill" ? "opening_bill" : "bill", billId, amount });
   }
-  if (new Set(lines.map((l) => l.billId)).size !== lines.length) fail("Put each bill on one line only.");
+  if (new Set(lines.map((l) => `${l.target}:${l.billId}`)).size !== lines.length) fail("Put each bill on one line only.");
   return lines;
 }
 
 /**
- * Locks the bills (id order) and refuses a total over `available`, a line over its bill's open amount, or a bill that
- * isn't this vendor's live bill (D51: two payments can't both take the same open amount).
+ * Locks the bills, then the opening bills (id order), and refuses a total over `available`, a line over its bill's
+ * open amount, or a bill that isn't this vendor's live bill (D51: two payments can't both take the same open amount).
  */
 export async function checkBillAllocations(tx: Tx, vendorId: number, available: bigint, lines: BillAllocation[], exceptPaymentId?: number) {
   const total = lines.reduce((s, l) => s + l.amount, 0n);
   if (total > available) {
     throw new UserError(`${formatMoney(total)} allocated is more than the ${formatMoney(available)} paid.`, "allocations");
   }
-  const billIds = lines.map((l) => l.billId).sort((a, b) => a - b);
+  const idsOf = (target: BillTarget) => lines.filter((l) => l.target === target).map((l) => l.billId).sort((a, b) => a - b);
+  const [billIds, openingIds] = [idsOf("bill"), idsOf("opening_bill")];
   const bills = billIds.length
     ? await tx.select().from(purchaseBills).where(inArray(purchaseBills.id, billIds)).orderBy(asc(purchaseBills.id)).for("update")
     : [];
+  const opening = openingIds.length
+    ? await tx.select().from(openingBills).where(inArray(openingBills.id, openingIds)).orderBy(asc(openingBills.id)).for("update")
+    : [];
   const paid = await paidTowardsBills(tx, billIds, exceptPaymentId);
+  const openingPaid = await paidTowardsBills(tx, openingIds, exceptPaymentId, "opening_bill");
   return lines.map((l) => {
+    if (l.target === "opening_bill") {
+      const o = opening.find((x) => x.id === l.billId);
+      if (!o || o.vendorId !== vendorId) throw new UserError("An opening bill here isn't this vendor's: reload the page.", "allocations");
+      const number = openingBillLabel(o.billNo);
+      const open = o.amountPaise - (openingPaid.get(o.id) ?? 0n);
+      if (l.amount > open) throw new UserError(`${number}: ${formatMoney(l.amount)} is more than its open ${formatMoney(open)}.`, "allocations");
+      return { ...l, number };
+    }
     const b = bills.find((x) => x.id === l.billId);
     if (!b || b.vendorId !== vendorId) throw new UserError("A bill here isn't this vendor's: reload the page.", "allocations");
     if (b.status !== "active") throw new UserError(`Bill ${b.number} is cancelled.`, "allocations");
@@ -228,7 +296,15 @@ const postPayment = (tx: Tx, id: number, number: string, v: Values, vendorName: 
 
 const insertAllocations = (tx: Tx, paymentId: number, lines: BillAllocation[], by: SessionUser) =>
   lines.length
-    ? tx.insert(vendorAllocations).values(lines.map((l) => ({ paymentId, purchaseBillId: l.billId, amountPaise: l.amount, createdBy: by.id })))
+    ? tx.insert(vendorAllocations).values(
+        lines.map((l) => ({
+          paymentId,
+          purchaseBillId: l.target === "bill" ? l.billId : null,
+          openingBillId: l.target === "opening_bill" ? l.billId : null,
+          amountPaise: l.amount,
+          createdBy: by.id,
+        })),
+      )
     : Promise.resolve();
 
 /** "PB/26-27/0001 ₹20,000.00 · on account ₹5,000.00". */
@@ -286,14 +362,23 @@ async function lock(tx: Tx, id: number) {
   return p;
 }
 
-/** The payment's allocations in force, with their bill numbers. */
-const currentLines = (tx: Tx, paymentId: number) =>
-  tx
-    .select({ id: vendorAllocations.id, billId: vendorAllocations.purchaseBillId, amount: vendorAllocations.amountPaise, number: purchaseBills.number })
-    .from(vendorAllocations)
-    .innerJoin(purchaseBills, eq(purchaseBills.id, vendorAllocations.purchaseBillId))
-    .where(and(eq(vendorAllocations.paymentId, paymentId), eq(vendorAllocations.active, true)))
-    .orderBy(asc(vendorAllocations.id));
+/** The payment's allocations in force, with their bill numbers (an opening bill: "Opening <bill no>"). */
+const currentLines = async (tx: Tx, paymentId: number) =>
+  (
+    await tx
+      .select({ allocation: vendorAllocations, number: purchaseBills.number, billNo: openingBills.billNo })
+      .from(vendorAllocations)
+      .leftJoin(purchaseBills, eq(purchaseBills.id, vendorAllocations.purchaseBillId))
+      .leftJoin(openingBills, eq(openingBills.id, vendorAllocations.openingBillId))
+      .where(and(eq(vendorAllocations.paymentId, paymentId), eq(vendorAllocations.active, true)))
+      .orderBy(asc(vendorAllocations.id))
+  ).map(({ allocation: a, number, billNo }) => ({
+    id: a.id,
+    target: (a.purchaseBillId === null ? "opening_bill" : "bill") as BillTarget,
+    billId: (a.purchaseBillId ?? a.openingBillId)!,
+    amount: a.amountPaise,
+    number: number ?? openingBillLabel(billNo!),
+  }));
 
 type EditPayload = { id: number; version: string; input: VendorPaymentInput };
 
@@ -306,7 +391,8 @@ async function planEdit(tx: Tx, p: EditPayload) {
     throw new UserError("A payment can't move to another financial year: cancel it and enter a new one.", "date");
   }
   const old = await currentLines(tx, p.id);
-  const sameLines = old.length === r.lines.length && r.lines.every((l) => old.some((o) => o.billId === l.billId && o.amount === l.amount));
+  const sameLines =
+    old.length === r.lines.length && r.lines.every((l) => old.some((o) => o.target === l.target && o.billId === l.billId && o.amount === l.amount));
   const [oldVendor] = await tx.select({ name: vendors.name }).from(vendors).where(eq(vendors.id, current.vendorId));
   const [oldAccount] = await tx.select({ name: accounts.name }).from(accounts).where(eq(accounts.id, current.moneyAccountId));
 
@@ -447,9 +533,9 @@ export async function applyVendorOnAccount(actor: SessionUser, vendorId: number,
     }
     await checkBillAllocations(tx, vendorId, rest, lines);
     for (const l of lines) {
-      const same = own.find((o) => o.billId === l.billId);
+      const same = own.find((o) => o.target === l.target && o.billId === l.billId);
       if (same) await deactivate(tx, [same.id]);
-      await insertAllocations(tx, p.id, [{ billId: l.billId, amount: l.amount + (same?.amount ?? 0n) }], actor);
+      await insertAllocations(tx, p.id, [{ ...l, amount: l.amount + (same?.amount ?? 0n) }], actor);
     }
     return { message: `Applied ${formatMoney(total)} from ${p.number}.` };
   });
@@ -496,22 +582,26 @@ export async function getVendorPayment(id: number) {
     .innerJoin(accounts, eq(accounts.id, vendorPayments.moneyAccountId))
     .where(eq(vendorPayments.id, id));
   if (!row) return undefined;
-  const all = await db
-    .select({
-      id: vendorAllocations.id,
-      billId: vendorAllocations.purchaseBillId,
-      amount: vendorAllocations.amountPaise,
-      active: vendorAllocations.active,
-      changedAt: vendorAllocations.updatedAt,
-      number: purchaseBills.number,
-      vendorBillNo: purchaseBills.vendorBillNo,
-      date: purchaseBills.date,
-      total: purchaseBills.totalPaise,
-    })
-    .from(vendorAllocations)
-    .innerJoin(purchaseBills, eq(purchaseBills.id, vendorAllocations.purchaseBillId))
-    .where(eq(vendorAllocations.paymentId, id))
-    .orderBy(asc(vendorAllocations.id));
+  const all = (
+    await db
+      .select({ a: vendorAllocations, bill: purchaseBills, opening: openingBills })
+      .from(vendorAllocations)
+      .leftJoin(purchaseBills, eq(purchaseBills.id, vendorAllocations.purchaseBillId))
+      .leftJoin(openingBills, eq(openingBills.id, vendorAllocations.openingBillId))
+      .where(eq(vendorAllocations.paymentId, id))
+      .orderBy(asc(vendorAllocations.id))
+  ).map(({ a, bill, opening }) => ({
+    id: a.id,
+    target: (bill ? "bill" : "opening_bill") as BillTarget,
+    billId: (a.purchaseBillId ?? a.openingBillId)!,
+    amount: a.amountPaise,
+    active: a.active,
+    changedAt: a.updatedAt,
+    number: bill ? bill.number : openingBillLabel(opening!.billNo),
+    vendorBillNo: bill ? bill.vendorBillNo : opening!.billNo,
+    date: bill ? bill.date : opening!.billDate,
+    total: bill ? bill.totalPaise : opening!.amountPaise,
+  }));
   const lines = all.filter((l) => l.active);
   const allocated = lines.reduce((s, l) => s + l.amount, 0n);
   const p = row.payment;

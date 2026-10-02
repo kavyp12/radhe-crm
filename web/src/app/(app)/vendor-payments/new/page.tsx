@@ -14,7 +14,7 @@ export default async function NewVendorPaymentPage({ searchParams }: PageProps<"
   const options = await vendorPaymentFormOptions();
   const picked = options.vendors.find((v) => String(v.id) === vendor);
   const open = picked ? await openBillsAction(picked.id) : [];
-  const target = open.find((b) => String(b.id) === bill);
+  const target = open.find((b) => b.target === "bill" && String(b.id) === bill);
   const cash = options.accounts.find((a) => a.systemKey === MODE_ACCOUNT.cash);
 
   return (
@@ -31,7 +31,7 @@ export default async function NewVendorPaymentPage({ searchParams }: PageProps<"
           chequeNo: "",
           chequeDate: "",
           notes: "",
-          allocated: target ? { [String(target.id)]: moneyText(target.open) } : {},
+          allocated: target ? { [`bill:${target.id}`]: moneyText(target.open) } : {},
         }}
         {...options}
         open={open}

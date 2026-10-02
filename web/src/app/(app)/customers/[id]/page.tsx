@@ -15,7 +15,8 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { db } from "@/db";
 import { followUps, users } from "@/db/schema";
-import { onAccountSources } from "@/lib/allocations";
+import { OpeningBills } from "@/components/opening-bills";
+import { customerOpeningBills, onAccountSources } from "@/lib/allocations";
 import { listAttachments } from "@/lib/attachments";
 import { requirePermission } from "@/lib/auth";
 import { customerAdvance, customerHistory, type Chain } from "@/lib/customer-history";
@@ -184,7 +185,7 @@ export default async function CustomerPage({ params, searchParams }: PageProps<"
   const canAdjust = can(user, "books", "create"); // write-off / discount / refund (T24, D55)
   const followUpsOn = can(user, "followUps", "view");
   const printsOn = can(user, "printJobs", "view");
-  const [overview, advance, files, people, chains, ledger, settings, sources, calls, prints] = await Promise.all([
+  const [overview, advance, files, people, chains, ledger, settings, sources, calls, prints, openingBills] = await Promise.all([
     customerOverview(id),
     customerAdvance(id),
     listAttachments("customer", id),
@@ -195,6 +196,7 @@ export default async function CustomerPage({ params, searchParams }: PageProps<"
     canApply || canAdjust ? onAccountSources(db, id) : [],
     followUpsOn ? listFollowUps(eq(followUps.customerId, id)) : [],
     printsOn ? customerPrintJobs(user, id) : [],
+    customerOpeningBills(id),
   ]);
   const personName = (v: unknown) => people.find((p) => p.id === v)?.name ?? String(v);
   const tiles = [
@@ -330,7 +332,8 @@ export default async function CustomerPage({ params, searchParams }: PageProps<"
           </dl>
         </TabsContent>
 
-        <TabsContent value="history">
+        <TabsContent value="history" className="grid grid-cols-1 gap-4">
+          <OpeningBills rows={openingBills} />
           <Timeline chains={chains} user={user} />
         </TabsContent>
 
