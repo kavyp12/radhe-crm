@@ -63,6 +63,11 @@ const DOC_LABEL: Record<string, string> = {
   expenses: "Expense",
   transfers: "Transfer",
   cash_counts: "Cash count", // a count difference (T26)
+  // Stock (T17–T23), for the journal export (T36).
+  stock_items: "Opening balance", // opening stock
+  goods_receipts: "Material receive",
+  stock_issues: "Stock issue / return",
+  stock_adjustments: "Stock adjustment",
 };
 
 /** What a ledger line is: "Invoice", "Estimate", "Receipt", "Receipt (cancelled)" … */

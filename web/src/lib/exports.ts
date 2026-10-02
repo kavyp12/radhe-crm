@@ -1,4 +1,5 @@
 import { listCustomers } from "@/lib/customers";
+import { journalReport } from "@/lib/data-export";
 import { listExpenses } from "@/lib/expenses";
 import { INVOICE_KIND, INVOICE_STATUS, listInvoices } from "@/lib/invoices";
 import { can, canViewCost, type SessionUser } from "@/lib/permissions";
@@ -52,6 +53,7 @@ export const REPORTS: Record<string, (user: SessionUser, q: ReportQuery) => Prom
   "job-profit": jobProfitReport,
   "product-sales": productReport,
   "gst-summary": gstReport,
+  journal: journalReport,
 };
 /** The loader of /reports/<name>, or undefined (own keys only: "constructor" is not a report). */
 export const reportLoader = (name: string) => (Object.hasOwn(REPORTS, name) ? REPORTS[name] : undefined);

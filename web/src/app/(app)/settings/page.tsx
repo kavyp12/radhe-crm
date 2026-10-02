@@ -1,10 +1,13 @@
+import Link from "next/link";
 import { AttachmentsPanel, ImageField } from "@/components/attachments";
 import { FormSection } from "@/components/form";
 import { History } from "@/components/history";
 import { PageHeader } from "@/components/page-header";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { listAttachments } from "@/lib/attachments";
 import { requirePermission } from "@/lib/auth";
+import { canExportAll } from "@/lib/data-export";
 import { firstDocumentDate, moneyAccounts } from "@/lib/ledger";
 import { moneyText } from "@/lib/num";
 import { can } from "@/lib/permissions";
@@ -47,6 +50,7 @@ export default async function SettingsPage() {
         <TabsList variant="line">
           <TabsTrigger value="details">Details</TabsTrigger>
           <TabsTrigger value="books">Books</TabsTrigger>
+          <TabsTrigger value="data">Data</TabsTrigger>
           <TabsTrigger value="attachments">Attachments ({files.length})</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
@@ -87,6 +91,27 @@ export default async function SettingsPage() {
             }))}
             action={saveBooksAction}
           />
+        </TabsContent>
+        <TabsContent value="data" className="grid grid-cols-1 gap-4">
+          {/* S27, T36: take the data out. Backups proper are pg_dump files on the server (docs/BACKUP.md). */}
+          {canExportAll(user) ? (
+            <>
+              <FormSection title="All data as Excel" description="One workbook, a sheet per table: masters, every document with its lines, allocations, stock moves, follow-ups and the journal. Ids are kept, so sheets can be matched up. For reading — restores come from database backups.">
+                <Button asChild className="w-fit">
+                  <a href="/export/all-data" download>Download all data (Excel)</a>
+                </Button>
+              </FormSection>
+              <FormSection title="Journal for the accountant" description="Date, voucher type, voucher no, ledger, Dr, Cr and narration for a period, with totals — as Excel or PDF.">
+                <Button asChild variant="outline" className="w-fit">
+                  <Link href="/reports/journal">Open the journal</Link>
+                </Button>
+              </FormSection>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              These exports include purchase rates and stock values: turn on &ldquo;Can see cost, profit and purchase rates&rdquo; for your user first.
+            </p>
+          )}
         </TabsContent>
         <TabsContent value="attachments">
           <AttachmentsPanel entityType="settings" entityId={1} items={files} canUpload={can(user, "settings", "edit")} />

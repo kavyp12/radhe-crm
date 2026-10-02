@@ -12,11 +12,11 @@ export const INR_FORMAT = '[>=10000000]"₹"##\\,##\\,##\\,##0.00;[>=100000]"₹
 // A ledger balance stays a signed number (+ = Dr) shown "₹1,500.00 Dr" / "₹200.00 Cr". ponytail: western grouping
 // (the sections are taken by Dr / Cr); a lakh-grouped variant needs conditions Excel can't combine with these.
 export const BALANCE_FORMAT = '"₹"#,##0.00" Dr";"₹"#,##0.00" Cr";"₹"0.00';
-const DATE_FORMAT = "dd/mm/yyyy";
+export const DATE_FORMAT = "dd/mm/yyyy";
 const HEADER_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF4F4F5" } } as const;
 
 /** 'YYYY-MM-DD' → a Date at UTC midnight, which exceljs writes as that calendar day. */
-function excelDate(iso: string): Date {
+export function excelDate(iso: string): Date {
   const [y, m, d] = dateParts(iso);
   return new Date(Date.UTC(y, m - 1, d));
 }

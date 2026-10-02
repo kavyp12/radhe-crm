@@ -43,3 +43,6 @@ next-env.d.ts
 
 # sample PDFs written by the tests (T12)
 /.samples/
+
+# database dumps written by pnpm db:backup (T36) — never commit them
+/backups/

@@ -186,6 +186,7 @@ export const REPORT_INDEX: { n: number; name: string; title: string; area: "repo
   { n: 16, name: "stock-valuation", title: "Stock valuation", area: "reports", cost: true },
   { n: 17, name: "pending-payment", title: "Pending payment (vendor bills)", area: "reports" },
   { n: 18, name: "advances", title: "Advance received", area: "reports" },
+  { n: 19, name: "journal", title: "Journal (for the accountant)", area: "reports", cost: true }, // S27, T36
 ];
 
 /** May this user open the report? (Its loader checks the same and returns null otherwise.) */

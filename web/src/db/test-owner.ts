@@ -10,7 +10,8 @@ export const OWNER = { name: "Owner", username: "owner", password: "owner-pass-1
 
 export async function testOwner(): Promise<SessionUser> {
   await seedOwner(OWNER);
-  const [row] = await db.select().from(users).where(eq(users.role, "owner"));
+  // By username: tests may add more owners (D38 allows several), e.g. one without can_view_cost (T36).
+  const [row] = await db.select().from(users).where(eq(users.username, OWNER.username));
   return { id: row.id, name: row.name, username: row.username ?? "", role: row.role, canViewCost: row.canViewCost };
 }
 
