@@ -81,7 +81,9 @@ export type PdfDoc = {
 const GREY = "#6b7280";
 const LINE = "#d4d4d8";
 const s = StyleSheet.create({
-  page: { padding: 32, paddingBottom: 44, fontFamily: ["Noto Sans", "Noto Sans Gujarati"], fontSize: 8.5, color: "#18181b" },
+  // liga off (inherited by all text): some viewers copy / search the fi / ff ligature glyph as "f" ("Proft"). Noto Sans
+  // Gujarati has no liga feature, so its conjuncts are unaffected.
+  page: { padding: 32, paddingBottom: 44, fontFamily: ["Noto Sans", "Noto Sans Gujarati"], fontSize: 8.5, color: "#18181b", fontFeatureSettings: { liga: false } },
   row: { flexDirection: "row" },
   muted: { color: GREY },
   bold: { fontWeight: 700 },
@@ -500,6 +502,7 @@ export async function reportPdf(report: Report): Promise<Buffer> {
                 ))}
               </View>
             )}
+            {t.note && <Text style={[s.muted, { marginTop: 4 }]}>{t.note}</Text>}
           </View>
         ))}
       </Page>

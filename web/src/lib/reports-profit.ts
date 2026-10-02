@@ -343,6 +343,7 @@ export async function gstReport(user: SessionUser, q: ReportQuery, now = new Dat
             moneyCol("net", "Net payable"),
           ],
           rows: net,
+          note: "Per head, before IGST credit is set off against CGST / SGST — the CA does the set-off.",
         },
       ],
     },

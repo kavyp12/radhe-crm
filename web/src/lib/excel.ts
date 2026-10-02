@@ -74,6 +74,7 @@ export async function reportXlsx(report: Report): Promise<Buffer> {
       row.font = { bold: true };
       styleCells(sheet, row.number, table.columns);
     }
+    if (table.note) sheet.addRow([table.note]).font = { color: { argb: "FF6B7280" } };
   }
   widths.forEach((w, i) => (sheet.getColumn(i + 1).width = w));
 

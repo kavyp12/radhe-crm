@@ -13,7 +13,8 @@ export type ReportColumn = {
   total?: boolean;
 };
 export type ReportRow = Record<string, ReportCell> & { href?: string | null };
-export type ReportTable = { title?: string; columns: ReportColumn[]; rows: ReportRow[] };
+/** note = one line printed under the table. */
+export type ReportTable = { title?: string; columns: ReportColumn[]; rows: ReportRow[]; note?: string };
 export type Report = {
   title: string;
   /** "Period: 01/10/2026 – 31/10/2026", "Mode: Cash" … printed under the title. */

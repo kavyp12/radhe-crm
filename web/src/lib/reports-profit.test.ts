@@ -211,6 +211,7 @@ test("GST summary: output by B2B / B2C, HSN and rate; notes; input; net per head
     ["SGST", 9900_00n, 90_00n, 0n, 900_00n, 9090_00n],
     ["IGST", 2400_00n, 0n, -240_00n, 900_00n, 1260_00n],
   ]);
+  expect(net.note).toContain("before IGST credit is set off against CGST / SGST"); // D61
 
   // Per head, for this window and for the whole FY: output + notes = the output account's credit, input = the input
   // account's debit (the cancelled invoice and its reversal net out; estimates post no GST).

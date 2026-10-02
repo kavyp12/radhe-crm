@@ -94,6 +94,7 @@ export function ReportView({ tables }: { tables: ReportTable[] }) {
         ) : (
           <Summary table={t} />
         )}
+        {t.note && <p className="text-xs text-muted-foreground">{t.note}</p>}
       </section>
     ),
   );
