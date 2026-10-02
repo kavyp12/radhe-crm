@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Roboto } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -13,7 +13,11 @@ const roboto = Roboto({
 
 export const metadata: Metadata = {
   title: "Radhe CRM",
+  icons: { apple: "/icons/apple-touch-icon.png" },
+  appleWebApp: { title: "Radhe CRM", capable: true },
 };
+
+export const viewport: Viewport = { themeColor: "#4f46e5" }; // --primary (manifest.ts)
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (

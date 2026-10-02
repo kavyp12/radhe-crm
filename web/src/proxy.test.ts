@@ -21,6 +21,10 @@ test("/login, /api/auth/*, /share/<token> and /api/agent/* stay reachable withou
   // The print agent: its routes check the device token themselves (T39, lib/agent.ts).
   expect(passes(proxy(request("/api/agent/bootstrap")))).toBe(true);
   expect(passes(proxy(request("/api/agentx")))).toBe(false);
+  // The PWA manifest and icons (T42): fetched without cookies, no data in them.
+  expect(passes(proxy(request("/manifest.webmanifest")))).toBe(true);
+  expect(passes(proxy(request("/icons/icon-192.png")))).toBe(true);
+  expect(passes(proxy(request("/iconsx")))).toBe(false);
 });
 
 test("other API routes answer 401 without a session", () => {

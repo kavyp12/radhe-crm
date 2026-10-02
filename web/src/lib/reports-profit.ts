@@ -237,12 +237,13 @@ export async function productReport(user: SessionUser, q: ReportQuery, now = new
   const profitOf = new Map<SalesRow, bigint>();
   if (cost) {
     const jobs = await jobFigures(rows.flatMap((r) => (r.jobId === null ? [] : [r.jobId])));
+    const linesOf = Map.groupBy(rows, (r) => r.jobId); // T42: one pass, not a scan of every row per job
     // Cumulative rounding per job, so its lines' shares add up exactly to profit × (their taxable ÷ the job's sale).
     for (const [jobId, f] of jobs) {
       if (f.sale === 0n) continue;
       let taxable = 0n;
       let given = 0n;
-      for (const r of rows.filter((x) => x.jobId === jobId)) {
+      for (const r of linesOf.get(jobId) ?? []) {
         taxable += r.taxable;
         const upTo = divRound(f.profit * taxable, f.sale);
         profitOf.set(r, upTo - given);

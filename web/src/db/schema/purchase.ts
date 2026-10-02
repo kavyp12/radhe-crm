@@ -308,6 +308,7 @@ export const purchaseBills = pgTable(
   },
   (t) => [
     index("purchase_bills_vendor_idx").on(t.vendorId),
+    index("purchase_bills_date_idx").on(t.date), // T42: "today / this month" figures filter by date
     uniqueIndex("purchase_bills_vendor_bill_no_idx")
       .on(t.vendorId, sql`upper(${t.vendorBillNo})`)
       .where(sql`${t.status} <> 'cancelled'`),
@@ -384,6 +385,7 @@ export const vendorPayments = pgTable(
   },
   (t) => [
     index("vendor_payments_vendor_idx").on(t.vendorId),
+    index("vendor_payments_date_idx").on(t.date), // T42: "today / this month" figures filter by date
     check("vendor_payments_amount_positive", sql`${t.amountPaise} > 0`),
     check("vendor_payments_mode_check", sql`${t.mode} in ('cash', 'upi', 'bank', 'cheque')`),
     check("vendor_payments_status_check", sql`${t.status} in ('active', 'cancelled')`),
@@ -444,6 +446,7 @@ export const expenses = pgTable(
   },
   (t) => [
     index("expenses_category_idx").on(t.categoryId),
+    index("expenses_date_idx").on(t.date), // T42: "today / this month" figures filter by date
     index("expenses_job_idx").on(t.jobId),
     check("expenses_amount_positive", sql`${t.amountPaise} > 0`),
     check("expenses_mode_check", sql`${t.mode} in ('cash', 'upi', 'bank', 'cheque')`),

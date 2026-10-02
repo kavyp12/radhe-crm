@@ -1,5 +1,7 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { expect, test } from "vitest";
-import { navFor, navItemFor, newMenuFor } from "@/lib/nav";
+import { NAV, NEW_MENU, navFor, navItemFor, newMenuFor } from "@/lib/nav";
 import { DEFAULT_CAN_VIEW_COST, type Role } from "@/lib/permissions";
 
 const user = (role: Role, canViewCost = DEFAULT_CAN_VIEW_COST[role]) => ({ role, canViewCost });
@@ -62,4 +64,12 @@ test("a path maps to its module", () => {
   expect(navItemFor("/quotations/new")?.label).toBe("Quotations");
   expect(navItemFor("/purchase-bills")?.label).toBe("Purchase Bills");
   expect(navItemFor("/nope")).toBeUndefined();
+});
+
+test("every sidebar link and + New item opens a real page (T42: the 'not built yet' catch-all is gone)", () => {
+  const hrefs = [...NAV.flatMap((g) => g.items.map((i) => i.href)), ...NEW_MENU.map((i) => i.href)];
+  const app = path.resolve(__dirname, "../app/(app)");
+  const missing = hrefs.filter((h) => !existsSync(path.join(app, h, "page.tsx")));
+  expect(missing).toEqual([]);
+  expect(existsSync(path.join(app, "[...slug]"))).toBe(false);
 });

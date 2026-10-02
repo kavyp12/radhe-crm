@@ -203,6 +203,7 @@ export const invoices = pgTable(
   },
   (t) => [
     index("invoices_customer_idx").on(t.customerId),
+    index("invoices_date_idx").on(t.date), // T42: "today / this month" figures filter by date
     check("invoices_kind_check", sql`${t.kind} in ('tax', 'estimate')`),
     check("invoices_status_check", sql`${t.status} in ('draft', 'issued', 'cancelled')`),
     check("invoices_number_when_issued", sql`${t.status} = 'draft' or ${t.number} is not null`),
@@ -328,6 +329,7 @@ export const receipts = pgTable(
   },
   (t) => [
     index("receipts_customer_idx").on(t.customerId),
+    index("receipts_date_idx").on(t.date), // T42: "today / this month" figures filter by date
     check("receipts_amount_positive", sql`${t.amountPaise} > 0`),
     check("receipts_mode_check", sql`${t.mode} in ('cash', 'upi', 'bank', 'cheque')`),
     check("receipts_status_check", sql`${t.status} in ('active', 'cancelled')`),

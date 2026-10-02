@@ -7,8 +7,14 @@ export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   // /share/<token>: a public PDF link (D46); the token is checked by the route itself. /api/agent/*: the print agent
   // (T39) has no session — every route there checks its device token itself (lib/agent.ts) and never a cookie.
+  // The PWA manifest and its icons (T42): the browser fetches them without cookies; they hold no data.
   const open =
-    pathname === "/login" || pathname.startsWith("/api/auth/") || pathname.startsWith("/share/") || pathname.startsWith("/api/agent/");
+    pathname === "/login" ||
+    pathname === "/manifest.webmanifest" ||
+    pathname.startsWith("/icons/") ||
+    pathname.startsWith("/api/auth/") ||
+    pathname.startsWith("/share/") ||
+    pathname.startsWith("/api/agent/");
   if (open || getSessionCookie(request)) {
     return NextResponse.next();
   }
