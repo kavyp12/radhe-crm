@@ -149,11 +149,11 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
   Done when: GST summary ties to journal GST accounts · job profit ties to T27.
 
 ## Phase 7 — Search, export, backup
-- [ ] **T35 · Universal search** — S26
+- [x] **T35 · Universal search** — S26
   Ctrl+K palette; pg_trgm indexes; customers (name, firm, mobile, GSTIN), jobs (incl. unpadded RDS-2026-125), quotations, invoices, receipts, amounts, site reference / vehicle no.
   Done when: tests for each search type · results respect permissions.
 
-- [ ] **T36 · Data export & backup** — S27
+- [x] **T36 · Data export & backup** — S27
   Full Excel export (masters + all vouchers); journal export for the accountant (date, voucher type, no, ledger, Dr, Cr, narration); backup script (pg_dump) + restore steps documented.
   Done when: export opens in Excel correctly · backup + restore tested on a copy of radhe_dev.
 
@@ -206,7 +206,7 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
 - ✅ B10 T27 + T28 + T29
 - ✅ B11 T31 + T30 🚦 (T30 look check open)
 - ✅ B12 T32 + T33 + T34
-- B13 T35 + T36
+- ✅ B13 T35 + T36
 - B14 T37 + T38 + T39
 - B15 T40 + T41 (needs Q1) → 🚦 G2
 - B16 T42 + T43
