@@ -12,8 +12,10 @@ import { firstDocumentDate, moneyAccounts } from "@/lib/ledger";
 import { moneyText } from "@/lib/num";
 import { can } from "@/lib/permissions";
 import { getSettings, percentText } from "@/lib/settings";
-import { saveBooksAction, saveSettingsAction, setImageAction } from "./actions";
+import { listDevices } from "@/lib/agent";
+import { createPairingCodeAction, renameDeviceAction, revokeDeviceAction, saveBooksAction, saveSettingsAction, setImageAction } from "./actions";
 import { BooksForm } from "./books-form";
+import { DevicesPanel } from "./devices-panel";
 import { SettingsForm } from "./settings-form";
 
 const LABELS = {
@@ -36,21 +38,24 @@ const LABELS = {
 
 export default async function SettingsPage() {
   const user = await requirePermission("settings", "view");
-  const [settings, files, money, firstDocument] = await Promise.all([
+  const devicesOn = can(user, "devices", "view");
+  const [settings, files, money, firstDocument, devices] = await Promise.all([
     getSettings(),
     listAttachments("settings", 1),
     moneyAccounts(),
     firstDocumentDate(),
+    devicesOn ? listDevices(user) : [],
   ]);
 
   return (
     <div className="grid grid-cols-1 gap-5">
       <PageHeader title="Settings" description="Company details for documents, and the rules for approvals." />
       <Tabs defaultValue="details" className="gap-4">
-        <TabsList variant="line">
+        <TabsList variant="line" className="max-w-full overflow-x-auto">
           <TabsTrigger value="details">Details</TabsTrigger>
           <TabsTrigger value="books">Books</TabsTrigger>
           <TabsTrigger value="data">Data</TabsTrigger>
+          {devicesOn && <TabsTrigger value="devices">Devices ({devices.length})</TabsTrigger>}
           <TabsTrigger value="attachments">Attachments ({files.length})</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
@@ -113,6 +118,14 @@ export default async function SettingsPage() {
             </p>
           )}
         </TabsContent>
+        {devicesOn && (
+          <TabsContent value="devices">
+            <DevicesPanel
+              devices={devices.map((d) => ({ ...d, rename: renameDeviceAction.bind(null, d.id), revoke: revokeDeviceAction.bind(null, d.id) }))}
+              newCode={createPairingCodeAction}
+            />
+          </TabsContent>
+        )}
         <TabsContent value="attachments">
           <AttachmentsPanel entityType="settings" entityId={1} items={files} canUpload={can(user, "settings", "edit")} />
         </TabsContent>

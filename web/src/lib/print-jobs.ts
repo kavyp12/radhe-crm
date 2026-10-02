@@ -287,8 +287,8 @@ function rateFor(mode: "sale" | "job_cost", machine: typeof machines.$inferSelec
   return rate;
 }
 
-/** Who printed it, when, and (agent) from which device under which idempotency key. */
-export type PrintOrigin = { by: { id: string }; printedAt: Date };
+/** Who printed it and when; from the agent also which device, under its idempotency key (T39). */
+export type PrintOrigin = { by: { id: string }; printedAt: Date; deviceId?: number; clientUuid?: string };
 
 /** Checks everything; `create` false = look only (no quick-add customer is made). */
 async function planPrintJob(tx: Tx, input: PrintJobInput, o: PrintOrigin, create: boolean) {
@@ -347,7 +347,7 @@ export async function insertPrintJob(tx: Tx, input: PrintJobInput, o: PrintOrigi
   const number = await nextNumber(tx, "print_job", p.date);
   const [row] = await tx
     .insert(printJobs)
-    .values({ ...p.values, number, customerId: p.customer.id, createdBy: o.by.id })
+    .values({ ...p.values, number, customerId: p.customer.id, deviceId: o.deviceId ?? null, clientUuid: o.clientUuid ?? null, createdBy: o.by.id })
     .returning({ id: printJobs.id });
   if (p.pay.received > 0n) {
     const amount = moneyText(p.pay.received);

@@ -13,11 +13,14 @@ test("no session → redirect to /login, remembering where the user was going", 
   expect(proxy(request("/")).headers.get("location")).toBe("http://localhost:3000/login");
 });
 
-test("/login, /api/auth/* and /share/<token> stay reachable without a session", () => {
+test("/login, /api/auth/*, /share/<token> and /api/agent/* stay reachable without a session", () => {
   expect(passes(proxy(request("/login")))).toBe(true);
   expect(passes(proxy(request("/api/auth/sign-in/username")))).toBe(true);
   expect(passes(proxy(request("/share/abc")))).toBe(true);
   expect(passes(proxy(request("/shared")))).toBe(false);
+  // The print agent: its routes check the device token themselves (T39, lib/agent.ts).
+  expect(passes(proxy(request("/api/agent/bootstrap")))).toBe(true);
+  expect(passes(proxy(request("/api/agentx")))).toBe(false);
 });
 
 test("other API routes answer 401 without a session", () => {

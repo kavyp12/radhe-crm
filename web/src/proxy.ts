@@ -5,8 +5,10 @@ import { NextResponse, type NextRequest } from "next/server";
 // the real session on the server (lib/auth.ts).
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
-  // /share/<token>: a public PDF link (D46); the token is checked by the route itself.
-  const open = pathname === "/login" || pathname.startsWith("/api/auth/") || pathname.startsWith("/share/");
+  // /share/<token>: a public PDF link (D46); the token is checked by the route itself. /api/agent/*: the print agent
+  // (T39) has no session — every route there checks its device token itself (lib/agent.ts) and never a cookie.
+  const open =
+    pathname === "/login" || pathname.startsWith("/api/auth/") || pathname.startsWith("/share/") || pathname.startsWith("/api/agent/");
   if (open || getSessionCookie(request)) {
     return NextResponse.next();
   }

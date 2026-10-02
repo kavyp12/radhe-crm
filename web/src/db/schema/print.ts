@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { type AnyPgColumn, bigint, boolean, check, date, index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { type AnyPgColumn, bigint, boolean, check, date, index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { users } from "./auth";
 import { customers, productCategories } from "./masters";
 import { jobs } from "./sales";
@@ -46,6 +46,33 @@ export const printingTypes = pgTable("printing_types", {
   ...stamps(),
 });
 
+/**
+ * A PC running the Radhe print agent (A§11, D64, T39). It signs every /api/agent/* call with its token; only the
+ * token's SHA-256 is stored. Revoked = its token stops working at once. Never deleted. Audited (not last_seen_at).
+ */
+export const printDevices = pgTable("print_devices", {
+  id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: text("created_by").references(() => users.id), // the owner whose pairing code it used
+});
+
+/** A one-time pairing code the owner makes in Settings → Devices: 10 minutes, single use; only its SHA-256 is kept. */
+export const pairingCodes = pgTable("print_pairing_codes", {
+  id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  codeHash: text("code_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  deviceId: bigint("device_id", { mode: "number" }).references(() => printDevices.id), // the device it paired
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: text("created_by")
+    .notNull()
+    .references(() => users.id),
+});
+
 export const PRINT_JOB_MODES = ["sale", "job_cost"] as const;
 export const PRINT_JOB_STATUSES = ["active", "cancelled"] as const;
 
@@ -89,6 +116,9 @@ export const printJobs = pgTable(
       .notNull()
       .generatedAlwaysAs(sql`(timezone('Asia/Kolkata', printed_at))::date`),
     reprintOfId: bigint("reprint_of_id", { mode: "number" }).references((): AnyPgColumn => printJobs.id),
+    // The agent's id for this print (T39): a print sent twice — a retry, or two copies at once — is saved once.
+    clientUuid: uuid("client_uuid").unique(),
+    deviceId: bigint("device_id", { mode: "number" }).references(() => printDevices.id), // null = the web form
     status: text("status", { enum: PRINT_JOB_STATUSES }).notNull().default("active"),
     notes: text("notes"),
     ...stamps(),

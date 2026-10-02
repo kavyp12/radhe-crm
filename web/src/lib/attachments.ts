@@ -71,14 +71,30 @@ export async function saveAttachment(actor: SessionUser, input: NewAttachment) {
   if (!canAttach(actor, input.entityType, "edit")) throw new Error("Not allowed");
   if (!Number.isSafeInteger(input.entityId) || input.entityId < 1) throw new UserError("Unknown record.");
   if (!(UPLOAD_KINDS as readonly string[]).includes(input.kind)) throw new UserError("Pick the kind of document.");
-  const type = checkUpload(input.bytes);
+  return store(actor, input, checkUpload(input.bytes));
+}
+
+/**
+ * A print job's thumbnail from the print agent (T39): JPEG / PNG / WebP only (sniffed, never the claimed type), 4 MB
+ * at most. `by` = the print job's operator, the audit user of what the agent sends (D64).
+ */
+export async function saveThumbnail(by: { id: string }, printJobId: number, fileName: string, bytes: Uint8Array) {
+  if (bytes.length === 0) throw new UserError("The file is empty.");
+  if (bytes.length > MAX_UPLOAD_BYTES) throw new UserError("Files can be 4 MB at most.");
+  const type = sniffType(bytes);
+  if (!type?.startsWith("image/")) throw new UserError("A thumbnail must be a JPEG, PNG or WebP image.");
+  return store(by, { entityType: "print_job", entityId: printJobId, kind: "print_thumbnail", fileName, bytes }, type);
+}
+
+/** Stores checked bytes under a new key and their row (`by` = the audit user). */
+async function store(by: { id: string }, input: NewAttachment, type: FileType) {
   const fileName = input.fileName.replace(/[\\/\u0000-\u001f\u007f]/g, "").trim().slice(-200) || "file";
   const [year, month] = todayIST().split("-");
   const path = `attachments/${year}/${month}/${crypto.randomUUID()}.${EXTENSION[type]}`;
 
   // Bytes first: a failed insert leaves an unused file, never a row pointing at nothing.
   await storage.put(path, input.bytes);
-  const [row] = await writeTx(actor, (tx) =>
+  const [row] = await writeTx(by, (tx) =>
     tx
       .insert(attachments)
       .values({
@@ -89,7 +105,7 @@ export async function saveAttachment(actor: SessionUser, input: NewAttachment) {
         fileName,
         mime: type,
         size: input.bytes.length,
-        createdBy: actor.id,
+        createdBy: by.id,
       })
       .returning(),
   );

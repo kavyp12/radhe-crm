@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { formAction, type FormState } from "@/lib/action";
+import { createPairingCode, renameDevice, revokeDevice } from "@/lib/agent";
 import { requirePermission } from "@/lib/auth";
 import { saveBooks, setSettingsImage, updateSettings } from "@/lib/settings";
 
@@ -48,4 +49,28 @@ export async function saveBooksAction(_: FormState, form: FormData): Promise<For
     });
     revalidatePath("/settings");
   });
+}
+
+/** Settings → Devices (T39): a pairing code, shown once (only its hash is stored). */
+export async function createPairingCodeAction(): Promise<{ code: string; expiresAt: Date }> {
+  const actor = await requirePermission("devices", "create");
+  const made = await createPairingCode(actor);
+  revalidatePath("/settings");
+  return made;
+}
+
+export async function renameDeviceAction(id: number, _: FormState, form: FormData): Promise<FormState> {
+  const actor = await requirePermission("devices", "edit");
+  if (!Number.isSafeInteger(id)) throw new Error("Bad device id");
+  const state = await formAction(() => renameDevice(actor, id, text(form, "name")));
+  revalidatePath("/settings");
+  return state;
+}
+
+export async function revokeDeviceAction(id: number): Promise<FormState> {
+  const actor = await requirePermission("devices", "edit");
+  if (!Number.isSafeInteger(id)) throw new Error("Bad device id");
+  const state = await formAction(() => revokeDevice(actor, id));
+  revalidatePath("/settings");
+  return state;
 }

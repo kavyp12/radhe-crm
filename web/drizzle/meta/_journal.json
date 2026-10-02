@@ -386,6 +386,20 @@
       "when": 1790927744036,
       "tag": "0054_print_thumbnail",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1790929378727,
+      "tag": "0055_print_devices",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1790929389385,
+      "tag": "0056_print_devices_audit",
+      "breakpoints": true
     }
   ]
 }
