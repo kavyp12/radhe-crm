@@ -3,6 +3,7 @@ import { journalReport } from "@/lib/data-export";
 import { listExpenses } from "@/lib/expenses";
 import { INVOICE_KIND, INVOICE_STATUS, listInvoices } from "@/lib/invoices";
 import { can, canViewCost, type SessionUser } from "@/lib/permissions";
+import { printPendingReport } from "@/lib/print-jobs";
 import { listPurchaseBills } from "@/lib/purchase-bills";
 import { RECEIPT_MODE } from "@/lib/receipt-modes";
 import { listReceipts } from "@/lib/receipts";
@@ -54,6 +55,7 @@ export const REPORTS: Record<string, (user: SessionUser, q: ReportQuery) => Prom
   "product-sales": productReport,
   "gst-summary": gstReport,
   journal: journalReport,
+  "print-pending": printPendingReport,
 };
 /** The loader of /reports/<name>, or undefined (own keys only: "constructor" is not a report). */
 export const reportLoader = (name: string) => (Object.hasOwn(REPORTS, name) ? REPORTS[name] : undefined);

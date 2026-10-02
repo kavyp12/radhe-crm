@@ -1,9 +1,10 @@
-import { and, asc, desc, eq, inArray, ne, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, ne, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Status } from "@/components/status-badge";
 import { db, writeTx, type Tx } from "@/db";
 import {
   allocations,
+  attachments,
   customers,
   invoiceLines,
   invoices,
@@ -26,7 +27,9 @@ import { can, canViewCost, type SessionUser } from "@/lib/permissions";
 import { MODE_ACCOUNT } from "@/lib/receipt-modes";
 import { insertReceipt } from "@/lib/receipts";
 import { customerFor, readDate } from "@/lib/sales";
+import { moneyCol, OPEN_PERIODS, party, pick, pickFilters, reportRange, rollUp, type ReportQuery, type ReportResult } from "@/lib/reports";
 import { getSettings } from "@/lib/settings";
+import { rangeText } from "@/lib/statements";
 
 // Print jobs (P1–P10, A§5, A§11, D19, D64). A new print (mode sale) is sold at the typed rate — the machine's sale rate
 // by default — and posts nothing until it is billed on an invoice / estimate. A print on an existing job (mode
@@ -734,8 +737,125 @@ export function listRow(r: PrintJobRow) {
     billing: r.status === "cancelled" ? "Cancelled" : r.mode === "job_cost" ? "On a job" : billed ? "Billed" : "Unbilled",
     invoice: billed ? (billed.number ?? "Draft") : "",
     amount: r.amountPaise,
+    onJob: r.mode === "job_cost",
     received: r.money && r.mode === "sale" ? r.money.received : null,
     balance: r.money?.balance ?? null,
     status: r.money ? r.money.payment : r.status === "cancelled" ? ("Cancelled" as const) : ("Active" as const),
   };
+}
+
+// ---- Dashboard, report #20, thumbnail (T38: P6, P7, P9)
+
+/** Not paid yet (A§5): what "Printed But Payment Pending" lists. Overdue = billed on an invoice that is past due. */
+export const PENDING: PrintPayment[] = ["Unpaid", "Part Payment", "Credit Customer", "Overdue"];
+
+/**
+ * P9 "Printing today" (owner / accountant): today's print jobs and sq ft (cancelled left out); value = today's new
+ * (sale) prints — a print on a job is that job's cost, never a print sale; pending = what is still open on them (the
+ * A§5 pending statuses: amount − money taken for the print); received = value − pending.
+ */
+export async function printingToday(today = todayIST()) {
+  const rows = await db
+    .select({ pj: printJobs, creditCustomer: customers.isCreditCustomer })
+    .from(printJobs)
+    .innerJoin(customers, eq(customers.id, printJobs.customerId))
+    .where(and(eq(printJobs.date, today), eq(printJobs.status, "active")));
+  const sale = rows.filter((r) => r.pj.mode === "sale");
+  const money = await printJobMoney(sale.map((r) => ({ ...r.pj, creditCustomer: r.creditCustomer })));
+  const value = sale.reduce((s, r) => s + r.pj.amountPaise, 0n);
+  const pending = sale.reduce((s, { pj }) => {
+    const m = money.get(pj.id)!;
+    return PENDING.includes(m.payment) && pj.amountPaise > m.received ? s + pj.amountPaise - m.received : s;
+  }, 0n);
+  return { jobs: rows.length, sqftMilli: rows.reduce((s, r) => s + r.pj.sqftMilli, 0n), value, received: value - pending, pending };
+}
+
+/**
+ * S20 #20 / P9 "Printed But Payment Pending" (owner / accountant): new (sale) prints whose status is Unpaid, Part
+ * Payment, Credit Customer — or Overdue once billed on an invoice past its due date — with amount, money taken for the
+ * print (also when it moved to its invoice), balance, customer, machine, operator. As of now; the period only narrows
+ * the prints by date. Prints on a job are left out: they are the job's cost and its money is collected on the job.
+ */
+export async function printPendingReport(user: SessionUser, q: ReportQuery, now = new Date()): Promise<ReportResult | null> {
+  if (!can(user, "reports", "view") || !can(user, "printJobs", "money")) return null;
+  const { period, range, error } = reportRange(q, "all");
+  const machineList = await db.select({ id: machines.id, name: machines.name }).from(machines).orderBy(asc(machines.name));
+  const picks = [
+    pick("machine", "Machine", machineList.map((m) => [String(m.id), m.name]), q),
+    pick("status", "Status", PENDING.map((s) => [s, s]), q),
+  ];
+  const [machine, status] = picks.map((p) => p.value);
+  const rows = await shape(
+    user,
+    await printJobRows(
+      and(
+        eq(printJobs.mode, "sale"),
+        eq(printJobs.status, "active"),
+        range.from ? gte(printJobs.date, range.from) : undefined,
+        range.to ? lte(printJobs.date, range.to) : undefined,
+        machine ? eq(printJobs.machineId, Number(machine)) : undefined,
+      ),
+    ),
+  );
+  const shown = rows
+    .filter((r) => r.money && PENDING.includes(r.money.payment) && (!status || r.money.payment === status))
+    .reverse(); // oldest first
+  const money = (r: PrintJobRow) => ({ amount: r.amountPaise!, received: r.money!.received, balance: r.amountPaise! - r.money!.received });
+  const amountCols = [moneyCol("amount", "Amount"), moneyCol("received", "Received"), moneyCol("balance", "Balance")];
+
+  return {
+    report: {
+      title: "Printed but payment pending",
+      filters: [`As of ${formatDate(todayIST(now))}`, ...(range.from || range.to ? [`Printed: ${rangeText(range)}`] : []), ...pickFilters(picks)],
+      generatedAt: now,
+      tables: [
+        {
+          columns: [
+            { key: "date", label: "Date", type: "date" },
+            { key: "number", label: "Print job" },
+            { key: "customer", label: "Customer" },
+            { key: "file", label: "File" },
+            { key: "machine", label: "Machine" },
+            { key: "operator", label: "Operator" },
+            { key: "status", label: "Status" },
+            { key: "invoice", label: "Invoice" },
+            ...amountCols,
+          ],
+          rows: shown.map((r) => ({
+            href: `/print-jobs/${r.id}`,
+            date: r.date,
+            number: r.number,
+            customer: party(r.customer, r.firmName),
+            file: r.fileName,
+            machine: r.machine,
+            operator: r.operator,
+            status: r.money!.payment,
+            invoice: r.money!.invoice ? (r.money!.invoice.number ?? "Draft") : null,
+            ...money(r),
+          })),
+          note: "A billed print follows its invoice; its balance is the amount less the money taken for the print. Prints on a job are collected with the job.",
+        },
+        {
+          title: "Totals by status",
+          columns: [{ key: "status", label: "Status" }, { key: "count", label: "Print jobs", type: "number" }, ...amountCols],
+          rows: rollUp(shown, (r) => r.money!.payment, (r) => ({ status: r.money!.payment }), (r) => ({ count: 1n, ...money(r) })),
+        },
+      ],
+    },
+    period,
+    error,
+    periods: OPEN_PERIODS,
+    picks,
+  };
+}
+
+/** The print job's latest thumbnail (an attachment the agent sends, T39), or null. */
+export async function printThumbnail(printJobId: number) {
+  const [row] = await db
+    .select({ id: attachments.id, fileName: attachments.fileName })
+    .from(attachments)
+    .where(and(eq(attachments.entityType, "print_job"), eq(attachments.entityId, printJobId), eq(attachments.kind, "print_thumbnail")))
+    .orderBy(desc(attachments.id))
+    .limit(1);
+  return row ?? null;
 }

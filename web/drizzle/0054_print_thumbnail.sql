@@ -1,0 +1,2 @@
+ALTER TABLE "attachments" DROP CONSTRAINT "attachments_kind_check";--> statement-breakpoint
+ALTER TABLE "attachments" ADD CONSTRAINT "attachments_kind_check" CHECK ("attachments"."kind" in ('purchase_bill_photo', 'payment_screenshot', 'cheque', 'customer_po', 'quotation', 'delivery_challan', 'installation_photo', 'other', 'print_thumbnail'));

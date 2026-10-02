@@ -6,6 +6,7 @@ import { DataTable, tableColumns, type DataTableColumn } from "@/components/data
 import { DateText } from "@/components/date-text";
 import { Money } from "@/components/money";
 import { DocNumber, StatusBadge, type Status } from "@/components/status-badge";
+import type { Period } from "@/lib/dates";
 
 export type PrintJobListRow = {
   id: number;
@@ -26,6 +27,8 @@ export type PrintJobListRow = {
   invoice: string;
   /** null = no money for this user (production), or a job print's cost without can_view_cost */
   amount: bigint | null;
+  /** a print on a job: its amount is the job's cost (shown, never totalled with the sales) */
+  onJob: boolean;
   received: bigint | null;
   balance: bigint | null;
   /** the payment status (A§5); without money just Active / Cancelled */
@@ -50,22 +53,28 @@ const tail: DataTableColumn<PrintJobListRow>[] = [
   col.accessor("operator", { header: "Operator" }),
 ];
 const money: DataTableColumn<PrintJobListRow>[] = [
-  col.accessor("amount", {
+  // Totals add up the sales only (the dashboard's print value): not a job print's cost, not a cancelled print.
+  col.accessor((r) => (r.onJob || r.status === "Cancelled" ? null : r.amount), {
+    id: "amount",
     header: "Amount",
-    cell: (c) => (c.getValue() === null ? "—" : <Money paise={c.getValue()!} />),
-    meta: { numeric: true },
+    cell: (c) => {
+      const { amount, onJob } = c.row.original;
+      if (amount === null) return "—";
+      return onJob ? <span className="text-muted-foreground" title="Cost to the job"><Money paise={amount} /> cost</span> : <Money paise={amount} />;
+    },
+    meta: { numeric: true, total: true },
     enableGlobalFilter: false,
   }),
   col.accessor("received", {
     header: "Received",
     cell: (c) => (c.getValue() === null ? "—" : <Money paise={c.getValue()!} />),
-    meta: { numeric: true },
+    meta: { numeric: true, total: true },
     enableGlobalFilter: false,
   }),
   col.accessor("balance", {
     header: "Balance",
     cell: (c) => (c.getValue() === null ? "—" : <Money paise={c.getValue()!} />),
-    meta: { numeric: true },
+    meta: { numeric: true, total: true },
     enableGlobalFilter: false,
   }),
   col.accessor("status", {
@@ -83,7 +92,17 @@ const FILTERS = [
 const PLAIN_FILTERS = [{ label: "Machine", value: (r: PrintJobListRow) => r.machine }];
 
 /** P6 list: date / status / machine / billed-unbilled filters run in the browser; production sees no money (A§8). */
-export function PrintJobsTable({ rows, showMoney, newButton }: { rows: PrintJobListRow[]; showMoney: boolean; newButton?: ReactNode }) {
+export function PrintJobsTable({
+  rows,
+  showMoney,
+  newButton,
+  initial,
+}: {
+  rows: PrintJobListRow[];
+  showMoney: boolean;
+  newButton?: ReactNode;
+  initial?: { preset?: Period; status?: string; picked?: Record<string, string> };
+}) {
   const router = useRouter();
   return (
     <DataTable
@@ -95,6 +114,7 @@ export function PrintJobsTable({ rows, showMoney, newButton }: { rows: PrintJobL
       searchPlaceholder="Search number, customer, file, job or operator"
       onRowClick={(r) => router.push(`/print-jobs/${r.id}`)}
       empty={{ title: "No print jobs yet.", action: newButton }}
+      initial={initial}
     />
   );
 }

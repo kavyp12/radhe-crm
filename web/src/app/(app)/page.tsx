@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { requireUser } from "@/lib/auth";
 import { loadDashboard, type Ranked, type Stat } from "@/lib/dashboard";
 import { formatDateTime, todayIST } from "@/lib/dates";
+import { milliText } from "@/lib/num";
 import { can } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import { AutoRefresh } from "./auto-refresh";
@@ -57,6 +58,25 @@ export default async function DashboardPage() {
           <Figures stats={d.current} />
         </Panel>
       </div>
+
+      {d.printing && (
+        <Panel title="Printing today">
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-5">
+            {[
+              { label: "Print jobs", value: String(d.printing.jobs), href: "/print-jobs?period=today" },
+              { label: "Sq ft", value: milliText(d.printing.sqftMilli), href: "/print-jobs?period=today" },
+              { label: "Print value", value: <Money paise={d.printing.value} />, href: "/print-jobs?period=today" },
+              { label: "Received", value: <Money paise={d.printing.received} />, href: "/print-jobs?period=today" },
+              { label: "Pending", value: <Money paise={d.printing.pending} />, href: "/reports/print-pending?period=today" },
+            ].map((f) => (
+              <Linked key={f.label} href={f.href} className="-m-2 rounded-md p-2">
+                <dt className="text-xs text-muted-foreground">{f.label}</dt>
+                <dd className="mt-0.5 text-base font-medium tabular-nums">{f.value}</dd>
+              </Linked>
+            ))}
+          </dl>
+        </Panel>
+      )}
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <Panel title="This financial year" className="lg:col-span-2">

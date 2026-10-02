@@ -9,8 +9,11 @@ export const ATTACHMENT_KINDS = [
   "delivery_challan",
   "installation_photo",
   "other",
+  "print_thumbnail", // a print job's preview, sent by the print agent (T39); never picked by hand
 ] as const;
 export type AttachmentKind = (typeof ATTACHMENT_KINDS)[number];
+/** What a person may pick when attaching a file. */
+export const UPLOAD_KINDS = ATTACHMENT_KINDS.filter((k) => k !== "print_thumbnail");
 
 export const KIND_LABEL: Record<AttachmentKind, string> = {
   purchase_bill_photo: "Purchase bill photo",
@@ -21,6 +24,7 @@ export const KIND_LABEL: Record<AttachmentKind, string> = {
   delivery_challan: "Delivery challan",
   installation_photo: "Installation photo",
   other: "Other",
+  print_thumbnail: "Print thumbnail",
 };
 
 /** Vercel caps request bodies at 4.5 MB (D10); photos are shrunk in the browser first. */

@@ -6,9 +6,19 @@ import { can } from "@/lib/permissions";
 import { listPrintJobs, listRow } from "@/lib/print-jobs";
 import { PrintJobsTable } from "./print-jobs-table";
 
-// P6 / A§8: owner and accountant full; sales view; production view without money (stripped in the loader).
-export default async function PrintJobsPage() {
+const PERIODS = ["today", "yesterday", "week", "month"] as const;
+
+/**
+ * P6 / A§8: owner and accountant full; sales view; production view without money (stripped in the loader).
+ * ?period= / ?status= / ?machine= / ?billing= start the list filtered (the dashboard's Printing today links here).
+ */
+export default async function PrintJobsPage({ searchParams }: PageProps<"/print-jobs">) {
   const user = await requirePermission("printJobs", "view");
+  const q = await searchParams;
+  const text = (key: string) => (typeof q[key] === "string" ? (q[key] as string) : "");
+  const picked = Object.fromEntries(
+    [["Machine", text("machine")], ["Billing", text("billing")]].filter(([, v]) => v),
+  );
   const rows = await listPrintJobs(user);
   const newButton = can(user, "printJobs", "create") ? (
     <Button asChild>
@@ -37,7 +47,12 @@ export default async function PrintJobsPage() {
           </div>
         }
       />
-      <PrintJobsTable rows={rows.map(listRow)} showMoney={can(user, "printJobs", "money")} newButton={newButton} />
+      <PrintJobsTable
+        rows={rows.map(listRow)}
+        showMoney={can(user, "printJobs", "money")}
+        newButton={newButton}
+        initial={{ preset: PERIODS.find((p) => p === text("period")), status: text("status") || undefined, picked }}
+      />
     </div>
   );
 }

@@ -80,6 +80,8 @@ type Props<T extends RowData> = {
   pageSize?: number;
   /** Shown when there are no rows at all (not just none matching the filters). */
   empty?: { title: string; action?: ReactNode };
+  /** Filters to start with (a link to a filtered list, e.g. ?period=today): a date preset, a status, picked values by label. */
+  initial?: { preset?: Period; status?: string; picked?: Record<string, string> };
 };
 
 export function DataTable<T extends RowData>({
@@ -92,11 +94,12 @@ export function DataTable<T extends RowData>({
   searchPlaceholder = "Search",
   pageSize = 25,
   empty,
+  initial,
 }: Props<T>) {
-  const [preset, setPreset] = useState<Period | "custom" | "">("");
+  const [preset, setPreset] = useState<Period | "custom" | "">(initial?.preset ?? "");
   const [custom, setCustom] = useState<{ from: string | null; to: string | null }>({ from: null, to: null });
-  const [statusFilter, setStatusFilter] = useState("");
-  const [picked, setPicked] = useState<Record<string, string>>({});
+  const [statusFilter, setStatusFilter] = useState(initial?.status ?? "");
+  const [picked, setPicked] = useState<Record<string, string>>(initial?.picked ?? {});
 
   const statuses = useMemo(() => (status ? [...new Set(data.map(status))].sort() : []), [data, status]);
   const choices = useMemo(

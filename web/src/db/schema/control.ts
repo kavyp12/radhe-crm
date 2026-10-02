@@ -53,7 +53,7 @@ export const attachments = pgTable(
     index("attachments_entity_idx").on(t.entityType, t.entityId),
     check(
       "attachments_kind_check",
-      sql`${t.kind} in ('purchase_bill_photo', 'payment_screenshot', 'cheque', 'customer_po', 'quotation', 'delivery_challan', 'installation_photo', 'other')`,
+      sql`${t.kind} in ('purchase_bill_photo', 'payment_screenshot', 'cheque', 'customer_po', 'quotation', 'delivery_challan', 'installation_photo', 'other', 'print_thumbnail')`,
     ),
   ],
 );

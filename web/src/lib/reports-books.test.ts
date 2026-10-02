@@ -252,7 +252,7 @@ test("stock valuation as of a date: qty, value, average per item by category; to
 
 test("the reports list: cost-only reports are hidden without can_view_cost; sales sees its four", () => {
   const names = (user: Pick<SessionUser, "role" | "canViewCost">) => REPORT_INDEX.filter((r) => canOpenReport(user as SessionUser, r)).map((r) => r.name);
-  expect(names(owner)).toHaveLength(19); // + the journal (T36)
+  expect(names(owner)).toHaveLength(20); // + the journal (T36), printed but payment pending (T38)
   expect(names(plain)).not.toContain("purchase");
   expect(names(plain)).not.toContain("journal");
   expect(names(plain)).not.toContain("stock-valuation");

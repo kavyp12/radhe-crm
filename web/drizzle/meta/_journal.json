@@ -379,6 +379,13 @@
       "when": 1790924058319,
       "tag": "0053_print_jobs_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1790927744036,
+      "tag": "0054_print_thumbnail",
+      "breakpoints": true
     }
   ]
 }

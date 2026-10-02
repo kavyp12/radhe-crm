@@ -12,7 +12,7 @@ import { requirePermission } from "@/lib/auth";
 import { formatDateTime } from "@/lib/dates";
 import { milliText } from "@/lib/num";
 import { can, canViewCost } from "@/lib/permissions";
-import { getPrintJob } from "@/lib/print-jobs";
+import { getPrintJob, printThumbnail } from "@/lib/print-jobs";
 import { printJobPayments } from "@/lib/receipts";
 import { cancelPrintJobAction } from "../actions";
 
@@ -53,7 +53,7 @@ export default async function PrintJobPage({ params }: PageProps<"/print-jobs/[i
   const pj = await getPrintJob(user, id);
   if (!pj) notFound();
   const m = pj.money; // null for production (no money, A§8)
-  const payments = m && pj.mode === "sale" ? await printJobPayments(id) : [];
+  const [payments, thumbnail] = await Promise.all([m && pj.mode === "sale" ? printJobPayments(id) : [], printThumbnail(id)]);
   const active = pj.status === "active";
   const unbilled = active && !m?.invoice;
   const sale = pj.mode === "sale";
@@ -77,6 +77,12 @@ export default async function PrintJobPage({ params }: PageProps<"/print-jobs/[i
         {unbilled && sale && can(user, "invoices", "create") && can(user, "printJobs", "edit") && (
           <Button asChild variant="outline">
             <Link href={`/print-jobs/unbilled?customer=${pj.customerId}&pick=${id}`}>Bill</Link>
+          </Button>
+        )}
+        {pj.filePath && (
+          // P7: the print agent opens it (T41), only under its file roots and only design / image / PDF files.
+          <Button asChild variant="outline">
+            <a href={`radhe-crm://open?path=${encodeURIComponent(pj.filePath)}`}>Open file</a>
           </Button>
         )}
         {can(user, "printJobs", "create") && (
@@ -109,6 +115,17 @@ export default async function PrintJobPage({ params }: PageProps<"/print-jobs/[i
         </TabsList>
 
         <TabsContent value="details" className="grid grid-cols-1 gap-4">
+          {pj.filePath && (
+            <p className="text-xs text-muted-foreground">
+              Open file works on a Radhe PC with the print agent installed; on other devices the button does nothing.
+            </p>
+          )}
+          {thumbnail && (
+            <figure className="w-fit rounded-lg border bg-card p-2">
+              {/* eslint-disable-next-line @next/next/no-img-element -- auth-checked file route */}
+              <img src={`/api/files/${thumbnail.id}`} alt={`Preview of ${pj.fileName}`} className="max-h-64 max-w-full rounded object-contain" />
+            </figure>
+          )}
           <DocFacts
             facts={[
               ["Printed", formatDateTime(pj.printedAt)],

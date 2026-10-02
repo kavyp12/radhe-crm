@@ -445,6 +445,12 @@ export async function reportPdf(report: Report): Promise<Buffer> {
   const landscape = Math.max(...report.tables.map((t) => t.columns.length)) > 7;
   // A table with many amounts (job-wise profit) gets narrower amount columns, so its text columns keep some room.
   const tight = (t: ReportTable) => t.columns.filter((c) => c.type === "money" || c.type === "balance").length > 7;
+  // Words never break (no hyphenation), so a text column holding a long token with no space (a file name) gets a
+  // wider share, up to 3x, instead of running into the next column. Tokens up to 16 characters leave it at 1x.
+  const grow = (t: ReportTable, c: ReportColumn) => {
+    const longest = Math.max(0, ...t.rows.flatMap((r) => String(r[c.key] ?? "").split(" ").map((w) => w.length)));
+    return longest > 16 ? Math.min(3, longest / 12) : 1;
+  };
   const width = (t: ReportTable, c: ReportColumn) =>
     c.type === "money"
       ? { width: tight(t) ? 66 : 80 }
@@ -454,7 +460,7 @@ export async function reportPdf(report: Report): Promise<Buffer> {
           ? { width: 58 }
           : c.type === "number" || c.type === "qty"
             ? { width: 50 }
-            : { flex: 1 };
+            : { flex: grow(t, c) };
   const cellText = (c: ReportColumn, v: unknown) =>
     v === null || v === undefined
       ? ""

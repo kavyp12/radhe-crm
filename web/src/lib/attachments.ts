@@ -2,7 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { db, writeTx } from "@/db";
 import { attachments, users } from "@/db/schema";
 import { UserError } from "@/lib/action";
-import { ATTACHMENT_KINDS, MAX_UPLOAD_BYTES, type AttachmentKind } from "@/lib/attachment-kinds";
+import { MAX_UPLOAD_BYTES, UPLOAD_KINDS, type AttachmentKind } from "@/lib/attachment-kinds";
 import { todayIST } from "@/lib/dates";
 import { can, type Action, type Area, type SessionUser } from "@/lib/permissions";
 import { storage } from "@/lib/storage";
@@ -21,6 +21,7 @@ const ENTITY_AREA: Record<string, Area> = {
   purchase_bill: "books",
   vendor_payment: "payments",
   expense: "books",
+  print_job: "printJobs", // its thumbnail (T38 / T39)
 };
 
 /** Entity types whose files show purchase rates: only for can_view_cost users (D51). */
@@ -69,7 +70,7 @@ export type NewAttachment = {
 export async function saveAttachment(actor: SessionUser, input: NewAttachment) {
   if (!canAttach(actor, input.entityType, "edit")) throw new Error("Not allowed");
   if (!Number.isSafeInteger(input.entityId) || input.entityId < 1) throw new UserError("Unknown record.");
-  if (!ATTACHMENT_KINDS.includes(input.kind as AttachmentKind)) throw new UserError("Pick the kind of document.");
+  if (!(UPLOAD_KINDS as readonly string[]).includes(input.kind)) throw new UserError("Pick the kind of document.");
   const type = checkUpload(input.bytes);
   const fileName = input.fileName.replace(/[\\/\u0000-\u001f\u007f]/g, "").trim().slice(-200) || "file";
   const [year, month] = todayIST().split("-");

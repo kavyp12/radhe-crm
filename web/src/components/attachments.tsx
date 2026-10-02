@@ -9,12 +9,7 @@ import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
-import {
-  ATTACHMENT_KINDS,
-  KIND_LABEL,
-  MAX_UPLOAD_BYTES,
-  type AttachmentKind,
-} from "@/lib/attachment-kinds";
+import { KIND_LABEL, MAX_UPLOAD_BYTES, UPLOAD_KINDS, type AttachmentKind } from "@/lib/attachment-kinds";
 import type { AttachmentItem } from "@/lib/attachments";
 
 type Target = { entityType: string; entityId: number; kind: AttachmentKind };
@@ -106,7 +101,7 @@ export function AttachmentsPanel({ entityType, entityId, items, canUpload, defau
       {canUpload && (
         <div className="flex flex-wrap items-center gap-2 border-b p-3">
           <NativeSelect aria-label="Kind of document" value={kind} onChange={(e) => setKind(e.target.value as AttachmentKind)}>
-            {ATTACHMENT_KINDS.map((k) => (
+            {UPLOAD_KINDS.map((k) => (
               <NativeSelectOption key={k} value={k}>
                 {KIND_LABEL[k]}
               </NativeSelectOption>

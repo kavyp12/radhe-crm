@@ -4,6 +4,7 @@ import { BANK_KEYS, CASH_KEYS } from "@/lib/cash-bank";
 import { dateParts, fyStart, todayIST } from "@/lib/dates";
 import { myFollowUpsDue } from "@/lib/follow-ups";
 import { outstanding } from "@/lib/outstanding";
+import { printingToday } from "@/lib/print-jobs";
 import { can, canViewCost, type SessionUser } from "@/lib/permissions";
 
 // Owner dashboard (R1, S19, A§12, D24, D59), read when the page loads (it refreshes itself every 60 s, D22):
@@ -32,6 +33,7 @@ export type Dashboard = {
   topCustomers: Ranked[]; // this FY
   topServices: Ranked[]; // this FY, by product category
   followUps: FollowUp[] | null; // null = no follow-ups access
+  printing: Awaited<ReturnType<typeof printingToday>> | null; // P9, owner / accountant only (T38)
 };
 
 const MONTH = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -131,13 +133,14 @@ export async function loadDashboard(user: SessionUser, today = todayIST()): Prom
   const fy = fyStart(today);
   const month = `${today.slice(0, 8)}01`; // D30: month = 1st → today
 
-  const [flows, top, money, ar, pnl, followUps] = await Promise.all([
+  const [flows, top, money, ar, pnl, followUps, printing] = await Promise.all([
     flowsByDay(fy, today),
     topSales(fy, today),
     all ? balances() : null,
     receivables(today),
     cost ? profitFigures(month, today) : null,
     can(user, "followUps", "view") ? myFollowUpsDue(user, today) : null,
+    all && can(user, "printJobs", "money") ? printingToday(today) : null,
   ]);
 
   const sum = (kind: Flow, from: string) => flows.filter((f) => f.kind === kind && f.date >= from).reduce((s, f) => s + f.paise, 0n);
@@ -216,5 +219,6 @@ export async function loadDashboard(user: SessionUser, today = todayIST()): Prom
         paise: f.promise && f.promise !== "Kept" ? f.expected! - f.received : null,
         note: f.response ?? "",
       })) ?? null,
+    printing,
   };
 }
