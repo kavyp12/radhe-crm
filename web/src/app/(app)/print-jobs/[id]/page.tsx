@@ -140,6 +140,9 @@ export default async function PrintJobPage({ params }: PageProps<"/print-jobs/[i
               ["Qty", milliText(pj.qtyMilli)],
               ["Sq ft", milliText(pj.sqftMilli)],
               ["Reprint of", pj.reprintOf ? link(`/print-jobs/${pj.reprintOfId}`, pj.reprintOf, true) : null],
+              ...(pj.costPending
+                ? ([["Cost to the job", <span key="cp" className="text-amber-700">Pending: {pj.machine} has no cost rate yet</span>]] as [string, React.ReactNode][])
+                : []),
               ...(pj.ratePaise !== null && pj.amountPaise !== null
                 ? ([
                     [sale ? "Rate per sq ft" : "Cost rate per sq ft", <Money key="r" paise={pj.ratePaise} />],

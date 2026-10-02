@@ -166,7 +166,7 @@ export async function openPrintJobs(q: Q, customerId: number, exceptReceiptId?: 
     .orderBy(asc(printJobs.date), asc(printJobs.id));
   const paid = await paidTowardsPrintJobs(q, rows.map((r) => r.id), exceptReceiptId);
   return rows
-    .map((r) => ({ ...r, target: "print_job" as const, dueDate: r.date, open: r.total - (paid.get(r.id) ?? 0n) }))
+    .map((r) => ({ ...r, total: r.total ?? 0n, target: "print_job" as const, dueDate: r.date, open: (r.total ?? 0n) - (paid.get(r.id) ?? 0n) }))
     .filter((r) => r.open > 0n);
 }
 
@@ -281,7 +281,7 @@ export async function checkAllocations(
       if (pj.status !== "active") throw new UserError(`Print job ${pj.number} is cancelled.`, "allocations");
       if (pj.mode !== "sale") throw new UserError(`Print job ${pj.number} is on a job: put the money on the job instead.`, "allocations");
       if (billed.has(pj.id)) throw new UserError(`Print job ${pj.number} is billed: allocate to its invoice instead.`, "allocations");
-      const open = pj.amountPaise - (printPaid.get(pj.id) ?? 0n);
+      const open = (pj.amountPaise ?? 0n) - (printPaid.get(pj.id) ?? 0n);
       if (l.amount > open) {
         throw new UserError(`${pj.number}: ${formatMoney(l.amount)} is more than its open ${formatMoney(open)}.`, "allocations");
       }

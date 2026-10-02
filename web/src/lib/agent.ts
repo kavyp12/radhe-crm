@@ -186,7 +186,7 @@ export async function reprintCheck(pathInput: string | null, nameInput: string |
       width: milliText(pj.widthMilli),
       height: milliText(pj.heightMilli),
       qty: milliText(pj.qtyMilli),
-      rate: pj.mode === "sale" ? moneyText(pj.ratePaise) : null,
+      rate: pj.mode === "sale" && pj.ratePaise !== null ? moneyText(pj.ratePaise) : null,
     })),
   };
 }

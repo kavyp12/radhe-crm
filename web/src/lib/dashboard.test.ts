@@ -201,7 +201,7 @@ test("owner: each figure equals a direct check on the books", async () => {
   // + prints on jobs at the machine's cost rate (T37), whichever test file made them.
   const printed = sumOf(
     await db.select().from(printJobs).where(and(eq(printJobs.mode, "job_cost"), eq(printJobs.status, "active"), between(printJobs.date, month, today))),
-    (p) => p.amountPaise,
+    (p) => p.amountPaise ?? 0n,
   );
   expect(value(d, "grossProfit")).toBe(sales - BigInt(jc.net) - manual - printed);
 

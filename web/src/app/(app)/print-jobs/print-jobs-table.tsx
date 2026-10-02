@@ -29,6 +29,8 @@ export type PrintJobListRow = {
   amount: bigint | null;
   /** a print on a job: its amount is the job's cost (shown, never totalled with the sales) */
   onJob: boolean;
+  /** a job print still waiting for its machine's cost rate (D66) */
+  costPending: boolean;
   received: bigint | null;
   balance: bigint | null;
   /** the payment status (A§5); without money just Active / Cancelled */
@@ -49,7 +51,15 @@ const head: DataTableColumn<PrintJobListRow>[] = [
   col.accessor("sqft", { header: "Sq ft", meta: { numeric: true }, enableGlobalFilter: false }),
 ];
 const tail: DataTableColumn<PrintJobListRow>[] = [
-  col.accessor("job", { header: "Job", cell: (c) => <span className="tabular-nums">{c.getValue()}</span> }),
+  col.accessor("job", {
+    header: "Job",
+    cell: (c) => (
+      <span className="tabular-nums">
+        {c.getValue()}
+        {c.row.original.costPending && <span className="ml-1.5 text-xs text-amber-700">cost pending</span>}
+      </span>
+    ),
+  }),
   col.accessor("operator", { header: "Operator" }),
 ];
 const money: DataTableColumn<PrintJobListRow>[] = [

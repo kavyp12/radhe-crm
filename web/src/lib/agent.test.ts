@@ -179,6 +179,12 @@ test("create: like the web form, with the device and the operator (any role) as 
   const [cost] = await db.select().from(printJobs).where(eq(printJobs.id, ((await onJob.json()) as { id: number }).id));
   expect(cost).toMatchObject({ mode: "job_cost", ratePaise: 1234n, amountPaise: 444_24n }); // 36 sq ft × ₹12.34
   expect((await post(print({ job_id: ids.job, payment: null, rate: "5" }))).status).toBe(400);
+  // D66: a machine with no cost rate never refuses the print: saved with its cost pending.
+  const bare = await saveMachine(owner, null, { name: "AG Bare", printerNames: "BARE-1", saleRate: "25", costRate: "", active: true });
+  const pending = await post(print({ job_id: ids.job, payment: null, machine_id: bare }));
+  expect(pending.status).toBe(201);
+  const [p] = await db.select().from(printJobs).where(eq(printJobs.id, ((await pending.json()) as { id: number }).id));
+  expect(p).toMatchObject({ mode: "job_cost", ratePaise: null, amountPaise: null });
 });
 
 test("the same client_uuid twice — one after the other, or three at once — saves one print job and one receipt", async () => {

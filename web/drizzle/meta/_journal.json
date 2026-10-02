@@ -400,6 +400,13 @@
       "when": 1790929389385,
       "tag": "0056_print_devices_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1790932780664,
+      "tag": "0057_print_cost_pending",
+      "breakpoints": true
     }
   ]
 }

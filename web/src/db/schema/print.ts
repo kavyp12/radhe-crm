@@ -105,8 +105,10 @@ export const printJobs = pgTable(
     heightMilli: bigint("height_milli", { mode: "bigint" }).notNull(),
     qtyMilli: bigint("qty_milli", { mode: "bigint" }).notNull(),
     sqftMilli: bigint("sqft_milli", { mode: "bigint" }).notNull(),
-    ratePaise: bigint("rate_paise", { mode: "bigint" }).notNull(), // per sq ft: sale rate, or cost rate (job_cost)
-    amountPaise: bigint("amount_paise", { mode: "bigint" }).notNull(),
+    // Per sq ft: sale rate, or cost rate (job_cost). Both null = a job print whose machine had no cost rate yet: its
+    // cost is pending until the owner sets that rate, which costs it then (D66).
+    ratePaise: bigint("rate_paise", { mode: "bigint" }),
+    amountPaise: bigint("amount_paise", { mode: "bigint" }),
     operatorUserId: text("operator_user_id")
       .notNull()
       .references(() => users.id),
@@ -132,5 +134,6 @@ export const printJobs = pgTable(
     check("print_jobs_status_check", sql`${t.status} in ('active', 'cancelled')`),
     check("print_jobs_size_positive", sql`${t.widthMilli} > 0 and ${t.heightMilli} > 0 and ${t.qtyMilli} > 0 and ${t.sqftMilli} > 0`),
     check("print_jobs_money_check", sql`${t.ratePaise} >= 0 and ${t.amountPaise} >= 0`),
+    check("print_jobs_cost_pending", sql`(${t.ratePaise} is null) = (${t.amountPaise} is null) and (${t.ratePaise} is not null or ${t.mode} = 'job_cost')`),
   ],
 );

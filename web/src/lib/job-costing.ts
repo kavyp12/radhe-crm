@@ -58,9 +58,12 @@ export async function jobCosting(user: SessionUser, jobId: number) {
     .where(eq(jobCostEntries.jobId, jobId))
     .orderBy(asc(jobCostEntries.date), asc(jobCostEntries.id));
   for (const e of entries) if (e.active) cost[e.bucket] += e.amount;
-  const [printed] = await db.execute<{ paise: string }>(sql`
-    select coalesce(sum(amount_paise), 0) as paise from print_jobs where job_id = ${jobId} and mode = 'job_cost' and status = 'active'`);
+  // Prints whose machine has no cost rate yet count nothing until it is set (D66): the card flags them.
+  const [printed] = await db.execute<{ paise: string; pending: number }>(sql`
+    select coalesce(sum(amount_paise), 0) as paise, count(*) filter (where rate_paise is null)::int as pending
+    from print_jobs where job_id = ${jobId} and mode = 'job_cost' and status = 'active'`);
   cost.printing += BigInt(printed.paise);
+  const printsCostPending = Number(printed.pending);
 
   const totalCost = JOB_COST_BUCKETS.reduce((s, b) => s + cost[b], 0n);
   const profit = sale - totalCost;
@@ -108,6 +111,7 @@ export async function jobCosting(user: SessionUser, jobId: number) {
     advance,
     balance,
     entries,
+    printsCostPending,
   };
 }
 

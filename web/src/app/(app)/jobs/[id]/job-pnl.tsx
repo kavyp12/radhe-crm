@@ -64,7 +64,14 @@ export function JobPnl({ jobId, card, canEnter }: { jobId: number; card: Card; c
           </div>
           {JOB_COST_BUCKETS.map((b) => (
             <div key={b} className={cn(row, "text-muted-foreground")}>
-              <span className="pl-3">{BUCKET_LABEL[b]}</span>
+              <span className="pl-3">
+                {BUCKET_LABEL[b]}
+                {b === "printing" && card.printsCostPending > 0 && (
+                  <span className="ml-2 text-xs text-amber-700">
+                    + {card.printsCostPending} print{card.printsCostPending === 1 ? "" : "s"}, cost pending (no machine cost rate yet)
+                  </span>
+                )}
+              </span>
               <Money paise={card.cost[b]} className="text-foreground" />
             </div>
           ))}

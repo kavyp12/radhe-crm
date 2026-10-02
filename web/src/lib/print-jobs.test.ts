@@ -161,10 +161,9 @@ test("a print on an existing job adds sq ft × the machine's cost rate to that j
   const id = await create({ jobId: String(ids.job), payment: "" });
   expect(await row(id)).toMatchObject({ mode: "job_cost", jobId: ids.job, ratePaise: 1200n, amountPaise: 432_00n }); // 36 sq ft × ₹12
   expect((await jobCosting(owner, ids.job))!.cost.printing - before).toBe(432_00n);
-  // The cost rate is the server's (D64): a typed rate or money at the print is refused; no cost rate set → refused.
+  // The cost rate is the server's (D64): a typed rate or money at the print is refused.
   await expect(create({ jobId: String(ids.job), payment: "", rate: "5" })).rejects.toThrow("leave the rate blank");
   await expect(create({ jobId: String(ids.job), payment: "paid", receiptMode: "cash" })).rejects.toThrow("takes no money here");
-  await expect(create({ jobId: String(ids.job), payment: "", machineId: String(ids.flex) })).rejects.toThrow("PJ Flex has no cost rate yet");
   // A sale on a machine with no sale rate needs one typed.
   await expect(create({ machineId: String(ids.flex) })).rejects.toThrow("enter the rate per sq ft");
   expect(await row(await create({ machineId: String(ids.flex), rate: "18.50" }))).toMatchObject({ ratePaise: 1850n, amountPaise: 666_00n });
@@ -177,12 +176,42 @@ test("a print on an existing job adds sq ft × the machine's cost rate to that j
   expect((await jobCosting(owner, ids.job))!.cost.printing).toBe(before);
 });
 
+test("D66: a job print on a machine with no cost rate is saved with its cost pending; setting the rate costs it (audited)", async () => {
+  const card = async () => (await jobCosting(owner, ids.job))!;
+  const before = await card();
+  const id = await create({ jobId: String(ids.job), payment: "", machineId: String(ids.flex) });
+  expect(await row(id)).toMatchObject({ mode: "job_cost", ratePaise: null, amountPaise: null });
+  expect([(await card()).cost.printing, (await card()).printsCostPending]).toEqual([before.cost.printing, before.printsCostPending + 1]);
+  expect((await getPrintJob(owner, id))!.costPending).toBe(true);
+  expect((await getPrintJob(production, id))!).toMatchObject({ costPending: true, amountPaise: null });
+  // A cancelled pending print stays as it was.
+  const dropped = await create({ jobId: String(ids.job), payment: "", machineId: String(ids.flex), qty: "1" });
+  await cancelPrintJob(owner, dropped);
+  // A no-cost accountant's save doesn't touch the rate, so nothing is costed.
+  await saveMachine(plain, ids.flex, { name: "PJ Flex", printerNames: "FLEX-1", saleRate: "", costRate: "10", active: true });
+  expect((await row(id)).ratePaise).toBeNull();
+
+  await saveMachine(accountant, ids.flex, { name: "PJ Flex", printerNames: "FLEX-1", saleRate: "", costRate: "10", active: true });
+  expect(await row(id)).toMatchObject({ ratePaise: 1000n, amountPaise: 360_00n }); // 36 sq ft × ₹10
+  expect(await row(dropped)).toMatchObject({ ratePaise: null, amountPaise: null });
+  expect([(await card()).cost.printing - before.cost.printing, (await card()).printsCostPending]).toEqual([360_00n, before.printsCostPending]);
+  const [log] = await db
+    .select()
+    .from(auditLog)
+    .where(and(eq(auditLog.tableName, "print_jobs"), eq(auditLog.rowId, String(id)), eq(auditLog.action, "update")))
+    .orderBy(desc(auditLog.id));
+  expect([log.userId, log.oldData!.rate_paise, log.newData!.rate_paise]).toEqual([accountant.id, null, 1000]);
+  await cancelPrintJob(owner, id);
+  await saveMachine(owner, ids.flex, { name: "PJ Flex", printerNames: "FLEX-1", saleRate: "", costRate: "", active: true });
+});
+
 test("billing moves the print job's money to the invoice; billed can't be billed or changed again; cancelling the invoice puts it back", async () => {
   const id = await create({ payment: "unpaid", received: "300", receiptMode: "cash" });
   const [draft] = await createInvoicesFromPrintJobs(owner, [id], "tax", "");
   const [l] = await db.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, draft));
   expect(l).toMatchObject({ printJobId: id, categoryId: ids.category, qtyMilli: 36000n, ratePaise: 2500n, unit: "Sq Ft", widthMilli: 6000n, heightMilli: 3000n });
-  expect(l.description).toContain("ABC_FRONT_BOARD.cdr");
+  // D66: "<printing type> — <W × H> ft × <n> pc (PJ/…)", no file name on the customer's invoice.
+  expect(l.description).toBe(`PJ UV print — 6 × 3 ft × 2 pc (${(await row(id)).number})`);
   await expect(createInvoicesFromPrintJobs(owner, [id], "tax", "")).rejects.toThrow("already on invoice");
   await expect(cancelPrintJob(owner, id)).rejects.toThrow("is billed");
   // On a draft the money still sits on the print job, and it no longer takes more (it is billed).

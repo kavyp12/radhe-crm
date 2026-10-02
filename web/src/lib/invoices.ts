@@ -205,13 +205,14 @@ export async function createInvoicesFromPrintJobs(actor: SessionUser, printJobId
           const category = categories.find((c) => c.id === (typeCategory ?? fallback))!;
           return {
             categoryId: category.id,
-            description: `Printing ${pj.number}: ${pj.fileName} · ${type} · ${milliText(pj.qtyMilli)} pc`.slice(0, 500),
+            // D66: no file name on the customer's invoice (editable on the draft).
+            description: `${type} — ${milliText(pj.widthMilli)} × ${milliText(pj.heightMilli)} ft × ${milliText(pj.qtyMilli)} pc (${pj.number})`.slice(0, 500),
             hsnSac: category.hsnSac,
             widthMilli: pj.widthMilli,
             heightMilli: pj.heightMilli,
             qtyMilli: pj.sqftMilli,
             unit: "Sq Ft",
-            ratePaise: pj.ratePaise,
+            ratePaise: pj.ratePaise!, // a sale print always has its rate (print_jobs_cost_pending)
             discountPaise: 0n,
             gstBp: category.gstBp,
             printJobId: pj.id,

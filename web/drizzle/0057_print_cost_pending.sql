@@ -1,0 +1,3 @@
+ALTER TABLE "print_jobs" ALTER COLUMN "rate_paise" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "print_jobs" ALTER COLUMN "amount_paise" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "print_jobs" ADD CONSTRAINT "print_jobs_cost_pending" CHECK (("print_jobs"."rate_paise" is null) = ("print_jobs"."amount_paise" is null) and ("print_jobs"."rate_paise" is not null or "print_jobs"."mode" = 'job_cost'));

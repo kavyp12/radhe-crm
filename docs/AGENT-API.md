@@ -114,7 +114,7 @@ Content-Type: application/json
 | `operator_user_id` | required, an **active** CRM user (from bootstrap `operators`). Any role. They are recorded as the operator, as the audit user and as "received by" on the receipt. |
 | `printed_at` | required, when PRINT was pressed, from the PC clock with its offset. Older prints from the queue are fine (no backdate approval); refused if more than 10 minutes in the future or before the books start date. The print's date (and its PJ/ year) is this time in India. |
 | `customer_id` / `new_customer` | exactly one. `new_customer: { "name": "…", "mobile": "…" }` is the popup's quick add (unregistered, Gujarat): a mobile an active customer already has (same last 10 digits) returns **that** customer instead; the answer's `customer_id` tells you which — add it to the cache. |
-| `job_id` | `null` = a **new** print (a sale, billed later). An open job of that customer = a print **on that job**: costed by the CRM at the machine's cost rate — send **no `rate` and no payment** (`rate`, `payment`, `received`, `receipt_mode` all `null`). |
+| `job_id` | `null` = a **new** print (a sale, billed later). An open job of that customer = a print **on that job**: costed by the CRM at the machine's cost rate — send **no `rate` and no payment** (`rate`, `payment`, `received`, `receipt_mode` all `null`). A machine with no cost rate yet never refuses it: it is saved with its cost pending and costed when the owner sets the rate (D66). |
 | `file_name` | required (≤ 260 characters); `file_path` optional (≤ 1,000), the full path for "Open file" and the reprint check. |
 | `machine_id`, `printing_type_id` | required, active ones from bootstrap. |
 | `width`, `height` | feet, decimal strings, more than 0 and up to 1000. `qty` copies, more than 0. sq ft = width × height × qty (rounded to 3 decimals, half up). |
@@ -127,7 +127,7 @@ Content-Type: application/json
 Money taken becomes a CRM receipt (numbered RC/…) allocated to the print job, in the same transaction.
 **400** examples: `{"error": "printed_at is in the future: check the PC's clock.", "field": "printed_at"}` ·
 `{"error": "width must be text (decimals as text, e.g. \"2.5\").", "field": "width"}` ·
-`{"error": "UV Roll to Roll has no cost rate yet: the owner sets it under Machines.", "field": "machine_id"}`.
+`{"error": "Pick the machine from the list.", "field": "machine_id"}`.
 A 400 won't succeed on a resend; keep the print in the queue marked failed and show the message.
 
 ## 4. Reprint check — `GET /api/agent/reprint-check?path=…&name=…`

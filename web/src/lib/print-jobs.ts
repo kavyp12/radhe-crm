@@ -82,10 +82,23 @@ export async function saveMachine(actor: SessionUser, id: number | null, input: 
       const [row] = await tx.insert(machines).values({ ...values, createdBy: actor.id }).returning({ id: machines.id });
       return row.id;
     }
-    const [row] = await tx.update(machines).set(values).where(eq(machines.id, id)).returning({ id: machines.id });
+    const [row] = await tx.update(machines).set(values).where(eq(machines.id, id)).returning({ id: machines.id, costRatePaise: machines.costRatePaise });
     if (!row) throw new UserError("That machine doesn't exist.");
+    if (row.costRatePaise !== null) await costPendingPrints(tx, row.id, row.costRatePaise);
     return row.id;
   });
+}
+
+/** D66: the machine now has a cost rate → its job prints saved with cost pending take it (audited, in the same tx). */
+async function costPendingPrints(tx: Tx, machineId: number, ratePaise: bigint) {
+  const pending = await tx
+    .select({ id: printJobs.id, sqftMilli: printJobs.sqftMilli })
+    .from(printJobs)
+    .where(and(eq(printJobs.machineId, machineId), eq(printJobs.mode, "job_cost"), eq(printJobs.status, "active"), sql`${printJobs.ratePaise} is null`))
+    .for("update");
+  for (const pj of pending) {
+    await tx.update(printJobs).set({ ratePaise, amountPaise: printAmount(pj.sqftMilli, ratePaise) }).where(eq(printJobs.id, pj.id));
+  }
 }
 
 export type PrintingTypeInput = { name: string; categoryId: string; active: boolean };
@@ -275,13 +288,12 @@ async function printingTypeOf(tx: Tx, typeId: string, keep?: number) {
   return t;
 }
 
-/** Rate per sq ft: job_cost → the machine's cost rate (`keep`: the stored one, on an edit that keeps the machine). */
-function rateFor(mode: "sale" | "job_cost", machine: typeof machines.$inferSelect, typed: string, keep?: bigint) {
-  if (mode === "job_cost") {
-    if (keep !== undefined) return keep;
-    if (machine.costRatePaise === null) throw new UserError(`${machine.name} has no cost rate yet: the owner sets it under Machines.`, "machineId");
-    return machine.costRatePaise;
-  }
+/**
+ * Rate per sq ft: job_cost → the machine's cost rate (`keep`: the stored one, on an edit that keeps the machine); null =
+ * cost pending — the machine has no cost rate yet, and a print is never refused for that (D66, P1).
+ */
+function rateFor(mode: "sale" | "job_cost", machine: typeof machines.$inferSelect, typed: string, keep?: bigint | null): bigint | null {
+  if (mode === "job_cost") return keep ?? machine.costRatePaise;
   const rate = readRate(typed, "rate") ?? machine.saleRatePaise;
   if (rate === null) throw new UserError(`${machine.name} has no sale rate yet: enter the rate per sq ft.`, "rate");
   return rate;
@@ -303,8 +315,8 @@ async function planPrintJob(tx: Tx, input: PrintJobInput, o: PrintOrigin, create
   const size = readSize(input);
   if (job && input.rate.trim()) throw new UserError("A print on an existing job is costed at the machine's cost rate: leave the rate blank.", "rate");
   const ratePaise = rateFor(mode, machine, input.rate);
-  const amountPaise = printAmount(size.sqftMilli, ratePaise);
-  const pay = readPayment(input, mode, amountPaise);
+  const amountPaise = ratePaise === null ? null : printAmount(size.sqftMilli, ratePaise);
+  const pay = readPayment(input, mode, amountPaise ?? 0n);
   const fileName = formText(input.fileName, "fileName", 260);
   if (!fileName) throw new UserError("Enter the file name.", "fileName");
   let reprintOfId: number | null = null;
@@ -392,7 +404,7 @@ registerExecutor<CreatePayload>("print_job.create", {
         { label: "Machine", old: null, new: `${plan.machine.name} · ${plan.type.name}` },
         { label: "Size", old: null, new: `${milliText(plan.values.widthMilli)} × ${milliText(plan.values.heightMilli)} ft × ${milliText(plan.values.qtyMilli)} = ${milliText(plan.values.sqftMilli)} sq ft` },
         { label: "Mode", old: null, new: plan.job ? `On job ${plan.job.number} (cost)` : "New (sale)" },
-        ...(money ? [{ label: "Amount", old: null, new: formatMoney(plan.values.amountPaise) }] : []),
+        ...(money ? [{ label: "Amount", old: null, new: formatMoney(plan.values.amountPaise!) }] : []),
         ...(plan.pay.received ? [{ label: "Received", old: null, new: formatMoney(plan.pay.received) }] : []),
       ],
     };
@@ -466,8 +478,8 @@ export async function updatePrintJob(actor: SessionUser, id: number, input: Prin
     const size = readSize(input);
     const same = mode === "job_cost" && pj.mode === "job_cost" && machine.id === pj.machineId;
     const ratePaise = rateFor(mode, machine, mode === "sale" ? input.rate : "", same ? pj.ratePaise : undefined);
-    const amountPaise = printAmount(size.sqftMilli, ratePaise);
-    if (amountPaise < received) throw new UserError(`${formatMoney(received)} was taken for it: the amount can't go below that.`, "rate");
+    const amountPaise = ratePaise === null ? null : printAmount(size.sqftMilli, ratePaise);
+    if ((amountPaise ?? 0n) < received) throw new UserError(`${formatMoney(received)} was taken for it: the amount can't go below that.`, "rate");
     const fileName = formText(input.fileName, "fileName", 260);
     if (!fileName) throw new UserError("Enter the file name.", "fileName");
     await tx
@@ -519,7 +531,7 @@ export type PrintMoney = {
   invoice: { id: number; number: string | null; issued: boolean } | null;
 };
 
-type StatusRow = { id: number; mode: "sale" | "job_cost"; jobId: number | null; amountPaise: bigint; status: "active" | "cancelled"; creditCustomer: boolean };
+type StatusRow = { id: number; mode: "sale" | "job_cost"; jobId: number | null; amountPaise: bigint | null; status: "active" | "cancelled"; creditCustomer: boolean };
 
 /** Unpaid / Part Payment / Paid with the Credit Customer rule (A§5): nothing paid by a credit customer → Credit Customer. */
 const byOpen = (total: bigint, open: bigint, credit: boolean): PrintPayment =>
@@ -574,8 +586,9 @@ export async function printJobMoney(rows: StatusRow[]): Promise<Map<number, Prin
       else payment = byOpen(job.totalPaise, job.totalPaise - (advances.get(job.id) ?? 0n), r.creditCustomer);
     } else if (link?.status === "issued") payment = invoicePayment(link);
     else {
-      balance = r.amountPaise - got;
-      payment = byOpen(r.amountPaise, balance, r.creditCustomer);
+      const amount = r.amountPaise ?? 0n; // a sale print always has its amount
+      balance = amount - got;
+      payment = byOpen(amount, balance, r.creditCustomer);
     }
     out.set(r.id, { received: got, balance, payment, invoice });
   }
@@ -650,6 +663,8 @@ async function shape(user: SessionUser, rows: Awaited<ReturnType<typeof printJob
       notes: pj.notes,
       ratePaise: priced ? pj.ratePaise : null,
       amountPaise: priced ? pj.amountPaise : null,
+      /** a job print whose machine had no cost rate: costed when the owner sets it (D66) */
+      costPending: pj.mode === "job_cost" && pj.status === "active" && pj.ratePaise === null,
       money: money ? (moneyOf.get(pj.id) ?? null) : null,
     };
   });
@@ -738,6 +753,7 @@ export function listRow(r: PrintJobRow) {
     invoice: billed ? (billed.number ?? "Draft") : "",
     amount: r.amountPaise,
     onJob: r.mode === "job_cost",
+    costPending: r.costPending,
     received: r.money && r.mode === "sale" ? r.money.received : null,
     balance: r.money?.balance ?? null,
     status: r.money ? r.money.payment : r.status === "cancelled" ? ("Cancelled" as const) : ("Active" as const),
@@ -762,10 +778,11 @@ export async function printingToday(today = todayIST()) {
     .where(and(eq(printJobs.date, today), eq(printJobs.status, "active")));
   const sale = rows.filter((r) => r.pj.mode === "sale");
   const money = await printJobMoney(sale.map((r) => ({ ...r.pj, creditCustomer: r.creditCustomer })));
-  const value = sale.reduce((s, r) => s + r.pj.amountPaise, 0n);
+  const value = sale.reduce((s, r) => s + (r.pj.amountPaise ?? 0n), 0n);
   const pending = sale.reduce((s, { pj }) => {
     const m = money.get(pj.id)!;
-    return PENDING.includes(m.payment) && pj.amountPaise > m.received ? s + pj.amountPaise - m.received : s;
+    const amount = pj.amountPaise ?? 0n;
+    return PENDING.includes(m.payment) && amount > m.received ? s + amount - m.received : s;
   }, 0n);
   return { jobs: rows.length, sqftMilli: rows.reduce((s, r) => s + r.pj.sqftMilli, 0n), value, received: value - pending, pending };
 }
