@@ -1,11 +1,11 @@
 "use client";
 
-import { Bell, ChevronsUpDown, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Plus, Search } from "lucide-react";
+import { Bell, ChevronsUpDown, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
-import { toast } from "sonner";
 import { logout } from "@/app/(app)/actions";
+import { SearchPalette } from "@/components/search-palette";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -258,16 +258,7 @@ function TopBar({ user, alerts, collapsed, onToggle, onMenu }: TopBarProps) {
         {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
       </Button>
 
-      {/* Placeholder: universal search (Ctrl+K) arrives in T35. */}
-      <button
-        type="button"
-        onClick={() => toast("Search is coming soon.")}
-        className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-input bg-background px-2.5 text-[13px] text-muted-foreground outline-none transition-colors duration-150 hover:border-zinc-400 focus-visible:ring-2 focus-visible:ring-ring/60 md:max-w-sm"
-      >
-        <Search aria-hidden className="size-4 shrink-0" />
-        <span className="truncate">Search customers, jobs, invoices…</span>
-        <kbd className="ml-auto hidden rounded border bg-card px-1.5 font-sans text-[11px] leading-5 sm:inline">Ctrl K</kbd>
-      </button>
+      <SearchPalette />
 
       <div className="ml-auto flex items-center gap-1.5">
         {newItems.length > 0 && (
