@@ -12,6 +12,7 @@ import "@/lib/expenses";
 import "@/lib/goods-receipts";
 import "@/lib/invoices";
 import "@/lib/notes";
+import "@/lib/print-jobs";
 import "@/lib/purchase-bills";
 import "@/lib/quotations";
 import "@/lib/receipts";

@@ -19,6 +19,7 @@ import { onAccountSources } from "@/lib/allocations";
 import { listAttachments } from "@/lib/attachments";
 import { requirePermission } from "@/lib/auth";
 import { customerAdvance, customerHistory, type Chain } from "@/lib/customer-history";
+import { customerPrintJobs, listRow } from "@/lib/print-jobs";
 import { customerOverview, getCustomer } from "@/lib/customers";
 import { listFollowUps } from "@/lib/follow-ups";
 import { stateName } from "@/lib/gstin";
@@ -27,6 +28,7 @@ import { can, type SessionUser } from "@/lib/permissions";
 import { getSettings } from "@/lib/settings";
 import { customerLedger, drCr, entryLabel, LEDGER_PERIODS, rangeText, readRange, statementMessage } from "@/lib/statements";
 import { emailStatementAction, statementShareAction } from "../actions";
+import { PrintJobsTable } from "../../print-jobs/print-jobs-table";
 import { LedgerFilter } from "./ledger-filter";
 
 const LABELS = {
@@ -181,7 +183,8 @@ export default async function CustomerPage({ params, searchParams }: PageProps<"
   const canApply = can(user, "payments", "create");
   const canAdjust = can(user, "books", "create"); // write-off / discount / refund (T24, D55)
   const followUpsOn = can(user, "followUps", "view");
-  const [overview, advance, files, people, chains, ledger, settings, sources, calls] = await Promise.all([
+  const printsOn = can(user, "printJobs", "view");
+  const [overview, advance, files, people, chains, ledger, settings, sources, calls, prints] = await Promise.all([
     customerOverview(id),
     customerAdvance(id),
     listAttachments("customer", id),
@@ -191,6 +194,7 @@ export default async function CustomerPage({ params, searchParams }: PageProps<"
     getSettings(),
     canApply || canAdjust ? onAccountSources(db, id) : [],
     followUpsOn ? listFollowUps(eq(followUps.customerId, id)) : [],
+    printsOn ? customerPrintJobs(user, id) : [],
   ]);
   const personName = (v: unknown) => people.find((p) => p.id === v)?.name ?? String(v);
   const tiles = [
@@ -200,11 +204,14 @@ export default async function CustomerPage({ params, searchParams }: PageProps<"
     { label: "Last payment", value: overview.lastPaymentDate ? <DateText date={overview.lastPaymentDate} /> : "—" },
     {
       label: "Advance / on account",
-      value: <Money paise={advance.onJobs + advance.onAccount} />,
-      note: advance.onJobs ? `${formatMoney(advance.onJobs)} of it on jobs` : undefined,
+      value: <Money paise={advance.onJobs + advance.onPrintJobs + advance.onAccount} />,
+      note:
+        [advance.onJobs && `${formatMoney(advance.onJobs)} on jobs`, advance.onPrintJobs && `${formatMoney(advance.onPrintJobs)} on print jobs`]
+          .filter(Boolean)
+          .join(" · ") || undefined,
     },
   ];
-  const tab = ["history", "ledger", "follow-ups", "attachments", "changes"].includes(text("tab")) ? text("tab") : "overview";
+  const tab = ["history", "prints", "ledger", "follow-ups", "attachments", "changes"].includes(text("tab")) ? text("tab") : "overview";
   const rangeQuery = new URLSearchParams({ period, from: text("from"), to: text("to") }).toString();
 
   return (
@@ -247,6 +254,7 @@ export default async function CustomerPage({ params, searchParams }: PageProps<"
         <TabsList variant="line" className="max-w-full overflow-x-auto">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="history">History ({chains.length})</TabsTrigger>
+          {printsOn && <TabsTrigger value="prints">Print history ({prints.length})</TabsTrigger>}
           {money && <TabsTrigger value="ledger">Ledger</TabsTrigger>}
           {followUpsOn && <TabsTrigger value="follow-ups">Follow-ups ({calls.length})</TabsTrigger>}
           <TabsTrigger value="attachments">Attachments ({files.length})</TabsTrigger>
@@ -325,6 +333,19 @@ export default async function CustomerPage({ params, searchParams }: PageProps<"
         <TabsContent value="history">
           <Timeline chains={chains} user={user} />
         </TabsContent>
+
+        {printsOn && (
+          <TabsContent value="prints" className="grid grid-cols-1 gap-3">
+            {can(user, "printJobs", "create") && c.active && (
+              <div className="flex justify-end">
+                <Button asChild variant="outline">
+                  <Link href={`/print-jobs/new?customer=${id}`}>New print job</Link>
+                </Button>
+              </div>
+            )}
+            <PrintJobsTable rows={prints.map(listRow)} showMoney={can(user, "printJobs", "money")} />
+          </TabsContent>
+        )}
 
         {ledger && (
           <TabsContent value="ledger" className="grid grid-cols-1 gap-4">

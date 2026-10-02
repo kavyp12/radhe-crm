@@ -1,7 +1,7 @@
-import { and, asc, desc, eq, notExists, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, notExists, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, writeTx, type Tx } from "@/db";
-import { accounts, adjustments, allocations, creditNotes, customers, debitNotes, invoices, jobs, receipts, users } from "@/db/schema";
+import { accounts, adjustments, allocations, creditNotes, customers, debitNotes, invoices, jobs, printJobs, receipts, users } from "@/db/schema";
 import { formMoney, formText, UserError } from "@/lib/action";
 import {
   activeAllocationsOf,
@@ -30,7 +30,7 @@ import { checkVersion, customerFor, readDate } from "@/lib/sales";
 
 type Receipt = typeof receipts.$inferSelect;
 
-/** The form as typed. allocations = JSON of { target: "invoice" | "debit_note" | "job", id, amount }[]. */
+/** The form as typed. allocations = JSON of { target: "invoice" | "debit_note" | "job" | "print_job", id, amount }[]. */
 export type ReceiptInput = {
   customerId: string;
   date: string;
@@ -115,13 +115,15 @@ const postReceipt = (tx: Tx, id: number, number: string, v: Values, customerName
     ],
   });
 
-/** fromJob: invoice id → the job whose advance its old row carried (kept when an edit re-allocates, T14). */
+/**
+ * fromJob: invoice id → the job / print job whose money its old row carried (kept when an edit re-allocates, T14).
+ */
 const insertAllocations = (
   tx: Tx,
   receiptId: number,
   lines: AllocationLine[],
-  by: SessionUser,
-  fromJob = new Map<number, number | null>(),
+  by: Pick<SessionUser, "id">,
+  fromJob = new Map<number, { jobId: number | null; printJobId: number | null }>(),
 ) =>
   lines.length
     ? tx.insert(allocations).values(
@@ -130,7 +132,9 @@ const insertAllocations = (
           invoiceId: l.target === "invoice" ? l.id : null,
           debitNoteId: l.target === "debit_note" ? l.id : null,
           jobId: l.target === "job" ? l.id : null,
-          fromJobId: l.target === "invoice" ? (fromJob.get(l.id) ?? null) : null,
+          printJobId: l.target === "print_job" ? l.id : null,
+          fromJobId: l.target === "invoice" ? (fromJob.get(l.id)?.jobId ?? null) : null,
+          fromPrintJobId: l.target === "invoice" ? (fromJob.get(l.id)?.printJobId ?? null) : null,
           amountPaise: l.amount,
           createdBy: by.id,
         })),
@@ -145,7 +149,11 @@ function allocationText(lines: { number: string; amount: bigint }[], amount: big
   return parts.join(" · ");
 }
 
-async function doCreate(tx: Tx, actor: SessionUser, input: ReceiptInput) {
+/**
+ * Numbers, posts and allocates a receipt inside the caller's transaction — no permission or backdate check (callers
+ * do that: createReceipt, and print jobs for money taken at the print, D64).
+ */
+export async function insertReceipt(tx: Tx, actor: Pick<SessionUser, "id">, input: ReceiptInput) {
   const r = await readReceipt(tx, input);
   const number = await nextNumber(tx, "receipt", r.values.date);
   const [row] = await tx
@@ -172,7 +180,7 @@ registerExecutor<CreatePayload>("receipt.create", {
       ],
     };
   },
-  run: (tx, owner, p) => doCreate(tx, owner, p.input),
+  run: (tx, owner, p) => insertReceipt(tx, owner, p.input),
 });
 
 /**
@@ -189,7 +197,7 @@ export async function createReceipt(actor: SessionUser, input: ReceiptInput): Pr
     const done = outcome.result as { id: number; number: string };
     return { id: done.id, message: `Saved ${done.number}.` };
   }
-  const done = await writeTx(actor, (tx) => doCreate(tx, actor, input));
+  const done = await writeTx(actor, (tx) => insertReceipt(tx, actor, input));
   return { id: done.id, message: `Saved ${done.number}.` };
 }
 
@@ -212,23 +220,27 @@ async function currentLines(tx: Tx, receiptId: number) {
       invoiceId: allocations.invoiceId,
       debitNoteId: allocations.debitNoteId,
       jobId: allocations.jobId,
+      printJobId: allocations.printJobId,
       fromJobId: allocations.fromJobId,
+      fromPrintJobId: allocations.fromPrintJobId,
       amount: allocations.amountPaise,
       invoice: invoices.number,
       debitNote: debitNotes.number,
       job: jobs.number,
+      printJob: printJobs.number,
     })
     .from(allocations)
     .leftJoin(invoices, eq(invoices.id, allocations.invoiceId))
     .leftJoin(debitNotes, eq(debitNotes.id, allocations.debitNoteId))
     .leftJoin(jobs, eq(jobs.id, allocations.jobId))
+    .leftJoin(printJobs, eq(printJobs.id, allocations.printJobId))
     .where(and(eq(allocations.receiptId, receiptId), eq(allocations.active, true)))
     .orderBy(asc(allocations.id));
   return rows.map((r) => ({
     ...r,
-    target: (r.jobId !== null ? "job" : r.debitNoteId !== null ? "debit_note" : "invoice") as AllocationTarget,
-    targetId: r.jobId ?? r.debitNoteId ?? r.invoiceId!,
-    number: r.job ?? r.debitNote ?? r.invoice ?? "",
+    target: (r.jobId !== null ? "job" : r.printJobId !== null ? "print_job" : r.debitNoteId !== null ? "debit_note" : "invoice") as AllocationTarget,
+    targetId: r.jobId ?? r.printJobId ?? r.debitNoteId ?? r.invoiceId!,
+    number: r.job ?? r.printJob ?? r.debitNote ?? r.invoice ?? "",
   }));
 }
 
@@ -299,7 +311,7 @@ async function doEdit(tx: Tx, owner: SessionUser, p: EditPayload) {
   }
   if (!sameLines) {
     await deactivate(tx, old.map((o) => o.id));
-    const fromJob = new Map(old.filter((o) => o.invoiceId !== null).map((o) => [o.invoiceId!, o.fromJobId]));
+    const fromJob = new Map(old.filter((o) => o.invoiceId !== null).map((o) => [o.invoiceId!, { jobId: o.fromJobId, printJobId: o.fromPrintJobId }]));
     await insertAllocations(tx, current.id, r.lines, owner, fromJob);
   }
   return current.number;
@@ -420,6 +432,7 @@ export async function getReceipt(id: number) {
         invoiceId: allocations.invoiceId,
         debitNoteId: allocations.debitNoteId,
         jobId: allocations.jobId,
+        printJobId: allocations.printJobId,
         fromJobId: allocations.fromJobId,
         amount: allocations.amountPaise,
         active: allocations.active,
@@ -433,6 +446,9 @@ export async function getReceipt(id: number) {
         job: jobs.number,
         jobDate: jobs.date,
         jobTotal: jobs.totalPaise,
+        printJob: printJobs.number,
+        printJobDate: printJobs.date,
+        printJobTotal: printJobs.amountPaise,
         refundId: allocations.refundAdjustmentId, // paid back by a refund JV (D55)
         refund: adjustments.number,
         refundDate: adjustments.date,
@@ -442,6 +458,7 @@ export async function getReceipt(id: number) {
       .leftJoin(invoices, eq(invoices.id, allocations.invoiceId))
       .leftJoin(debitNotes, eq(debitNotes.id, allocations.debitNoteId))
       .leftJoin(jobs, eq(jobs.id, allocations.jobId))
+      .leftJoin(printJobs, eq(printJobs.id, allocations.printJobId))
       .leftJoin(adjustments, eq(adjustments.id, allocations.refundAdjustmentId))
       .where(eq(allocations.receiptId, id))
       .orderBy(asc(allocations.id))
@@ -450,14 +467,15 @@ export async function getReceipt(id: number) {
     invoiceId: l.invoiceId,
     debitNoteId: l.debitNoteId,
     jobId: l.jobId,
+    printJobId: l.printJobId,
     refundId: l.refundId,
     fromJobId: l.fromJobId,
     amount: l.amount,
     active: l.active,
     changedAt: l.changedAt,
-    number: l.job ?? l.debitNote ?? l.invoice ?? l.refund ?? "",
-    date: (l.jobDate ?? l.debitNoteDate ?? l.invoiceDate ?? l.refundDate)!,
-    total: (l.jobTotal ?? l.debitNoteTotal ?? l.invoiceTotal ?? l.refundTotal)!,
+    number: l.job ?? l.printJob ?? l.debitNote ?? l.invoice ?? l.refund ?? "",
+    date: (l.jobDate ?? l.printJobDate ?? l.debitNoteDate ?? l.invoiceDate ?? l.refundDate)!,
+    total: (l.jobTotal ?? l.printJobTotal ?? l.debitNoteTotal ?? l.invoiceTotal ?? l.refundTotal)!,
   }));
   const lines = all.filter((l) => l.active);
   const allocated = lines.reduce((s, l) => s + l.amount, 0n);
@@ -529,6 +547,10 @@ export const debitNotePayments = (noteId: number) => paymentsTo(eq(allocations.d
 
 /** A job's advances in force (S12). */
 export const jobAdvances = (jobId: number) => paymentsTo(eq(allocations.jobId, jobId));
+
+/** The money for a print job (D64): on it, or moved onto the invoice that billed it. */
+export const printJobPayments = (printJobId: number) =>
+  paymentsTo(or(eq(allocations.printJobId, printJobId), eq(allocations.fromPrintJobId, printJobId))!);
 
 /** Pick lists for the receipt form: active customers (plus this receipt's), money accounts, staff. */
 export async function receiptFormOptions(keepCustomerId?: number) {

@@ -235,14 +235,14 @@ test("excess credit stays with the customer; a cancel reverses on the note's dat
   await issueNote(owner, "credit", id);
   // Paid in full already: nothing to allocate, so the ₹590 is customer credit (AR Cr).
   expect((await getNote("credit", id))!).toMatchObject({ paid: 0n, open: 590_00n });
-  expect(await customerAdvance(c)).toEqual({ onJobs: 0n, onAccount: 590_00n });
+  expect(await customerAdvance(c)).toEqual({ onJobs: 0n, onPrintJobs: 0n, onAccount: 590_00n });
   expect((await ledger({ account: "ar", customerId: c })).closing).toBe(-590_00n);
 
   expect((await cancelNote(owner, "credit", id, "Issued by mistake")).message).toMatch(/^Cancelled CN\//);
   const { rows, net } = await posted("credit_notes", id);
   expect(Object.values(net).every((v) => v === 0n)).toBe(true);
   expect(rows.every((r) => r.date === today)).toBe(true);
-  expect(await customerAdvance(c)).toEqual({ onJobs: 0n, onAccount: 0n });
+  expect(await customerAdvance(c)).toEqual({ onJobs: 0n, onPrintJobs: 0n, onAccount: 0n });
 
   // A credit note that did pay its invoice: the cancel gives the open amount back.
   const inv2 = await invoice(c);

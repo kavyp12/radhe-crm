@@ -15,7 +15,7 @@ import { moneyText, parseMoney } from "@/lib/num";
 import { cn } from "@/lib/utils";
 import type { OpenItems } from "../../../receipts/receipt-form";
 
-type Row = { key: string; target: "invoice" | "debit_note" | "job"; id: number; open: bigint | null; amount: string };
+type Row = { key: string; target: "invoice" | "debit_note" | "print_job" | "job"; id: number; open: bigint | null; amount: string };
 
 function paise(text: string): bigint | null {
   if (!text.trim()) return 0n;
@@ -94,13 +94,13 @@ export function ApplyForm({
       >
         <div className="grid gap-4">
           {nInvoices === 0 ? (
-            <p className="text-sm text-muted-foreground">{vendor ? "No open bills." : "No open invoices or debit notes."}</p>
+            <p className="text-sm text-muted-foreground">{vendor ? "No open bills." : "No open invoices, debit notes or print jobs."}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-140 border-separate border-spacing-0 text-[13px]">
                 <thead>
                   <tr>
-                    <th className={th}>{vendor ? "Bill" : "Invoice / debit note"}</th>
+                    <th className={th}>{vendor ? "Bill" : "Invoice / debit note / print job"}</th>
                     <th className={th}>Date</th>
                     <th className={th}>Due</th>
                     <th className={`${th} text-right`}>Open</th>

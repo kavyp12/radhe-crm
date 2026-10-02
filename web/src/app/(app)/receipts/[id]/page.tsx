@@ -51,12 +51,14 @@ export default async function ReceiptPage({ params }: PageProps<"/receipts/[id]"
   const c = r.customer;
   const active = r.status === "active";
   const isOwner = can(user, "approvals", "approve");
-  /** An invoice, a job the money is an advance for (S12), or a refund JV that paid it back (D55). */
-  const target = (l: { invoiceId: number | null; debitNoteId: number | null; jobId: number | null; refundId: number | null; number: string }) => {
+  /** An invoice, a job the money is an advance for (S12), a print job (D64), or a refund JV that paid it back (D55). */
+  const target = (l: { invoiceId: number | null; debitNoteId: number | null; jobId: number | null; printJobId: number | null; refundId: number | null; number: string }) => {
     const [href, area] =
       l.jobId !== null
         ? [`/jobs/${l.jobId}`, "jobs" as const]
-        : l.refundId !== null
+        : l.printJobId !== null
+          ? [`/print-jobs/${l.printJobId}`, "printJobs" as const]
+          : l.refundId !== null
           ? [`/journal-vouchers/${l.refundId}`, "books" as const]
           : l.debitNoteId !== null
             ? [`/credit-debit-notes/dn/${l.debitNoteId}`, "invoices" as const]
@@ -68,7 +70,15 @@ export default async function ReceiptPage({ params }: PageProps<"/receipts/[id]"
     ) : (
       <span className="font-medium tabular-nums">{l.number}</span>
     );
-    return l.jobId !== null ? <>Advance for job {number}</> : l.refundId !== null ? <>Paid back on {number}</> : number;
+    return l.jobId !== null ? (
+      <>Advance for job {number}</>
+    ) : l.printJobId !== null ? (
+      <>Print job {number}</>
+    ) : l.refundId !== null ? (
+      <>Paid back on {number}</>
+    ) : (
+      number
+    );
   };
 
   return (

@@ -166,3 +166,19 @@ export async function jobsOnInvoices(q: Tx | typeof db, jobIds: number[], except
       ),
     );
 }
+
+/** Of these print jobs, the ones on a live invoice (other than `exceptInvoiceId`), with that invoice (D64). */
+export async function printJobsOnInvoices(q: Tx | typeof db, printJobIds: number[], exceptInvoiceId?: number) {
+  if (!printJobIds.length) return [];
+  return q
+    .selectDistinct({ printJobId: invoiceLines.printJobId, invoiceId: invoices.id, number: invoices.number })
+    .from(invoiceLines)
+    .innerJoin(invoices, eq(invoices.id, invoiceLines.invoiceId))
+    .where(
+      and(
+        inArray(invoiceLines.printJobId, printJobIds),
+        ne(invoices.status, "cancelled"),
+        exceptInvoiceId ? ne(invoices.id, exceptInvoiceId) : undefined,
+      ),
+    );
+}

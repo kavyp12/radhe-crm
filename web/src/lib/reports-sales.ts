@@ -560,13 +560,18 @@ export async function pendingPaymentReport(user: SessionUser, q: ReportQuery, no
 
 // ---- Advance received (S20 #18, A§13)
 
-const ADVANCE_TYPE = { receipt: "On account (receipt)", credit_note: "Credit note (unused)", job: "Job advance" } as const;
+const ADVANCE_TYPE = {
+  receipt: "On account (receipt)",
+  credit_note: "Credit note (unused)",
+  job: "Job advance",
+  print_job: "Print job (not billed)",
+} as const;
 type AdvanceType = keyof typeof ADVANCE_TYPE;
 
 /**
  * S20 #18: customer money not yet set against a bill — receipts' unallocated rest and issued credit notes' leftover
- * credit (on account, D49) + live advances on jobs not yet invoiced (they move to the invoice at Issue, T14). As of
- * now; the period picks the receipts / credit notes by date.
+ * credit (on account, D49) + live advances on jobs not yet invoiced and money on print jobs not yet billed (they move
+ * to the invoice at Issue, T14, D64). As of now; the period picks the receipts / credit notes by date.
  */
 export async function advanceReport(user: SessionUser, q: ReportQuery, now = new Date()): Promise<ReportResult | null> {
   if (!can(user, "reports", "view")) return null;
@@ -586,14 +591,27 @@ export async function advanceReport(user: SessionUser, q: ReportQuery, now = new
         left join receipts r on r.id = x.receipt_id
         left join credit_notes n on n.id = x.credit_note_id
       where x.active and (r.id is null or r.status <> 'cancelled') and (n.id is null or n.status <> 'cancelled')
+      union all
+      select 'print_job', coalesce(r.id, n.id), coalesce(r.number, n.number), coalesce(r.date, n.date), p.customer_id, p.id, p.number, x.amount_paise
+      from allocations x join print_jobs p on p.id = x.print_job_id
+        left join receipts r on r.id = x.receipt_id
+        left join credit_notes n on n.id = x.credit_note_id
+      where x.active and (r.id is null or r.status <> 'cancelled') and (n.id is null or n.status <> 'cancelled')
     ) a join customers c on c.id = a.customer_id
     where a.amount > 0 and ${inRange(sql.raw("a.date"), range)}
     order by a.date, a.number, a.job`);
   const picks = [pick("type", "Type", Object.entries(ADVANCE_TYPE) as [string, string][], q)];
   const [type] = picks.map((p) => p.value);
   const shown = rows.filter((r) => !type || r.type === type);
+  // job_id / job: the job, or for a print job the print job (its number shows in the Job column).
   const href = (r: (typeof rows)[number]) =>
-    r.type === "job" ? `/jobs/${r.job_id}` : r.type === "receipt" ? `/receipts/${r.doc_id}` : `/credit-debit-notes/cn/${r.doc_id}`;
+    r.type === "job"
+      ? `/jobs/${r.job_id}`
+      : r.type === "print_job"
+        ? `/print-jobs/${r.job_id}`
+        : r.type === "receipt"
+          ? `/receipts/${r.doc_id}`
+          : `/credit-debit-notes/cn/${r.doc_id}`;
   const amount = moneyCol("amount", "Advance");
 
   return {
@@ -608,7 +626,7 @@ export async function advanceReport(user: SessionUser, q: ReportQuery, now = new
             { key: "number", label: "Document" },
             { key: "customer", label: "Customer" },
             { key: "type", label: "Type" },
-            { key: "job", label: "Job" },
+            { key: "job", label: "Job / print job" },
             amount,
           ],
           rows: shown.map((r) => ({

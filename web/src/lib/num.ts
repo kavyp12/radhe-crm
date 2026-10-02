@@ -84,6 +84,11 @@ export function gstOn(taxable: bigint, gstBp: number, mode: GstMode) {
   return { cgst: half, sgst: half, igst };
 }
 
+/** A print's sq ft (D64): width × height (ft) × qty, half-up to a thousandth — 6 × 3 ft × 2 = 36 sq ft. */
+export const printSqFt = (widthMilli: bigint, heightMilli: bigint, qtyMilli: bigint) => divRound(widthMilli * heightMilli * qtyMilli, 1_000_000n);
+/** A print's amount (D64): sq ft × rate per sq ft, half-up to a paisa — 36 sq ft × ₹25 = ₹900. */
+export const printAmount = (sqftMilli: bigint, ratePaise: bigint) => divRound(sqftMilli * ratePaise, 1000n);
+
 /** Credit / debit note totals (T16): GST per line on its taxable value, in the invoice's mode; no round-off (D49). */
 export function noteTotals(lines: { taxable: bigint; gstBp: number }[], mode: GstMode) {
   const calc = lines.map((l) => ({ taxable: l.taxable, ...gstOn(l.taxable, l.gstBp, mode) }));

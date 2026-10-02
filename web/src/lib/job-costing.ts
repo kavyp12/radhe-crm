@@ -12,8 +12,9 @@ import { jobsOnInvoices, readDate } from "@/lib/sales";
 // Job costing (S3, S11, A§10, D57). Figures come from the journal, so cancels and edits net out: sale = the sales /
 // sales_returns lines tagged with the job (Cr − Dr); costs = job-tagged lines on materials_consumed (material) and on
 // expense-category accounts (their D41 bucket; a "none" category counts as other), plus the manual job_cost_entries
-// (never posted, deactivated instead of deleted). Printing from print jobs arrives in T37. Everything here is cost:
-// only for can_view_cost users who may see the job's money (hard rule 5) — the loader returns nothing otherwise.
+// (never posted, deactivated instead of deleted) and the print jobs on the job at the machine's cost rate (printing,
+// T37, D64; never posted either). Everything here is cost: only for can_view_cost users who may see the job's money
+// (hard rule 5) — the loader returns nothing otherwise.
 
 /** May see a job's P&L card: the job's money (never production) and can_view_cost. */
 export const canSeeJobCost = (user: SessionUser) => can(user, "jobs", "money") && canViewCost(user);
@@ -57,6 +58,9 @@ export async function jobCosting(user: SessionUser, jobId: number) {
     .where(eq(jobCostEntries.jobId, jobId))
     .orderBy(asc(jobCostEntries.date), asc(jobCostEntries.id));
   for (const e of entries) if (e.active) cost[e.bucket] += e.amount;
+  const [printed] = await db.execute<{ paise: string }>(sql`
+    select coalesce(sum(amount_paise), 0) as paise from print_jobs where job_id = ${jobId} and mode = 'job_cost' and status = 'active'`);
+  cost.printing += BigInt(printed.paise);
 
   const totalCost = JOB_COST_BUCKETS.reduce((s, b) => s + cost[b], 0n);
   const profit = sale - totalCost;

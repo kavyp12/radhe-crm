@@ -19,7 +19,9 @@ import { todayIST } from "@/lib/dates";
 import { creditWarning } from "@/lib/invoices";
 import { canEnterJobCost, jobCosting } from "@/lib/job-costing";
 import { getJob, JOB_STATUS, type JobStatus } from "@/lib/jobs";
+import { milliText } from "@/lib/num";
 import { can } from "@/lib/permissions";
+import { jobPrintJobs } from "@/lib/print-jobs";
 import { RECEIPT_MODE } from "@/lib/receipt-modes";
 import { jobAdvances } from "@/lib/receipts";
 import { jobsOnInvoices } from "@/lib/sales";
@@ -49,7 +51,7 @@ export default async function JobPage({ params }: PageProps<"/jobs/[id]">) {
   if (!job) notFound();
   const materials = can(user, "stockIssue", "view");
   const open = job.status !== "invoiced" && job.status !== "cancelled";
-  const [files, people, [invoice], advances, issues, pnl, warning] = await Promise.all([
+  const [files, people, [invoice], advances, issues, pnl, warning, prints] = await Promise.all([
     listAttachments("job", id),
     db.select({ id: users.id, name: users.name }).from(users),
     jobsOnInvoices(db, [id]),
@@ -61,7 +63,11 @@ export default async function JobPage({ params }: PageProps<"/jobs/[id]">) {
     jobCosting(user, id),
     // S25: credit limit with this job added — a warning from job create until it's invoiced (never a block).
     open && job.money ? creditWarning(job.customerId, job.totals.total) : null,
+    // P4: prints on this job (their cost only for can_view_cost, stripped in the loader).
+    jobPrintJobs(user, id),
   ]);
+  const livePrints = prints.filter((p) => p.status === "active");
+  const printCost = livePrints.every((p) => p.amountPaise !== null) ? livePrints.reduce((s, p) => s + p.amountPaise!, 0n) : null;
   const overdue = open && job.status !== "delivered" && !!job.targetDate && job.targetDate < todayIST();
   // Money only reaches this page for users who may see it (getJob leaves it out otherwise).
   const priced = job.money ? job : null;
@@ -185,6 +191,56 @@ export default async function JobPage({ params }: PageProps<"/jobs/[id]">) {
                   ))}
                 </tbody>
               </table>
+            </section>
+          )}
+          {can(user, "printJobs", "view") && (prints.length > 0 || (open && can(user, "printJobs", "create"))) && (
+            <section aria-label="Print jobs" className="overflow-x-auto rounded-lg border bg-card">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2.5">
+                <h2 className="text-sm font-medium">
+                  Print jobs · {milliText(livePrints.reduce((s, p) => s + p.sqftMilli, 0n))} sq ft
+                  {printCost !== null && livePrints.length > 0 && (
+                    <>
+                      {" · "}
+                      <Money paise={printCost} />
+                      <span className="ml-1 text-xs font-normal text-muted-foreground">printing cost</span>
+                    </>
+                  )}
+                </h2>
+                {open && can(user, "printJobs", "create") && (
+                  <Button asChild variant="outline" size="sm">
+                    <Link href={`/print-jobs/new?job=${id}`}>New print job</Link>
+                  </Button>
+                )}
+              </div>
+              {prints.length > 0 && (
+                <table className="w-full min-w-140 text-[13px]">
+                  <tbody>
+                    {prints.map((p) => (
+                      <tr key={p.id}>
+                        <td className="border-b px-4 py-2">
+                          <Link href={`/print-jobs/${p.id}`} className="text-primary hover:underline">
+                            <DocNumber number={p.number} status={p.status === "cancelled" ? "Cancelled" : undefined} />
+                          </Link>
+                        </td>
+                        <td className="border-b px-4 py-2">
+                          <DateText date={p.date} />
+                        </td>
+                        <td className="max-w-56 truncate border-b px-4 py-2">{p.fileName}</td>
+                        <td className="border-b px-4 py-2">{p.machine}</td>
+                        <td className="border-b px-4 py-2 tabular-nums">
+                          {milliText(p.widthMilli)} × {milliText(p.heightMilli)} ft × {milliText(p.qtyMilli)}
+                        </td>
+                        <td className="border-b px-4 py-2 text-right tabular-nums">{milliText(p.sqftMilli)} sq ft</td>
+                        {printCost !== null && (
+                          <td className="border-b px-4 py-2 text-right">
+                            <Money paise={p.amountPaise!} />
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </section>
           )}
           {materials && (

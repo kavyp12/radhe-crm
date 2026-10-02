@@ -6,7 +6,7 @@ import { db } from "@/db";
 import {
   accounts, adjustmentLines, adjustments, allocations, cashCounts, creditNoteLines, creditNotes, customers, debitNoteLines, debitNotes,
   expenseCategories, expenses, followUps, goodsReceiptLines, goodsReceipts, invoiceLines, invoices, jobCostEntries, jobLines, jobs,
-  jobStatusHistory, journalEntries, journalLines, materialRequestLines, materialRequests, productCategories, purchaseBillLines,
+  jobStatusHistory, journalEntries, journalLines, machines, materialRequestLines, materialRequests, printingTypes, printJobs, productCategories, purchaseBillLines,
   purchaseBills, purchaseOrderLines, purchaseOrders, quotationLines, quotations, receipts, settings, stockAdjustments, stockIssueLines,
   stockIssues, stockItems, stockMoves, transfers, users, vendorAllocations, vendorPayments, vendors,
 } from "@/db/schema";
@@ -25,8 +25,8 @@ import { entryLabel, rangeText } from "@/lib/statements";
  * and the sign-in tables (sessions, password hashes) — all in the pg_dump backup.
  */
 export const EXPORT_TABLES: PgTable[] = [
-  settings, users, accounts, customers, vendors, productCategories, expenseCategories, stockItems,
-  quotations, quotationLines, jobs, jobLines, jobStatusHistory, jobCostEntries, invoices, invoiceLines,
+  settings, users, accounts, customers, vendors, productCategories, expenseCategories, stockItems, machines, printingTypes,
+  quotations, quotationLines, jobs, jobLines, jobStatusHistory, jobCostEntries, printJobs, invoices, invoiceLines,
   creditNotes, creditNoteLines, debitNotes, debitNoteLines, receipts, allocations, followUps,
   materialRequests, materialRequestLines, purchaseOrders, purchaseOrderLines, goodsReceipts, goodsReceiptLines,
   purchaseBills, purchaseBillLines, vendorPayments, vendorAllocations, expenses,

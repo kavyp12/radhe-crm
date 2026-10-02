@@ -18,9 +18,9 @@ import { moneyText, parseMoney } from "@/lib/num";
 import { MODE_ACCOUNT, RECEIPT_MODE, RECEIPT_MODES, type ReceiptMode } from "@/lib/receipt-modes";
 import { cn } from "@/lib/utils";
 
-/** An open receivable: an invoice or a debit note (T16). */
+/** An open receivable: an invoice, a debit note (T16) or a print job not yet billed (D64). */
 export type OpenInvoice = {
-  target: "invoice" | "debit_note";
+  target: "invoice" | "debit_note" | "print_job";
   id: number;
   number: string;
   date: string;
@@ -257,13 +257,13 @@ export function ReceiptForm({
         ) : (
           <div className="grid gap-4">
             {invoiceRows.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No open invoices or debit notes.</p>
+              <p className="text-sm text-muted-foreground">No open invoices, debit notes or print jobs.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-140 border-separate border-spacing-0 text-[13px]">
                   <thead>
                     <tr>
-                      <th className={th}>Invoice / debit note</th>
+                      <th className={th}>Invoice / debit note / print job</th>
                       <th className={th}>Date</th>
                       <th className={th}>Due</th>
                       <th className={`${th} text-right`}>Total</th>

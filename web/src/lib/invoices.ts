@@ -12,6 +12,8 @@ import {
   jobStatusHistory,
   journalEntries,
   journalLines,
+  printingTypes,
+  printJobs,
   productCategories,
   quotationLines,
   quotations,
@@ -26,7 +28,7 @@ import { formatDate, todayIST } from "@/lib/dates";
 import { JOB_STATUS, liveJobFor, PRODUCTION_STATUSES } from "@/lib/jobs";
 import { checkBooksDate, post, reverse, systemAccountId, type PostLine } from "@/lib/ledger";
 import { gstMode, lineTotals } from "@/lib/lines";
-import { formatMoney } from "@/lib/num";
+import { formatMoney, milliText } from "@/lib/num";
 import { nextNumber } from "@/lib/numbering";
 import { can, type SessionUser } from "@/lib/permissions";
 import {
@@ -38,6 +40,7 @@ import {
   jobsOnInvoices,
   lineRow,
   newShareToken,
+  printJobsOnInvoices,
   quotationInvoice,
   readDate,
   readLines,
@@ -57,7 +60,7 @@ export const INVOICE_STATUS: Record<InvoiceStatus, Status> = { draft: "Draft", i
 /** The form as typed; lines = JSON of lib/lines.ts LineText[]. */
 export type InvoiceInput = { kind: string; customerId: string; date: string; terms: string; notes: string; lines: string };
 
-type Linked = Omit<SavedLine, "lineId"> & { jobId?: number | null; quotationLineId?: number | null };
+type Linked = Omit<SavedLine, "lineId"> & { jobId?: number | null; quotationLineId?: number | null; printJobId?: number | null };
 
 function readKind(value: string): InvoiceKind {
   if (value === "tax" || value === "estimate") return value;
@@ -76,6 +79,7 @@ const insertLines = (tx: Tx, invoiceId: number, lines: Linked[]) =>
       ...lineRow(l, i),
       jobId: l.jobId ?? null,
       quotationLineId: l.quotationLineId ?? null,
+      printJobId: l.printJobId ?? null,
     })),
   );
 
@@ -154,6 +158,71 @@ export async function createInvoiceFromJobs(actor: SessionUser, jobIds: number[]
   });
 }
 
+/**
+ * "Bill selected print jobs" (D64): one draft per customer, a line per print job (W × H, qty = its sq ft, its rate),
+ * linked to it. The category is the printing type's, else `categoryInput`. Only new (sale) print jobs that are active
+ * and on no live invoice. Returns the drafts' ids.
+ */
+export async function createInvoicesFromPrintJobs(actor: SessionUser, printJobIds: number[], kindInput: string, categoryInput: string) {
+  if (!can(actor, "invoices", "create") || !can(actor, "printJobs", "edit")) throw new Error("Not allowed");
+  const kind = readKind(kindInput);
+  const ids = [...new Set(printJobIds)].filter((id) => Number.isSafeInteger(id));
+  if (!ids.length) throw new UserError("Pick at least one print job.");
+  return writeTx(actor, async (tx) => {
+    const rows = await tx
+      .select({ pj: printJobs, type: printingTypes.name, typeCategory: printingTypes.categoryId })
+      .from(printJobs)
+      .innerJoin(printingTypes, eq(printingTypes.id, printJobs.printingTypeId))
+      .where(inArray(printJobs.id, ids))
+      .orderBy(asc(printJobs.id))
+      .for("update", { of: printJobs });
+    if (rows.length !== ids.length) throw new UserError("A print job wasn't found.");
+    for (const { pj } of rows) {
+      if (pj.status !== "active") throw new UserError(`Print job ${pj.number} is cancelled.`);
+      if (pj.mode !== "sale") throw new UserError(`Print job ${pj.number} is on a job: it is billed with that job.`);
+    }
+    const [taken] = await printJobsOnInvoices(tx, ids);
+    if (taken) {
+      const pj = rows.find((r) => r.pj.id === taken.printJobId)!.pj;
+      throw new UserError(`Print job ${pj.number} is already on invoice ${taken.number ?? `#${taken.invoiceId} (draft)`}.`);
+    }
+    let fallback: number | null = null;
+    if (rows.some((r) => r.typeCategory === null)) {
+      const id = Number(categoryInput);
+      const [category] = Number.isSafeInteger(id) ? await tx.select().from(productCategories).where(eq(productCategories.id, id)) : [];
+      if (!category) throw new UserError("Pick the category for print jobs whose printing type has none.", "categoryId");
+      fallback = category.id;
+    }
+    const categoryIds = [...new Set(rows.map((r) => r.typeCategory ?? fallback!))];
+    const categories = await tx.select().from(productCategories).where(inArray(productCategories.id, categoryIds));
+    const terms = await defaultTerms(tx);
+    const made: number[] = [];
+    for (const customerId of [...new Set(rows.map((r) => r.pj.customerId))]) {
+      const customer = await customerFor(tx, String(customerId), false);
+      const lines: Linked[] = rows
+        .filter((r) => r.pj.customerId === customerId)
+        .map(({ pj, type, typeCategory }) => {
+          const category = categories.find((c) => c.id === (typeCategory ?? fallback))!;
+          return {
+            categoryId: category.id,
+            description: `Printing ${pj.number}: ${pj.fileName} · ${type} · ${milliText(pj.qtyMilli)} pc`.slice(0, 500),
+            hsnSac: category.hsnSac,
+            widthMilli: pj.widthMilli,
+            heightMilli: pj.heightMilli,
+            qtyMilli: pj.sqftMilli,
+            unit: "Sq Ft",
+            ratePaise: pj.ratePaise,
+            discountPaise: 0n,
+            gstBp: category.gstBp,
+            printJobId: pj.id,
+          };
+        });
+      made.push(await newDraft(tx, actor, { kind, customer, date: todayIST(), terms, notes: null, lines }));
+    }
+    return made;
+  });
+}
+
 /** A draft from an approved quotation that has no job (small jobs billed straight from the quote). */
 export async function createInvoiceFromQuotation(actor: SessionUser, quotationId: number, kindInput: string) {
   if (!can(actor, "invoices", "create")) throw new Error("Not allowed");
@@ -196,14 +265,14 @@ export async function updateInvoice(actor: SessionUser, id: number, input: Invoi
       throw new UserError("An issued invoice can't be edited. Cancel it, or use a credit note after the GST return.");
     }
     const old = await linesOf(tx, id);
-    const linked = old.some((l) => l.jobId !== null || l.quotationLineId !== null);
+    const linked = old.some((l) => l.jobId !== null || l.quotationLineId !== null || l.printJobId !== null);
     const customerId = linked ? String(inv.customerId) : input.customerId;
     const customer = await customerFor(tx, customerId, Number(customerId) !== inv.customerId);
     const date = readDate(input.date);
     await checkBooksDate(tx, date);
     const lines = (await readLines(tx, input.lines)).map((l) => {
       const from = old.find((o) => o.id === l.lineId);
-      return { ...l, jobId: from?.jobId ?? null, quotationLineId: from?.quotationLineId ?? null };
+      return { ...l, jobId: from?.jobId ?? null, quotationLineId: from?.quotationLineId ?? null, printJobId: from?.printJobId ?? null };
     });
     const { totals } = await figures(tx, kind, customer.stateCode, lines);
     await tx
@@ -266,6 +335,17 @@ async function doIssue(tx: Tx, p: IssuePayload, by: SessionUser): Promise<string
   }
   const [elsewhere] = await jobsOnInvoices(tx, jobIds, inv.id);
   if (elsewhere) throw new UserError(`A job here is also on invoice ${elsewhere.number ?? `#${elsewhere.invoiceId}`}.`);
+  // Billed print jobs (D64): still new (sale), active, the customer's, and on no other live invoice.
+  const printJobIds = [...new Set(lines.flatMap((l) => (l.printJobId === null ? [] : [l.printJobId])))];
+  const prints = printJobIds.length ? await tx.select().from(printJobs).where(inArray(printJobs.id, printJobIds)).for("update") : [];
+  for (const pj of prints) {
+    if (pj.customerId !== inv.customerId) throw new UserError(`Print job ${pj.number} is another customer's.`);
+    if (pj.status !== "active" || pj.mode !== "sale") throw new UserError(`Print job ${pj.number} is cancelled or on a job: take its line off.`);
+  }
+  const [printedElsewhere] = await printJobsOnInvoices(tx, printJobIds, inv.id);
+  if (printedElsewhere) {
+    throw new UserError(`A print job here is also on invoice ${printedElsewhere.number ?? `#${printedElsewhere.invoiceId}`}.`);
+  }
 
   const { totals } = await figures(tx, inv.kind, inv.placeOfSupply, lines);
   if (totals.total <= 0n) throw new UserError("The total must be more than zero.");
@@ -292,7 +372,7 @@ async function doIssue(tx: Tx, p: IssuePayload, by: SessionUser): Promise<string
     await tx.update(jobs).set({ status: "invoiced" }).where(eq(jobs.id, job.id));
     await tx.insert(jobStatusHistory).values({ jobId: job.id, fromStatus: job.status, toStatus: "invoiced" });
   }
-  await moveJobAdvances(tx, inv.id, jobIds, totals.total, by.id);
+  await moveJobAdvances(tx, inv.id, jobIds, totals.total, by.id, printJobIds);
   return number;
 }
 
@@ -431,7 +511,7 @@ registerExecutor<CancelPayload>("invoice.cancel", {
       changes: [
         { label: "Status", old: "Issued", new: "Cancelled (number kept)" },
         { label: "Journal", old: null, new: `Entry reversed on ${formatDate(inv.date)}` },
-        { label: "Payments", old: null, new: "Job advances go back to their jobs, other payments on account" },
+        { label: "Payments", old: null, new: "Job advances and print job money go back to them, other payments on account" },
       ],
     };
   },

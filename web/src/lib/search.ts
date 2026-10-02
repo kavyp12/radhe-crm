@@ -5,7 +5,7 @@ import { formatMoney, parseMoney } from "@/lib/num";
 import { can, canViewCost, type Area, type SessionUser } from "@/lib/permissions";
 
 // Universal search (S26, D62, D63): one call, at most 5 hits per type, each type only if the user can view its area
-// (A§8) — so production gets jobs, material requests and stock issues only, and without "money" on jobs no amount
+// (A§8) — so production gets jobs, print jobs, material requests and stock issues only, and without "money" no amount
 // search. Names match fuzzily (pg_trgm word similarity), document numbers with or without zero padding (RDS-2026-125 =
 // RDS-2026-00125), an amount ("25,000", "₹25,000.50") the documents whose total equals it. Every match runs on a
 // migration 0050 / 0051 index. A hit is display text, a link and the total when the user may see it — never a cost
@@ -113,7 +113,7 @@ async function jobHits(tx: Tx, t: Terms, money: boolean): Promise<SearchHit[]> {
   }));
 }
 
-type DocRow = { id: string; number: string | null; date: string; status: string; total: string; party: string; party_id: string; kind: string | null };
+type DocRow = { id: string; number: string | null; date: string; status: string; total: string | null; party: string; party_id: string; kind: string | null };
 type Doc = {
   label: string;
   area: Area;
@@ -161,6 +161,12 @@ const DOCS: Doc[] = [
   {
     label: "Expenses", area: "books", from: "expenses d join expense_categories p on p.id = d.category_id", total: "d.amount_paise", party: "p.name",
     href: (r) => `/expenses/${r.id}`,
+  },
+  // T37: by number or file name. A print on a job is costed at the machine's cost rate: its amount is never shown here.
+  {
+    label: "Print jobs", area: "printJobs", from: `print_jobs d ${ON_CUSTOMER}`, total: "case when d.mode = 'sale' then d.amount_paise end",
+    party: `${CUSTOMER} || ' · ' || d.file_name`, money: (user) => can(user, "printJobs", "money"), byAmount: false,
+    also: (t) => sql`d.file_name ilike ${t.text}`, href: (r) => `/print-jobs/${r.id}`,
   },
   // D63: these by number only. PO / GRN totals are purchase rates (their pages need can_view_cost, else the vendor);
   // stock issue and adjustment values are stock values, so never shown here.
@@ -220,7 +226,7 @@ async function docHits(tx: Tx, doc: Doc, t: Terms, user: SessionUser): Promise<S
     title: r.number ?? "Draft", // invoices and notes are numbered at Issue
     detail: line(r.kind, r.party, formatDate(r.date), !!r.number && statusText(r.status)),
     href: doc.href(r, user),
-    ...(money ? { amount: formatMoney(BigInt(r.total)) } : {}),
+    ...(money && r.total !== null ? { amount: formatMoney(BigInt(r.total)) } : {}),
   }));
 }
 

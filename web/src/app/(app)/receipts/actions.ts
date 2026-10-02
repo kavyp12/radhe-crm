@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { formAction, type FormState } from "@/lib/action";
-import { openInvoices, openJobs } from "@/lib/allocations";
+import { openInvoices, openJobs, openPrintJobs } from "@/lib/allocations";
 import { requirePermission } from "@/lib/auth";
 import { JOB_STATUS } from "@/lib/jobs";
 import { db } from "@/db";
@@ -28,16 +28,22 @@ const checkId = (id: number) => {
   if (!Number.isSafeInteger(id)) throw new Error("Bad id");
 };
 
-/** The allocation panel's rows for a customer: open invoices and jobs; `exceptReceiptId` = the receipt being edited. */
+/**
+ * The allocation panel's rows for a customer: open invoices, debit notes and print jobs (oldest first, D64), and jobs;
+ * `exceptReceiptId` = the receipt being edited.
+ */
 export async function openItemsAction(customerId: number, exceptReceiptId?: number) {
   await requirePermission("payments", "create");
   checkId(customerId);
   if (exceptReceiptId !== undefined) checkId(exceptReceiptId);
-  const [invoices, jobs] = await Promise.all([
+  const [invoices, printJobs, jobs] = await Promise.all([
     openInvoices(db, customerId, exceptReceiptId),
+    openPrintJobs(db, customerId, exceptReceiptId),
     openJobs(db, customerId, exceptReceiptId),
   ]);
-  return { invoices, jobs: jobs.map((j) => ({ ...j, status: JOB_STATUS[j.status] })) };
+  // Stable: same date keeps invoices and debit notes (in openInvoices' order) before print jobs.
+  const open = [...invoices, ...printJobs].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return { invoices: open, jobs: jobs.map((j) => ({ ...j, status: JOB_STATUS[j.status] })) };
 }
 
 export async function createReceiptAction(_: FormState, form: FormData): Promise<FormState> {

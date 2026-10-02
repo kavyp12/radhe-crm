@@ -14,6 +14,7 @@ import {
   jobCostEntries,
   journalEntries,
   journalLines,
+  printJobs,
   purchaseBillLines,
   purchaseBills,
   receipts,
@@ -182,7 +183,7 @@ test("owner: each figure equals a direct check on the books", async () => {
     .where(and(inArray(accounts.type, ["income", "expense"]), between(journalEntries.date, month, today)));
   expect(value(d, "profit")).toBe(BigInt(p.net));
 
-  // Gross profit = Sales − job costs dated in the month (job-tagged journal costs + manual entries).
+  // Gross profit = Sales − job costs dated in the month (job-tagged journal costs + manual entries + prints on jobs).
   const [jc] = await db
     .select({ net: sql<string>`coalesce(sum(${journalLines.debitPaise} - ${journalLines.creditPaise}), 0)` })
     .from(journalLines)
@@ -197,7 +198,12 @@ test("owner: each figure equals a direct check on the books", async () => {
     );
   const manual = sumOf(await db.select().from(jobCostEntries).where(and(eq(jobCostEntries.active, true), between(jobCostEntries.date, month, today))), (e) => e.amountPaise);
   expect(manual).toBeGreaterThanOrEqual(400_00n);
-  expect(value(d, "grossProfit")).toBe(sales - BigInt(jc.net) - manual);
+  // + prints on jobs at the machine's cost rate (T37), whichever test file made them.
+  const printed = sumOf(
+    await db.select().from(printJobs).where(and(eq(printJobs.mode, "job_cost"), eq(printJobs.status, "active"), between(printJobs.date, month, today))),
+    (p) => p.amountPaise,
+  );
+  expect(value(d, "grossProfit")).toBe(sales - BigInt(jc.net) - manual - printed);
 
   // Chart: this FY by month; the last month is this month; the months add up to the FY.
   expect(d.months[0].month).toBe("Apr");

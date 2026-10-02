@@ -4,9 +4,9 @@ import { NextRequest } from "next/server";
 import { beforeAll, expect, test } from "vitest";
 import { GET } from "@/app/export/[name]/route";
 import { db } from "@/db";
-import { accounts, customers, jobs, journalEntries, journalLines, productCategories } from "@/db/schema";
+import { accounts, customers, jobs, journalEntries, journalLines, printJobs, productCategories } from "@/db/schema";
 import { signedIn, testOwner } from "@/db/test-owner";
-import { advancesOn, onAccountSources } from "@/lib/allocations";
+import { advancesOn, onAccountSources, paidTowardsPrintJobs } from "@/lib/allocations";
 import { createCustomer } from "@/lib/customers";
 import { loadDashboard } from "@/lib/dashboard";
 import { todayIST } from "@/lib/dates";
@@ -281,7 +281,10 @@ test("Advance received = on-account money (receipts, credit-note leftovers) + jo
   const jobIds = (await db.select({ id: jobs.id }).from(jobs)).map((j) => j.id);
   const advances = [...(await advancesOn(db, jobIds)).values()].reduce((s, v) => s + v, 0n);
   expect(advances).toBeGreaterThanOrEqual(700_00n);
-  expect(total(all, "amount")).toBe(onAccount + advances);
+  // + money on print jobs not yet billed (T37), whichever test file made them.
+  const printJobIds = (await db.select({ id: printJobs.id }).from(printJobs)).map((p) => p.id);
+  const onPrints = [...(await paidTowardsPrintJobs(db, printJobIds)).values()].reduce((s, v) => s + v, 0n);
+  expect(total(all, "amount")).toBe(onAccount + advances + onPrints);
   expect(total(mainOf(await advanceReport(owner, { type: "job" })), "amount")).toBe(advances);
 });
 

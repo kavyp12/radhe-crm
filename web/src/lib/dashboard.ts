@@ -81,14 +81,16 @@ async function topSales(from: string, to: string): Promise<{ customers: Ranked[]
   return { customers: ranked(customers), services: ranked(services) };
 }
 
-/** Profit and job costs for [from, to] from the journal, plus manual job cost entries — one query. */
+/** Profit and job costs for [from, to] from the journal, plus manual job cost entries and print jobs on jobs — one query. */
 async function profitFigures(from: string, to: string) {
   const [row] = await db.execute<{ profit: string; jobCosts: string }>(sql`
     select
       coalesce(sum(l.credit_paise - l.debit_paise) filter (where a.type in ('income', 'expense')), 0)::text as profit,
       (coalesce(sum(l.debit_paise - l.credit_paise) filter (
          where l.job_id is not null and (a.system_key = 'materials_consumed' or ec.id is not null)), 0)
-       + (select coalesce(sum(amount_paise), 0) from job_cost_entries where active and date between ${from} and ${to}))::text as "jobCosts"
+       + (select coalesce(sum(amount_paise), 0) from job_cost_entries where active and date between ${from} and ${to})
+       + (select coalesce(sum(amount_paise), 0) from print_jobs
+          where mode = 'job_cost' and status = 'active' and date between ${from} and ${to}))::text as "jobCosts"
     from journal_lines l
     join journal_entries e on e.id = l.entry_id
     join accounts a on a.id = l.account_id

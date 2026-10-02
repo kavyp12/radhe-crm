@@ -34,7 +34,7 @@ const PNL_ORDER = ["Sales", "Returns", "Round off", "Other income", "Materials c
 /**
  * S20 #8: the income and expense accounts' movement in the period from the journal (A§12), grouped; net profit =
  * income − expense (= the dashboard's Profit). Below it the D59 gross profit: Sales (D60, excl. GST) − job costs dated
- * in the period (job-tagged journal costs + manual job cost entries). can_view_cost only.
+ * in the period (job-tagged journal costs + manual job cost entries + print jobs on jobs). can_view_cost only.
  */
 export async function profitReport(user: SessionUser, q: ReportQuery, now = new Date()): Promise<ReportResult | null> {
   if (!can(user, "reports", "view") || !canViewCost(user)) return null;
@@ -49,7 +49,10 @@ export async function profitReport(user: SessionUser, q: ReportQuery, now = new 
       left join expense_categories ec on ec.account_id = a.id
       where a.type in ('income', 'expense') and ${inRange(sql.raw("e.date"), range)}
       group by a.id, a.name, a.type, a.system_key, ec.id`),
-    db.execute<{ paise: string }>(sql`select coalesce(sum(amount_paise), 0) as paise from job_cost_entries where active and ${inRange(sql.raw("date"), range)}`),
+    db.execute<{ paise: string }>(sql`
+      select (select coalesce(sum(amount_paise), 0) from job_cost_entries where active and ${inRange(sql.raw("date"), range)})
+        + (select coalesce(sum(amount_paise), 0) from print_jobs where mode = 'job_cost' and status = 'active' and ${inRange(sql.raw("date"), range)})
+        as paise`),
     salesRows(range),
   ]);
 
@@ -64,7 +67,8 @@ export async function profitReport(user: SessionUser, q: ReportQuery, now = new 
   const income = lines.reduce((s, r) => s + (r.income ?? 0n), 0n);
   const expense = lines.reduce((s, r) => s + (r.expense ?? 0n), 0n);
 
-  // D59: job costs = job-tagged lines on materials consumed and the expense categories' accounts, + manual entries.
+  // D59: job costs = job-tagged lines on materials consumed and the expense categories' accounts, + manual entries
+  // and print jobs on jobs (T37).
   const jobCosts = accountRows
     .filter((r) => r.key === "materials_consumed" || r.category)
     .reduce((s, r) => s + BigInt(r.job_cost), 0n);
@@ -97,7 +101,7 @@ export async function profitReport(user: SessionUser, q: ReportQuery, now = new 
           rows: [
             { label: "Sales (excl. GST)", amount: sale },
             { label: "Job costs in the books", amount: jobCosts },
-            { label: "Manual job costs", amount: manualCosts },
+            { label: "Manual job costs and prints on jobs", amount: manualCosts },
             { label: "Gross profit (sales − job costs)", amount: sale - jobCosts - manualCosts },
           ],
         },
@@ -117,7 +121,7 @@ export type JobFigures = { sale: bigint; cost: Record<JobCostBucket, bigint>; to
 /**
  * Each job's sale and costs as the job P&L card has them (jobCosting): from the journal, all dates — sale = Cr − Dr on
  * the job's sales / sales_returns lines; costs = its materials_consumed lines (material) and expense-category lines (the
- * category's bucket, "none" → other) — plus its active manual job cost entries.
+ * category's bucket, "none" → other) — plus its active manual job cost entries and print jobs (printing, T37).
  */
 export async function jobFigures(jobIds: number[]): Promise<Map<number, JobFigures>> {
   const ids = [...new Set(jobIds)];
@@ -136,7 +140,9 @@ export async function jobFigures(jobIds: number[]): Promise<Map<number, JobFigur
       where l.job_id in (${list}) and (a.system_key in ('sales', 'sales_returns', 'materials_consumed') or ec.id is not null)
       group by 1, 2, 3`),
     db.execute<{ job_id: string; bucket: JobCostBucket; paise: string }>(sql`
-      select job_id, bucket, sum(amount_paise) as paise from job_cost_entries where active and job_id in (${list}) group by 1, 2`),
+      select job_id, bucket, sum(amount_paise) as paise from job_cost_entries where active and job_id in (${list}) group by 1, 2
+      union all
+      select job_id, 'printing', sum(amount_paise) from print_jobs where mode = 'job_cost' and status = 'active' and job_id in (${list}) group by 1`),
   ]);
   const of = (id: number) => {
     let f = out.get(id);

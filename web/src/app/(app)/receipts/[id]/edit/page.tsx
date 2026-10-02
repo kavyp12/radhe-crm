@@ -44,7 +44,14 @@ export default async function EditReceiptPage({ params }: PageProps<"/receipts/[
             [
               ...r.lines
                 .reduce((sum, l) => {
-                  const key = l.jobId !== null ? `job:${l.jobId}` : l.debitNoteId !== null ? `debit_note:${l.debitNoteId}` : `invoice:${l.invoiceId}`;
+                  const key =
+                    l.jobId !== null
+                      ? `job:${l.jobId}`
+                      : l.printJobId !== null
+                        ? `print_job:${l.printJobId}`
+                        : l.debitNoteId !== null
+                          ? `debit_note:${l.debitNoteId}`
+                          : `invoice:${l.invoiceId}`;
                   return sum.set(key, (sum.get(key) ?? 0n) + l.amount);
                 }, new Map<string, bigint>())
                 .entries(),

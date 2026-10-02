@@ -84,7 +84,13 @@ export async function customerHistory(customerId: number): Promise<Chain[]> {
       .leftJoin(debitNotes, eq(debitNotes.id, allocations.debitNoteId))
       // Money paid back by a refund JV (D55) pays nothing in a chain.
       .where(
-        and(eq(receipts.customerId, customerId), eq(receipts.status, "active"), eq(allocations.active, true), isNull(allocations.refundAdjustmentId)),
+        and(
+          eq(receipts.customerId, customerId),
+          eq(receipts.status, "active"),
+          eq(allocations.active, true),
+          isNull(allocations.refundAdjustmentId),
+          isNull(allocations.printJobId), // money on a print job not yet billed: the Print history tab shows it (T37)
+        ),
       ),
     noteRows(creditNotes),
     noteRows(debitNotes as unknown as typeof creditNotes), // same columns (lib/notes.ts)
@@ -177,22 +183,26 @@ export async function customerHistory(customerId: number): Promise<Chain[]> {
 }
 
 /**
- * S1 "advance / on account": money received and not yet on an invoice — advances on the customer's open jobs (from
- * receipts, or credit applied to them, D50), and the unallocated rest of live receipts and issued credit notes (a
- * note's excess stays as customer credit, D49).
+ * S1 "advance / on account": money received and not yet on an invoice — advances on the customer's open jobs and money
+ * on print jobs not yet billed (from receipts, or credit applied to them, D50, D64), and the unallocated rest of live
+ * receipts and issued credit notes (a note's excess stays as customer credit, D49).
  */
 export async function customerAdvance(customerId: number) {
-  const [row] = await db.execute<{ on_jobs: string; on_account: string; credit: string }>(sql`
+  const [row] = await db.execute<{ on_jobs: string; on_print_jobs: string; on_account: string; credit: string }>(sql`
     select
       coalesce((select sum(a.amount_paise) from allocations a join jobs j on j.id = a.job_id
         where j.customer_id = ${customerId} and a.active
           and not exists (select 1 from receipts r where r.id = a.receipt_id and r.status = 'cancelled')
           and not exists (select 1 from credit_notes c where c.id = a.credit_note_id and c.status = 'cancelled')), 0) as on_jobs,
+      coalesce((select sum(a.amount_paise) from allocations a join print_jobs p on p.id = a.print_job_id
+        where p.customer_id = ${customerId} and a.active
+          and not exists (select 1 from receipts r where r.id = a.receipt_id and r.status = 'cancelled')
+          and not exists (select 1 from credit_notes c where c.id = a.credit_note_id and c.status = 'cancelled')), 0) as on_print_jobs,
       coalesce((select sum(r.amount_paise - coalesce((select sum(a.amount_paise) from allocations a
         where a.receipt_id = r.id and a.active), 0)) from receipts r
         where r.customer_id = ${customerId} and r.status = 'active'), 0) as on_account,
       coalesce((select sum(c.total_paise - coalesce((select sum(a.amount_paise) from allocations a
         where a.credit_note_id = c.id and a.active), 0)) from credit_notes c
         where c.customer_id = ${customerId} and c.status = 'issued'), 0) as credit`);
-  return { onJobs: BigInt(row.on_jobs), onAccount: BigInt(row.on_account) + BigInt(row.credit) };
+  return { onJobs: BigInt(row.on_jobs), onPrintJobs: BigInt(row.on_print_jobs), onAccount: BigInt(row.on_account) + BigInt(row.credit) };
 }

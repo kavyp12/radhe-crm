@@ -5,6 +5,7 @@ import { RECEIPT_MODES } from "../../lib/receipt-modes";
 import { users } from "./auth";
 import { accounts, customers, productCategories } from "./masters";
 import { adjustments } from "./money";
+import { printJobs } from "./print";
 
 // Sales documents (A§2): quotation → job → invoice. Lines copy from one to the next (R0); every line has the same
 // columns (A§2 quotation_lines). Amount = qty × rate − discount (A§4, D46); W × H is the board size, printed only.
@@ -217,10 +218,12 @@ export const invoiceLines = pgTable(
     ...lineColumns(),
     jobId: bigint("job_id", { mode: "number" }).references(() => jobs.id),
     quotationLineId: bigint("quotation_line_id", { mode: "number" }).references(() => quotationLines.id),
+    printJobId: bigint("print_job_id", { mode: "number" }).references(() => printJobs.id), // "Bill selected print jobs" (T37)
   },
   (t) => [
     index("invoice_lines_doc_idx").on(t.invoiceId),
     index("invoice_lines_job_idx").on(t.jobId),
+    index("invoice_lines_print_job_idx").on(t.printJobId),
     index("invoice_lines_quotation_line_idx").on(t.quotationLineId),
   ],
 );
@@ -333,10 +336,10 @@ export const receipts = pgTable(
 
 /**
  * Links money to what it pays (A§2): one source (a receipt, a credit note, or a write-off / discount JV) → one target
- * (an invoice, a debit note, a job = an advance on it, or a refund JV that paid the money back, D55). A receipt's /
- * credit note's unallocated remainder is on account. Allocations never post (A§3) and are never deleted: a
- * change deactivates the old rows and adds new ones (D49). Open amounts count only active rows from sources that
- * aren't cancelled. Audited.
+ * (an invoice, a debit note, a job = an advance on it, a print job = money taken at the print, or a refund JV that paid
+ * the money back, D55). A receipt's / credit note's unallocated remainder is on account. Allocations never post (A§3) and
+ * are never deleted: a change deactivates the old rows and adds new ones (D49). Open amounts count only active rows
+ * from sources that aren't cancelled. Audited.
  */
 export const allocations = pgTable(
   "allocations",
@@ -349,10 +352,13 @@ export const allocations = pgTable(
     invoiceId: bigint("invoice_id", { mode: "number" }).references(() => invoices.id),
     debitNoteId: bigint("debit_note_id", { mode: "number" }).references(() => debitNotes.id),
     jobId: bigint("job_id", { mode: "number" }).references(() => jobs.id),
+    printJobId: bigint("print_job_id", { mode: "number" }).references(() => printJobs.id), // money taken at the print (D64)
     refundAdjustmentId: bigint("refund_adjustment_id", { mode: "number" }).references(() => adjustments.id),
     // An invoice row that carries a job's advance (moved at Issue, T14): the job it goes back to if the invoice is
     // cancelled (D49), and what the invoice shows as "Advance adjusted".
     fromJobId: bigint("from_job_id", { mode: "number" }).references(() => jobs.id),
+    // Likewise a print job's money moved onto the invoice that billed it (D64).
+    fromPrintJobId: bigint("from_print_job_id", { mode: "number" }).references(() => printJobs.id),
     amountPaise: bigint("amount_paise", { mode: "bigint" }).notNull(),
     active: boolean("active").notNull().default(true),
     ...stamps(),
@@ -361,6 +367,7 @@ export const allocations = pgTable(
     index("allocations_receipt_idx").on(t.receiptId),
     index("allocations_invoice_idx").on(t.invoiceId),
     index("allocations_job_idx").on(t.jobId),
+    index("allocations_print_job_idx").on(t.printJobId),
     index("allocations_credit_note_idx").on(t.creditNoteId),
     index("allocations_debit_note_idx").on(t.debitNoteId),
     index("allocations_adjustment_idx").on(t.adjustmentId),
@@ -369,9 +376,10 @@ export const allocations = pgTable(
     check("allocations_one_source", sql`num_nonnulls(${t.receiptId}, ${t.creditNoteId}, ${t.adjustmentId}) = 1`),
     check(
       "allocations_one_target",
-      sql`num_nonnulls(${t.invoiceId}, ${t.jobId}, ${t.debitNoteId}, ${t.refundAdjustmentId}) = 1`,
+      sql`num_nonnulls(${t.invoiceId}, ${t.jobId}, ${t.debitNoteId}, ${t.refundAdjustmentId}, ${t.printJobId}) = 1`,
     ),
     check("allocations_from_job_on_invoice", sql`${t.fromJobId} is null or ${t.invoiceId} is not null`),
+    check("allocations_from_print_job_on_invoice", sql`${t.fromPrintJobId} is null or ${t.invoiceId} is not null`),
     // A write-off / discount settles invoices and debit notes only.
     check(
       "allocations_adjustment_settles",

@@ -233,7 +233,9 @@ async function readAdjustment(tx: Tx, input: AdjustmentInput) {
     other = { accountId: account.id, account: account.name, debit: 0n, credit: amount, customerId: null, vendorId: null, jobId: null, party: null };
   } else {
     const lines = readAllocations(input.allocations);
-    if (lines.some((l) => l.target === "job")) throw new UserError("A write-off or discount settles invoices and debit notes only.", "allocations");
+    if (lines.some((l) => l.target !== "invoice" && l.target !== "debit_note")) {
+      throw new UserError("A write-off or discount settles invoices and debit notes only.", "allocations");
+    }
     allocated = (await checkAllocations(tx, customer.id, amount, lines)).map((l) => ({ ...l, target: l.target as "invoice" | "debit_note" }));
     const [account] = await tx
       .select()

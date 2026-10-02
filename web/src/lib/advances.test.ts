@@ -228,7 +228,7 @@ test("D50: a receipt's rest and a credit note's leftover credit are applied on a
     [rc, null, 1500_00n],
     [null, cn, 300_00n],
   ]);
-  expect(await customerAdvance(c)).toEqual({ onJobs: 1800_00n, onAccount: 500_00n });
+  expect(await customerAdvance(c)).toEqual({ onJobs: 1800_00n, onPrintJobs: 0n, onAccount: 500_00n });
 
   // Issue moves both advances onto the invoice; a cancel puts both back on the job.
   const inv = await billJob(j);
@@ -240,5 +240,5 @@ test("D50: a receipt's rest and a credit note's leftover credit are applied on a
   await apply("receipt", rc!, [["invoice", b, "500"]]);
   expect((await getReceipt(rc!))!.lines.filter((l) => l.invoiceId === b).map((l) => l.amount)).toEqual([1500_00n]);
   expect(await onAccountSources(db, c)).toEqual([]);
-  expect(await customerAdvance(c)).toEqual({ onJobs: 1800_00n, onAccount: 0n });
+  expect(await customerAdvance(c)).toEqual({ onJobs: 1800_00n, onPrintJobs: 0n, onAccount: 0n });
 });

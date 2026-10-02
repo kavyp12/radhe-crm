@@ -25,7 +25,7 @@ export type ExpenseRow = { id: number; name: string; accountCode: string; costBu
 
 const statusOf = (r: { active: boolean }) => (r.active ? "Active" : "Inactive");
 
-function NameCell({ name, active }: { name: string; active: boolean }) {
+export function NameCell({ name, active }: { name: string; active: boolean }) {
   return (
     <span className={cn("font-medium", !active && "text-muted-foreground")}>
       {name}
@@ -45,7 +45,7 @@ function ActiveBox({ active }: { active: boolean }) {
 }
 
 /** Add / edit dialog. Mounted per row (key), closed after a successful save. */
-function CategoryDialog(props: {
+export function CategoryDialog(props: {
   title: string;
   description: string;
   action: Action;

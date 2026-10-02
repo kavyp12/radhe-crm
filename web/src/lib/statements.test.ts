@@ -173,7 +173,7 @@ test("history: quotation → job → invoice → payment → pending in one chai
   const header = { date: formatDate(today), siteAddress: "", siteReference: "", vehicleNo: "", salesPersonId: "", targetDate: "", notes: "" };
   const job = await createJobFromQuotation(owner, q, header);
   await createReceipt(owner, receipt(c, "4,000", [["job", job, "4,000"]]));
-  expect(await customerAdvance(c)).toEqual({ onJobs: 4000_00n, onAccount: 0n });
+  expect(await customerAdvance(c)).toEqual({ onJobs: 4000_00n, onPrintJobs: 0n, onAccount: 0n });
   expect((await customerHistory(c))[0]).toMatchObject({ label: "In Production", pending: 0n });
 
   await setJobStatus(owner, job, "delivered");
@@ -192,5 +192,5 @@ test("history: quotation → job → invoice → payment → pending in one chai
   expect(main).toMatchObject({ label: "Part Payment", pending: 3000_00n });
   expect(chains.find((h) => !h.quotations.length)).toMatchObject({ label: "Unpaid", pending: 1500_00n });
   expect(chains.find((h) => !h.quotations.length)!.invoices[0].id).toBe(blank);
-  expect(await customerAdvance(c)).toEqual({ onJobs: 0n, onAccount: 0n });
+  expect(await customerAdvance(c)).toEqual({ onJobs: 0n, onPrintJobs: 0n, onAccount: 0n });
 });
