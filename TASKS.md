@@ -181,17 +181,18 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
 - [ ] **🚦 G2 · On-site print test at Radhe** — every PC and machine, offline test, reprint, payment flows; reviewer turns findings into fix tasks.
 
 ## Phase 9 — Go-live
-- [ ] **T42 · Hardening**
+- [x] **T42 · Hardening**
   Automated check that every server action / route has a permission check; approvals verified in all modules; indexes for slow queries; error/404 pages (remove T04's "not built yet" catch-all); PWA manifest (install on phone); phone check of key screens.
   Done when: the permission check test passes · `pnpm build` clean · key screens OK at 390px.
 
-- [ ] **T43 · Opening data import** — Q5
+- [x] **T43 · Opening data import** — Q5
   Excel templates + import for customers (with bill-wise opening dues), vendors (opening dues), stock items (opening qty/rate), money account balances; validation preview before commit.
   Done when: sample import round-trips · trial balance = 0 after import.
 
-- [ ] **T44 · Deploy** — D10
-  Supabase prod (Mumbai) + storage bucket + Supabase driver for lib/storage.ts (D34); Vercel project (root web/, region bom1) + env; migrations; seed owner; Better Auth rate-limit storage in the DB (D42); domain; nightly pg_dump; prod smoke test; admin guide. (Pushing to GitHub/Vercel only with Ronnie's OK.)
-  Done when: prod URL works end-to-end · backup job ran once · restore tested.
+- [ ] **T44 · Deploy** — D10, D69 · split: T44a prod readiness (B17a, no accounts needed, may run alongside B15a) · T44b go-live (B17b, with Ronnie)
+  T44a: Supabase driver for lib/storage.ts (D34) via the Storage REST API; Better Auth rate-limit storage in the DB (D42); Supabase pooler settings (pooled URL for the app, direct URL for migrations); env check at start-up; security headers; vercel.json (region bom1, function time limits); `pnpm db:backup` against a remote DB + retention; `pnpm smoke <url>`; docs/DEPLOY.md runbook + docs/ADMIN-GUIDE.md.
+  T44b: Supabase prod (Mumbai) + private bucket; Vercel project (root web/, region bom1) + env; migrations; seed owner; domain; nightly backup to the Q8 location; prod smoke test; restore tested. (Pushing to GitHub/Vercel only with Ronnie's OK.)
+  Done when: T44a — tests + build clean, smoke script green against a local production build · T44b — prod URL works end-to-end · backup job ran once · restore tested.
 
 - [ ] **🚦 G3 · Client UAT & sign-off** — client uses it for real; reviewer converts feedback into fix tasks until sign-off.
 
@@ -210,8 +211,9 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
 - ✅ B14 T37 + T38 + T39
 - B15a T41 (agent foundation; may run alongside B14, D65)
 - B15b T40 (needs Q1 + B14) → 🚦 G2
-- B16 T42 + T43 (may run alongside B15a — web/ vs print-agent/, D65)
-- B17 T44 (push only with Ronnie's OK) → 🚦 G3
+- ✅ B16 T42 + T43
+- B17a T44a prod readiness (may run alongside B15a, D65)
+- B17b T44b go-live with Ronnie (accounts, Q8, OK to push) → demo G1 / on-site G2 on the live site → 🚦 G3
 
 ## Spec coverage (reviewer keeps this in sync)
 S1 T08, T15 · S2 T10–T12 · S3 T11, T27 · S4 T09, T10, T34 · S5 T12, T14 · S6 T13 · S7 T28 · S8 T29 · S9 T09, T18, T19 · S10 T09, T20 · S11 T21, T27 · S12 T14 · S13 T06, T25 · S14 T26 · S15 T15, T19 · S16 T16 · S17 T17, T21 · S18 T22, T23 · S19 T04, T30 · S20 T31–T34 · S21 T03 + every task · S22 T07 + modules · S23 T05 · S24 T05 + modules · S25 T29 · S26 T35 · S27 T31, T36, T44 · R0 all · R1 T30 · P1–P10 T37–T41
