@@ -8,21 +8,23 @@ import { auth } from "@/lib/auth";
 import type { SessionUser } from "@/lib/permissions";
 import { createUser, resetPassword, seedOwner, updateUser } from "@/lib/users";
 
-let seeded: string[];
 let owner: SessionUser;
 
 beforeAll(async () => {
-  seeded = [await seedOwner(OWNER), await seedOwner(OWNER)];
-  owner = await testOwner();
+  owner = await testOwner(); // seeds the owner unless an earlier test file did
 });
 
 const sessionCount = async (userId: string) =>
   (await db.select({ n: count() }).from(sessions).where(eq(sessions.userId, userId)))[0].n;
+const ownerCount = async () => (await db.select({ n: count() }).from(users).where(eq(users.role, "owner")))[0].n;
 
+// Relative counts only: other test files may add owners of their own (D38 allows several; T36 does).
 test("seed run twice → one owner", async () => {
-  expect(seeded[1]).toBe("exists");
-  const [{ n }] = await db.select({ n: count() }).from(users).where(eq(users.role, "owner"));
-  expect(n).toBe(1);
+  const before = await ownerCount();
+  expect(await seedOwner(OWNER)).toBe("exists");
+  expect(await seedOwner({ ...OWNER, username: "owner2" })).toBe("exists");
+  expect(await ownerCount()).toBe(before);
+  expect(await db.select().from(users).where(eq(users.username, OWNER.username))).toHaveLength(1);
 });
 
 test("a disabled user's sessions are revoked and they can't sign in", async () => {

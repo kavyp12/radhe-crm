@@ -2,20 +2,30 @@ import { eq, sql } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
 import { beforeAll, expect, test } from "vitest";
 import { db } from "@/db";
-import { accounts, creditNotes, debitNotes, expenseCategories, expenses, invoices, jobs, purchaseBills, quotations, receipts, vendorPayments } from "@/db/schema";
+import {
+  accounts, adjustments, creditNotes, debitNotes, expenseCategories, expenses, goodsReceipts, invoices, jobs, materialRequests, purchaseBills,
+  purchaseOrders, quotations, receipts, stockAdjustments, stockIssues, transfers, vendorPayments,
+} from "@/db/schema";
 import { testOwner } from "@/db/test-owner";
+import { createAdjustment } from "@/lib/adjustments";
 import { createCustomer } from "@/lib/customers";
 import { createExpense } from "@/lib/expenses";
+import { createReceipt as createGrn } from "@/lib/goods-receipts";
 import { gstinCheckChar } from "@/lib/gstin";
 import { createInvoice, issueInvoice } from "@/lib/invoices";
 import { createJob } from "@/lib/jobs";
+import { createRequest } from "@/lib/material-requests";
 import { createNote, invoiceLinesLeft, issueNote } from "@/lib/notes";
 import type { SessionUser } from "@/lib/permissions";
 import { createPurchaseBill } from "@/lib/purchase-bills";
+import { createOrder, getOrder } from "@/lib/purchase-orders";
 import { createQuotation } from "@/lib/quotations";
 import { createReceipt } from "@/lib/receipts";
-import { search, searchAmount, unpadded, type SearchGroup } from "@/lib/search";
+import { search, searchAmount, unpadded, type SearchGroup, type SearchHit } from "@/lib/search";
 import { saveBooks } from "@/lib/settings";
+import { createItem, createStockAdjustment } from "@/lib/stock";
+import { createStockIssue } from "@/lib/stock-issues";
+import { createTransfer } from "@/lib/transfers";
 import { createUser } from "@/lib/users";
 import { createVendor } from "@/lib/vendors";
 import { createVendorPayment } from "@/lib/vendor-payments";
@@ -101,6 +111,30 @@ beforeAll(async () => {
     date: "16/06/2026", amount: "25,000.50", categoryId: String(rent.id), mode: "cash", moneyAccountId: String(cash.id), notes: "", vendorId: "", jobId: "",
   })).id!;
 
+  // D63: the purchase / stock chain, a transfer and a JV, found by number.
+  const [acp] = await db.select().from(expenseCategories).where(eq(expenseCategories.name, "ACP"));
+  const [bank] = await db.select().from(accounts).where(eq(accounts.systemKey, "bank_1"));
+  const [capital] = await db.select().from(accounts).where(eq(accounts.systemKey, "capital"));
+  const item = await createItem(owner, { name: "SR ACP Sheet", unit: "Sheet", categoryId: String(acp.id), hsnSac: "", gstPercent: "18" });
+  const itemLines = (qty: string) => JSON.stringify([{ itemId: String(item), qty }]);
+  const mr = (await createRequest(owner, { neededBy: "30/06/2026", jobId: String(job), notes: "", lines: itemLines("10") })).id;
+  const po = (await createOrder(owner, {
+    vendorId: String(ids.vendor), date: "17/06/2026", notes: "",
+    lines: JSON.stringify([{ itemId: String(item), description: "", qty: "10", rate: "1,500", gst: "18", requestLineId: "" }]), // ₹17,700.00
+  })).id;
+  const [poLine] = (await getOrder(po))!.lines;
+  const grn = (await createGrn(owner, { orderId: String(po), date: "17/06/2026", notes: "", lines: JSON.stringify([{ orderLineId: String(poLine.id), qty: "10" }]) })).id!;
+  const issue = (await createStockIssue(owner, { kind: "issue", jobId: String(job), date: "17/06/2026", notes: "", lines: itemLines("2") })).id!;
+  const adjustment = (await createStockAdjustment(owner, { itemId: String(item), date: "17/06/2026", qty: "-1", rate: "", reason: "Damaged" })).id!;
+  const transfer = (await createTransfer(owner, {
+    date: "18/06/2026", fromAccountId: String(cash.id), toAccountId: String(bank.id), amount: "4,321", reference: "", notes: "",
+  })).id!;
+  const jvLines = [{ accountId: String(cash.id), debit: "1,234", credit: "" }, { accountId: String(capital.id), debit: "", credit: "1,234" }];
+  const jv = (await createAdjustment(owner, {
+    kind: "journal", date: "18/06/2026", narration: "SR capital brought in", customerId: "", amount: "", moneyAccountId: "", allocations: "[]",
+    lines: JSON.stringify(jvLines.map((l) => ({ ...l, customerId: "", vendorId: "", jobId: "" }))),
+  })).id!;
+
   const numbered = async (key: string, table: PgTable, id: number) => {
     const [row] = await db.execute<{ number: string }>(sql`select number from ${table} where id = ${id}`);
     doc[key] = { id, number: row.number };
@@ -115,6 +149,13 @@ beforeAll(async () => {
   await numbered("bill", purchaseBills, bill);
   await numbered("payment", vendorPayments, payment);
   await numbered("expense", expenses, expense);
+  await numbered("mr", materialRequests, mr);
+  await numbered("po", purchaseOrders, po);
+  await numbered("grn", goodsReceipts, grn);
+  await numbered("issue", stockIssues, issue);
+  await numbered("adjustment", stockAdjustments, adjustment);
+  await numbered("transfer", transfers, transfer);
+  await numbered("jv", adjustments, jv);
 }, 60000);
 
 test("number and amount parsing", () => {
@@ -239,4 +280,41 @@ test("hits carry no cost fields: a purchase bill for a no-cost user has no amoun
       }
     }
   }
+});
+
+test("material requests, POs, GRNs, stock issues, stock adjustments, transfers and JVs by number (D63)", async () => {
+  const job = doc.job.number;
+  const expected: [string, string, SearchHit][] = [
+    ["mr", "Material requests", { title: doc.mr.number, detail: expect.stringMatching(new RegExp(`^${job} · \\d\\d/\\d\\d/\\d{4} · Pending$`)), href: `/material-requests/${doc.mr.id}` }],
+    ["po", "Purchase orders", { title: doc.po.number, detail: "SR Ambica Flex Printers · 17/06/2026 · Draft", href: `/purchase-orders/${doc.po.id}`, amount: "₹17,700.00" }],
+    ["grn", "Material receive", { title: doc.grn.number, detail: `SR Ambica Flex Printers · ${doc.po.number} · 17/06/2026`, href: `/material-receive/${doc.grn.id}`, amount: "₹15,000.00" }],
+    ["issue", "Stock issues", { title: doc.issue.number, detail: `Issue · ${job} · 17/06/2026`, href: `/issue-to-job/${doc.issue.id}` }],
+    ["adjustment", "Stock adjustments", { title: doc.adjustment.number, detail: "SR ACP Sheet · 17/06/2026", href: "/stock-adjustments" }],
+    ["transfer", "Transfers", { title: doc.transfer.number, detail: "Cash → Bank 1 · 18/06/2026", href: `/cash-bank/transfers/${doc.transfer.id}`, amount: "₹4,321.00" }],
+    ["jv", "Journal vouchers", { title: doc.jv.number, detail: "SR capital brought in · 18/06/2026", href: `/journal-vouchers/${doc.jv.id}`, amount: "₹1,234.00" }],
+  ];
+  for (const [key, label, hit] of expected) {
+    const { number } = doc[key];
+    for (const q of [number, unpadded(number), unpadded(number).toLowerCase()]) expect(group(await search(owner, q), label)[0], `${key} ${q}`).toEqual(hit);
+  }
+  // By number only: their totals find nothing.
+  for (const q of ["₹17,700", "₹4,321", "₹1,234"]) {
+    expect(labels(await search(owner, q)).filter((l) => ["Purchase orders", "Material receive", "Transfers", "Journal vouchers"].includes(l)), q).toEqual([]);
+  }
+});
+
+test("D63 per area: no-cost users get no PO / GRN totals (the vendor instead); production gets requests and issues only; sales none", async () => {
+  expect(group(await search(plain, doc.po.number), "Purchase orders")[0]).toEqual({
+    title: doc.po.number, detail: "SR Ambica Flex Printers · 17/06/2026 · Draft", href: `/vendors/${ids.vendor}`,
+  });
+  expect(group(await search(plain, doc.grn.number), "Material receive")[0]).toEqual({
+    title: doc.grn.number, detail: `SR Ambica Flex Printers · ${doc.po.number} · 17/06/2026`, href: `/vendors/${ids.vendor}`,
+  });
+  // The accountant only requests stock adjustments, but sees their list (A§8): found, without a value.
+  expect(group(await search(plain, doc.adjustment.number), "Stock adjustments")[0].href).toBe("/stock-adjustments");
+  expect(group(await search(plain, doc.transfer.number), "Transfers")[0].amount).toBe("₹4,321.00");
+  expect(labels(await search(production, doc.mr.number))).toEqual(["Material requests"]);
+  expect(labels(await search(production, doc.issue.number))).toEqual(["Stock issues"]);
+  for (const key of ["po", "grn", "adjustment", "transfer", "jv"]) expect(await search(production, doc[key].number), key).toEqual([]);
+  for (const key of ["mr", "po", "grn", "issue", "adjustment", "transfer", "jv"]) expect(await search(sales, doc[key].number), key).toEqual([]);
 });

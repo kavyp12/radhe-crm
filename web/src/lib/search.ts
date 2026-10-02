@@ -4,11 +4,12 @@ import { formatDate } from "@/lib/dates";
 import { formatMoney, parseMoney } from "@/lib/num";
 import { can, canViewCost, type Area, type SessionUser } from "@/lib/permissions";
 
-// Universal search (S26, D62): one call, at most 5 hits per type, each type only if the user can view its area (A§8) —
-// so production gets jobs only, and without "money" on jobs no amount search. Names match fuzzily (pg_trgm word
-// similarity), document numbers with or without zero padding (RDS-2026-125 = RDS-2026-00125), an amount ("25,000",
-// "₹25,000.50") the documents whose total equals it. Every match runs on a migration-0050 index. A hit is display text,
-// a link and the total when the user may see it — never a cost field: a purchase bill's total only with can_view_cost.
+// Universal search (S26, D62, D63): one call, at most 5 hits per type, each type only if the user can view its area
+// (A§8) — so production gets jobs, material requests and stock issues only, and without "money" on jobs no amount
+// search. Names match fuzzily (pg_trgm word similarity), document numbers with or without zero padding (RDS-2026-125 =
+// RDS-2026-00125), an amount ("25,000", "₹25,000.50") the documents whose total equals it. Every match runs on a
+// migration 0050 / 0051 index. A hit is display text, a link and the total when the user may see it — never a cost
+// field: a purchase bill's, PO's or GRN's total only with can_view_cost.
 
 export type SearchHit = { title: string; detail: string; href: string; amount?: string };
 export type SearchGroup = { label: string; hits: SearchHit[] };
@@ -116,13 +117,20 @@ type DocRow = { id: string; number: string | null; date: string; status: string;
 type Doc = {
   label: string;
   area: Area;
+  /** any access to the area is enough (the page lists them for anyone with access); default: view */
+  anyAccess?: true;
   /** "<table> d join <party> p on …" */
   from: string;
-  total: string;
+  /** none: no amount shown or searched (none, or a cost value) */
+  total?: string;
   party: string;
+  /** SQL giving a label for the document's kind, e.g. Estimate / Tax invoice */
   kind?: string;
+  status?: string;
   /** may see (and search by) the total; default yes */
   money?: (user: SessionUser) => boolean;
+  /** found by its total as well (needs an index on it); default yes */
+  byAmount?: false;
   /** another match besides number and total */
   also?: (t: Terms) => SQL;
   href: (r: DocRow, user: SessionUser) => string;
@@ -133,7 +141,8 @@ const ON_CUSTOMER = "join customers p on p.id = d.customer_id";
 const DOCS: Doc[] = [
   { label: "Quotations", area: "quotations", from: `quotations d ${ON_CUSTOMER}`, total: "d.total_paise", party: CUSTOMER, href: (r) => `/quotations/${r.id}` },
   {
-    label: "Invoices & estimates", area: "invoices", from: `invoices d ${ON_CUSTOMER}`, total: "d.total_paise", party: CUSTOMER, kind: "d.kind",
+    label: "Invoices & estimates", area: "invoices", from: `invoices d ${ON_CUSTOMER}`, total: "d.total_paise", party: CUSTOMER,
+    kind: "case d.kind when 'estimate' then 'Estimate' else 'Tax invoice' end",
     href: (r) => `/invoices/${r.id}`,
   },
   { label: "Credit notes", area: "invoices", from: `credit_notes d ${ON_CUSTOMER}`, total: "d.total_paise", party: CUSTOMER, href: (r) => `/credit-debit-notes/cn/${r.id}` },
@@ -153,27 +162,63 @@ const DOCS: Doc[] = [
     label: "Expenses", area: "books", from: "expenses d join expense_categories p on p.id = d.category_id", total: "d.amount_paise", party: "p.name",
     href: (r) => `/expenses/${r.id}`,
   },
+  // D63: these by number only. PO / GRN totals are purchase rates (their pages need can_view_cost, else the vendor);
+  // stock issue and adjustment values are stock values, so never shown here.
+  {
+    label: "Material requests", area: "materialRequests", from: "material_requests d left join jobs p on p.id = d.job_id", party: "p.number",
+    href: (r) => `/material-requests/${r.id}`,
+  },
+  {
+    label: "Purchase orders", area: "purchaseOrders", from: "purchase_orders d join vendors p on p.id = d.vendor_id", total: "d.total_paise",
+    party: "p.name", money: canViewCost, byAmount: false,
+    href: (r, user) => (canViewCost(user) ? `/purchase-orders/${r.id}` : `/vendors/${r.party_id}`),
+  },
+  {
+    label: "Material receive", area: "goodsReceipts",
+    from: "goods_receipts d join purchase_orders o on o.id = d.order_id join vendors p on p.id = o.vendor_id",
+    total: "(select sum(l.value_paise) from goods_receipt_lines l where l.receipt_id = d.id)", party: "p.name || ' · ' || o.number",
+    money: canViewCost, byAmount: false,
+    href: (r, user) => (canViewCost(user) ? `/material-receive/${r.id}` : `/vendors/${r.party_id}`),
+  },
+  {
+    label: "Stock issues", area: "stockIssue", from: "stock_issues d join jobs p on p.id = d.job_id", party: "p.number",
+    kind: "case d.kind when 'return' then 'Return' else 'Issue' end", href: (r) => `/issue-to-job/${r.id}`,
+  },
+  {
+    label: "Stock adjustments", area: "stockAdjustment", anyAccess: true, from: "stock_adjustments d join stock_items p on p.id = d.item_id",
+    party: "p.name", status: "'active'", href: () => "/stock-adjustments", // no page of its own
+  },
+  {
+    label: "Transfers", area: "books", from: "transfers d join accounts p on p.id = d.from_account_id join accounts t on t.id = d.to_account_id",
+    total: "d.amount_paise", party: "p.name || ' → ' || t.name", byAmount: false, href: (r) => `/cash-bank/transfers/${r.id}`,
+  },
+  {
+    label: "Journal vouchers", area: "books", from: "adjustments d left join customers p on p.id = d.customer_id", total: "d.amount_paise",
+    party: `coalesce(${CUSTOMER}, left(d.narration, 60))`, byAmount: false,
+    kind: "case d.kind when 'write_off' then 'Write-off' when 'discount' then 'Settlement discount' when 'refund' then 'Refund' end",
+    href: (r) => `/journal-vouchers/${r.id}`,
+  },
 ];
 
 /** A numbered document: its number (with or without padding), its total (when the user may see it), `also`. */
 async function docHits(tx: Tx, doc: Doc, t: Terms, user: SessionUser): Promise<SearchHit[]> {
-  const money = doc.money?.(user) ?? true;
+  const money = !!doc.total && (doc.money?.(user) ?? true);
   const where = or(
     t.number ? sql`${UNPADDED("d.number")} like ${t.number.like}` : undefined,
     doc.also?.(t),
-    money && t.amount ? sql`${sql.raw(doc.total)} = ${t.amount}` : undefined,
+    money && doc.byAmount !== false && t.amount ? sql`${sql.raw(doc.total!)} = ${t.amount}` : undefined,
   );
   if (!where) return [];
   const rows = await tx.execute<DocRow>(sql`
-    select d.id, d.number, d.date, d.status, ${sql.raw(doc.total)} as total, ${sql.raw(doc.party)} as party, p.id as party_id,
-      ${sql.raw(doc.kind ?? "null")} as kind
+    select d.id, d.number, d.date, ${sql.raw(doc.status ?? "d.status")} as status, ${sql.raw(doc.total ?? "null")} as total,
+      ${sql.raw(doc.party)} as party, p.id as party_id, ${sql.raw(doc.kind ?? "null")} as kind
     from ${sql.raw(doc.from)}
     where ${where}
     order by (${UNPADDED("d.number")} = ${t.number?.exact ?? null}) is true desc, d.date desc, d.id desc
     limit ${LIMIT}`);
   return rows.map((r) => ({
     title: r.number ?? "Draft", // invoices and notes are numbered at Issue
-    detail: line(r.kind && (r.kind === "estimate" ? "Estimate" : "Tax invoice"), r.party, formatDate(r.date), !!r.number && statusText(r.status)),
+    detail: line(r.kind, r.party, formatDate(r.date), !!r.number && statusText(r.status)),
     href: doc.href(r, user),
     ...(money ? { amount: formatMoney(BigInt(r.total)) } : {}),
   }));
@@ -189,7 +234,7 @@ export async function search(user: SessionUser, input: string): Promise<SearchGr
       const runs: [string, () => Promise<SearchHit[]>][] = [];
       if (can(user, "customers", "view")) runs.push(["Customers", () => partyHits(tx, t, "customers")]);
       if (can(user, "jobs", "view")) runs.push(["Jobs", () => jobHits(tx, t, can(user, "jobs", "money"))]);
-      for (const doc of DOCS) if (can(user, doc.area, "view")) runs.push([doc.label, () => docHits(tx, doc, t, user)]);
+      for (const doc of DOCS) if (can(user, doc.area, doc.anyAccess ? undefined : "view")) runs.push([doc.label, () => docHits(tx, doc, t, user)]);
       if (can(user, "vendors", "view")) runs.push(["Vendors", () => partyHits(tx, t, "vendors")]);
       const hits = await Promise.all(runs.map(([, run]) => run()));
       return runs.map(([label], i) => ({ label, hits: hits[i] })).filter((g) => g.hits.length > 0);
