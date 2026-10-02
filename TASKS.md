@@ -170,13 +170,13 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
   print_devices; owner creates a pairing code → agent exchanges it for a device token; revoke; proxy.ts must let /api/agent/* through (Bearer token, no cookie); endpoints: bootstrap, create print job (idempotent by client_uuid), reprint check, thumbnail upload.
   Done when: tests: same client_uuid twice → one print job · revoked token rejected · endpoints never accept user-session-only calls.
 
-- [ ] **T40 · Print agent: hold + popup + offline queue** — P1, P2, P8, P10 · needs Q1 answer
-  C# WinForms tray app in print-agent/: config (server URL, token, printer → machine map, file roots); pause new jobs on mapped printers; popup with auto fields (file name, machine, operator, date/time) + customer search (cached) + quick-add + existing/new job + sq ft/amount calc; PRINT → local queue → resume job; Cancel → delete job; background sync; reprint prompt.
+- [ ] **T40 · Print agent: printer hold + popup** — P1, P2, P8, P10 · needs Q1 answer + T39 (B15b)
+  On top of T41's foundation: pause new jobs on mapped printers; popup with auto fields (file name, machine, operator, date/time) + customer search (cached) + quick-add + existing/new job + sq ft/amount calc; PRINT → T41's offline queue → resume job; Cancel → delete job; reprint prompt; align the API client with docs/AGENT-API.md.
   Done when: on Ronnie's PC with a test printer: print → popup → entry appears in CRM · Cancel prints nothing · internet off → prints, syncs later.
 
-- [ ] **T41 · Print agent: open file, thumbnail, installer** — P7
-  radhe-crm:// handler with root + extension allowlist; best-effort full file path; thumbnail via Windows shell; single-file publish + install script (startup, protocol registration); 1-page operator guide.
-  Done when: Open File works for allowed files and refuses .exe/.bat/.lnk etc. · clean install on a second PC.
+- [ ] **T41 · Print agent: foundation, open file, thumbnail, installer** — P7, P10 · Q1-independent; may run alongside B14 (D65) (B15a)
+  .NET 10 WinForms tray app in print-agent/: settings (server URL, DPAPI-protected device token, printer → machine map, operator map, file roots); pairing + bootstrap cache; offline queue + background sync (idempotent client_uuid, retry / backoff); radhe-crm:// handler with root + extension allowlist; thumbnail via Windows shell; single-file publish + install / uninstall scripts (startup, protocol registration); 1-page operator guide.
+  Done when: dotnet build + tests pass (queue survives restart, retries, open-file validator refuses .exe / .bat / .lnk, outside-root and .. traversal) · Open File works from a radhe-crm:// link · install + uninstall clean on this PC (second PC at G2).
 
 - [ ] **🚦 G2 · On-site print test at Radhe** — every PC and machine, offline test, reprint, payment flows; reviewer turns findings into fix tasks.
 
@@ -208,7 +208,8 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
 - ✅ B12 T32 + T33 + T34
 - ✅ B13 T35 + T36
 - B14 T37 + T38 + T39
-- B15 T40 + T41 (needs Q1) → 🚦 G2
+- B15a T41 (agent foundation; may run alongside B14, D65)
+- B15b T40 (needs Q1 + B14) → 🚦 G2
 - B16 T42 + T43
 - B17 T44 (push only with Ronnie's OK) → 🚦 G3
 
