@@ -212,7 +212,7 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
 - B15a T41 (agent foundation; may run alongside B14, D65)
 - B15b T40 (needs Q1 + B14) → 🚦 G2
 - ✅ B16 T42 + T43
-- B17a T44a prod readiness (may run alongside B15a, D65)
+- ✅ B17a T44a prod readiness (T44 stays open until T44b)
 - B17b T44b go-live with Ronnie (accounts, Q8, OK to push) → demo G1 / on-site G2 on the live site → 🚦 G3
 
 ## Spec coverage (reviewer keeps this in sync)
