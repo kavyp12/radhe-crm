@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/empty-state";
 import { db } from "@/db";
 import { History } from "@/components/history";
 import { OpeningBills } from "@/components/opening-bills";
+import { cancelOpeningBillAction } from "@/app/(app)/settings/actions";
 import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
 import { DocNumber, StatusBadge } from "@/components/status-badge";
@@ -338,7 +339,7 @@ export default async function VendorPage({ params, searchParams }: PageProps<"/v
         </TabsContent>
 
         <TabsContent value="history" className="grid grid-cols-1 gap-4">
-          <OpeningBills rows={openingBills} />
+          <OpeningBills rows={openingBills} cancel={can(user, "settings", "edit") ? cancelOpeningBillAction : undefined} />
           <History
             table="vendors"
             rowId={id}

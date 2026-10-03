@@ -32,6 +32,7 @@ import {
 import { checkVersion, companyState, readDate } from "@/lib/sales";
 import { addMove, checkNothingOutSince, checkNotNegative, liveMoves, lockItems, reverseMoves } from "@/lib/stock-moves";
 import { billStatus, paidByBill, paidTowardsBills, releaseBill } from "@/lib/vendor-payments";
+import { dateIn, type Range } from "@/lib/statements";
 
 // Purchase bills (S9, S24, A§2, A§3, D51): a vendor's bill, numbered PB/ and posted when saved:
 //   Dr stock (stock lines) / category expense accounts (expense lines, with their job) + gst_in_*, round_off ±,
@@ -525,7 +526,7 @@ export async function cancelPurchaseBill(actor: SessionUser, id: number, reason:
 // ---- Loaders (callers have checked books + can_view_cost)
 
 /** Bills with paid / open and the computed payment status (A§5). */
-export async function listPurchaseBills(vendorId?: number) {
+export async function listPurchaseBills(vendorId?: number, range?: Range) {
   const paid = paidByBill();
   const rows = await db
     .select({
@@ -543,7 +544,7 @@ export async function listPurchaseBills(vendorId?: number) {
     .from(purchaseBills)
     .innerJoin(vendors, eq(vendors.id, purchaseBills.vendorId))
     .leftJoin(paid, eq(paid.billId, purchaseBills.id))
-    .where(vendorId === undefined ? undefined : eq(purchaseBills.vendorId, vendorId))
+    .where(and(vendorId === undefined ? undefined : eq(purchaseBills.vendorId, vendorId), dateIn(purchaseBills.date, range))) // range: D68
     .orderBy(desc(purchaseBills.id));
   return rows.map((r) => {
     const paidPaise = r.status === "active" ? BigInt(r.paid ?? 0) : 0n;

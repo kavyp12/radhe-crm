@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { beforeAll, expect, test } from "vitest";
+import { beforeAll, expect, onTestFinished, test } from "vitest";
 import { db, writeTx } from "@/db";
 import { accounts, journalEntries } from "@/db/schema";
 import { testOwner } from "@/db/test-owner";
@@ -155,6 +155,8 @@ test("money account opening: Dr money / Cr opening_equity on the books start dat
   expect(net(await openings("opening_equity", "2026-04-01"))).toBe(-10_000_00n);
 
   await saveBooks(owner, { booksStartDate: "01/04/2026", accounts: [{ id: cash, name: "Cash in hand", opening: "12,000.50" }] });
+  // D68: other files read "Cash" with no opening — put it back even when a check below fails.
+  onTestFinished(() => saveBooks(owner, { booksStartDate: "01/04/2026", accounts: [{ id: cash, name: "Cash", opening: "" }] }));
   const rows = await openings(cash, "2026-04-01");
   expect(rows.map((r) => [r.debit, r.credit])).toEqual([
     [10_000_00n, 0n],

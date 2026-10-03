@@ -31,6 +31,7 @@ import { gstMode, lineTotals } from "@/lib/lines";
 import { formatMoney, milliText } from "@/lib/num";
 import { nextNumber } from "@/lib/numbering";
 import { can, type SessionUser } from "@/lib/permissions";
+import { dateIn, type Range } from "@/lib/statements";
 import {
   approvalReasons,
   checkVersion,
@@ -543,7 +544,8 @@ export async function cancelInvoice(actor: SessionUser, id: number, reason: stri
 // ---- Loaders
 
 /** Every invoice with its open amount and computed payment status (A§5). */
-export async function listInvoices() {
+/** The invoices list; `range` (D68) = those dated in it, else all. */
+export async function listInvoices(range?: Range) {
   const paid = paidByInvoice();
   const rows = await db
     .select({
@@ -561,6 +563,7 @@ export async function listInvoices() {
     .from(invoices)
     .innerJoin(customers, eq(customers.id, invoices.customerId))
     .leftJoin(paid, eq(paid.invoiceId, invoices.id))
+    .where(dateIn(invoices.date, range))
     .orderBy(desc(invoices.id));
   return rows.map((r) => {
     const open = r.status === "issued" ? r.total - BigInt(r.paid ?? 0) : 0n;

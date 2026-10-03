@@ -65,7 +65,7 @@ beforeAll(async () => {
   const [rent] = await db.select().from(expenseCategories).where(eq(expenseCategories.name, "Rent"));
 
   ids.customer = await createCustomer(owner, {
-    name: "SR Mahalaxmi Enterprises", firmName: "SR Laxmi Signs", mobile: "98765 43210", email: "", gstin: CUSTOMER_GSTIN, stateCode: "24",
+    name: "SR Mahalaxmi Enterprises", firmName: "SR Laxmi Signs", mobile: "93751 77001", email: "", gstin: CUSTOMER_GSTIN, stateCode: "24",
     billingAddress: "", siteAddress: "", creditLimit: "", creditDays: "", isCreditCustomer: false, salesPersonId: "", collectionPersonId: "", notes: "",
   });
   ids.vendor = await createVendor(owner, {
@@ -170,10 +170,10 @@ test("number and amount parsing", () => {
 
 test("customers: a misspelt name, firm, mobile, GSTIN; under 3 characters finds nothing", async () => {
   const mine = "SR Mahalaxmi Enterprises · SR Laxmi Signs";
-  for (const q of ["Mahalakshmi", "mahalaxmi enterprises", "Laxmi Signs", "98765", "+91 98765 43210", CUSTOMER_GSTIN, CUSTOMER_GSTIN.slice(2, 12).toLowerCase()]) {
+  for (const q of ["Mahalakshmi", "mahalaxmi enterprises", "Laxmi Signs", "93751", "+91 93751 77001", CUSTOMER_GSTIN, CUSTOMER_GSTIN.slice(2, 12).toLowerCase()]) {
     const hits = group(await search(owner, q), "Customers");
     expect(hits.map((h) => h.title), q).toContain(mine);
-    expect(hits.find((h) => h.title === mine)).toEqual({ title: mine, detail: `98765 43210 · ${CUSTOMER_GSTIN}`, href: `/customers/${ids.customer}` });
+    expect(hits.find((h) => h.title === mine)).toEqual({ title: mine, detail: `93751 77001 · ${CUSTOMER_GSTIN}`, href: `/customers/${ids.customer}` });
   }
   expect(titles(await search(owner, "Mahalakshmi"), "Customers")[0]).toBe(mine); // best match first
   expect(await search(owner, "SR")).toEqual([]);

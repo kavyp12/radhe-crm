@@ -12,6 +12,7 @@ import { gstMode, lineTotals } from "@/lib/lines";
 import { formatMoney } from "@/lib/num";
 import { nextNumber } from "@/lib/numbering";
 import { can, type SessionUser } from "@/lib/permissions";
+import { dateIn, type Range } from "@/lib/statements";
 import {
   approvalReasons,
   checkVersion,
@@ -207,7 +208,8 @@ export async function duplicateQuotation(actor: SessionUser, id: number): Promis
   });
 }
 
-export const listQuotations = () =>
+/** The quotations list; `range` (D68) = those dated in it, else all. */
+export const listQuotations = (range?: Range) =>
   db
     .select({
       id: quotations.id,
@@ -220,6 +222,7 @@ export const listQuotations = () =>
     })
     .from(quotations)
     .innerJoin(customers, eq(customers.id, quotations.customerId))
+    .where(dateIn(quotations.date, range))
     .orderBy(desc(quotations.id));
 
 /** A document's lines with their category names, in order. */

@@ -1,17 +1,18 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { PassThrough } from "node:stream";
-import { count, eq, inArray, like, sql } from "drizzle-orm";
+import { and, count, eq, inArray, like, sql } from "drizzle-orm";
 import { Workbook } from "exceljs";
 import { beforeAll, expect, test } from "vitest";
 import { db } from "@/db";
 import { accounts, customers, journalEntries, journalLines, openingBills, settings, stockItems, vendors } from "@/db/schema";
 import { testOwner } from "@/db/test-owner";
-import { openInvoices } from "@/lib/allocations";
+import { createAdjustment, getAdjustment } from "@/lib/adjustments";
+import { customerOpeningBills, openInvoices } from "@/lib/allocations";
 import { exportAll } from "@/lib/data-export";
 import { addDays } from "@/lib/dates";
 import { gstinCheckChar } from "@/lib/gstin";
 import { excelQty, excelRupees, parseMoney, parseQty } from "@/lib/num";
-import { importOpeningData, openingWorkbook, SHEETS, type ImportResult } from "@/lib/opening-import";
+import { cancelOpeningBill, importOpeningData, openingWorkbook, SHEETS, type ImportResult } from "@/lib/opening-import";
 import { outstanding } from "@/lib/outstanding";
 import type { SessionUser } from "@/lib/permissions";
 import { createReceipt } from "@/lib/receipts";
@@ -89,7 +90,7 @@ test("the template: a Read me, then the six sheets with their headers; blank + f
   const book = new Workbook();
   await book.xlsx.load(blank as unknown as Parameters<typeof book.xlsx.load>[0]);
   expect(book.worksheets.map((w) => w.name)).toEqual(["Read me", "Customers", "Customer opening bills", "Vendors", "Vendor opening bills", "Stock items", "Money accounts"]);
-  expect((book.getWorksheet("Customer opening bills")!.getRow(1).values as string[]).slice(1)).toEqual(["Customer mobile or GSTIN", "Bill no", "Bill date", "Due date", "Amount due"]);
+  expect((book.getWorksheet("Customer opening bills")!.getRow(1).values as string[]).slice(1)).toEqual(["Customer mobile, GSTIN or name", "Bill no", "Bill date", "Due date", "Amount due"]);
   // Every column is explained on the Read me sheet.
   const readme = JSON.stringify(book.getWorksheet("Read me")!.getSheetValues());
   for (const def of Object.values(SHEETS)) for (const c of def.columns) expect(readme).toContain(c.header);
@@ -249,6 +250,86 @@ test("importing the same file again adds nothing: every row is already in the CR
   expect(await counted()).toEqual(before);
 });
 
+const blankCustomer = (name: string, mobile = "", lump = "") => [name, "", mobile, "", "", "", "", "", "", "", "", lump];
+const blankVendor = (name: string, lump = "") => [name, "", "", "", "", "", lump];
+const balance = async (key: "ar" | "ap", party: { customerId: number } | { vendorId: number }) => {
+  const [r] = await db.execute<{ net: string }>(sql`
+    select coalesce(sum(l.debit_paise - l.credit_paise), 0) as net from journal_lines l join accounts a on a.id = l.account_id
+    where a.system_key = ${key} and ${"customerId" in party ? sql`l.customer_id = ${party.customerId}` : sql`l.vendor_id = ${party.vendorId}`}`);
+  return key === "ar" ? BigInt(r.net) : -BigInt(r.net);
+};
+const customerNamed = async (name: string) => (await db.select().from(customers).where(eq(customers.name, name)))[0];
+const vendorNamed = async (name: string) => (await db.select().from(vendors).where(eq(vendors.name, name)))[0];
+
+test("D68: a customer with neither mobile nor GSTIN is keyed by its name; masters first, dues later (by key)", async () => {
+  const masters = { customers: [blankCustomer("OI Name Only"), blankCustomer("OI Later Dues", "97000 44001")], vendors: [blankVendor("OI Later Vendor")] };
+  expect(result(await importOpeningData(owner, await openingWorkbook(masters), true))).toEqual({ problems: [], duplicates: [] });
+  // Masters already in the CRM still block — the name (trimmed, any case) for the one with neither.
+  const again = await importOpeningData(owner, await openingWorkbook({ ...masters, customers: [blankCustomer("  oi NAME only "), masters.customers[1]] }), true);
+  expect(again.duplicates.map((d) => [d.sheet, d.row])).toEqual([["Customers", 2], ["Customers", 3], ["Vendors", 2]]);
+
+  // Dues later: bills naming parties already in the CRM, and a lump on a row of a party with no opening yet.
+  const dues = {
+    customers: [blankCustomer("OI Later Dues (other columns ignored)", "+91 97000 44001", "1,000")],
+    customerBills: [["oi name only", "N-1", "01/03/2026", "", "700"], ["9700044001", "L-1", "01/03/2026", "", "300"]],
+    vendorBills: [["OI LATER VENDOR", "V-1", "01/03/2026", "", "450"]],
+  };
+  expect(result(await importOpeningData(owner, await openingWorkbook(dues), true))).toEqual({ problems: [], duplicates: [] });
+  const nameOnly = await customerNamed("OI Name Only");
+  expect(nameOnly).toMatchObject({ mobile: null, gstin: null, openingBalancePaise: 700_00n });
+  expect(await balance("ar", { customerId: nameOnly.id })).toBe(700_00n);
+  const later = await customerNamed("OI Later Dues");
+  expect(later.openingBalancePaise).toBe(1_300_00n); // the lump + L-1
+  expect(await balance("ar", { customerId: later.id })).toBe(1_300_00n);
+  const vendor = await vendorNamed("OI Later Vendor");
+  expect(vendor.openingBalancePaise).toBe(450_00n);
+  expect(await balance("ap", { vendorId: vendor.id })).toBe(450_00n);
+
+  // Now they have openings: the same dues are refused and nothing changes.
+  const before = await counted();
+  const twice = await importOpeningData(owner, await openingWorkbook(dues), true);
+  expect(twice.duplicates.map((d) => [d.sheet, d.row])).toEqual([["Customers", 2], ["Customer opening bills", 3], ["Customer opening bills", 2], ["Vendor opening bills", 2]]);
+  expect(await counted()).toEqual(before);
+});
+
+test("D68: the owner cancels an unallocated opening bill — the opening is reposted without it; an allocated one stays", async () => {
+  const nameOnly = await customerNamed("OI Name Only");
+  const [n1] = await db.select().from(openingBills).where(eq(openingBills.customerId, nameOnly.id));
+  await expect(cancelOpeningBill(accountant, n1.id)).rejects.toThrow("Not allowed");
+  expect(await cancelOpeningBill(owner, n1.id)).toBe(`/customers/${nameOnly.id}`);
+  expect((await customerNamed("OI Name Only")).openingBalancePaise).toBe(0n);
+  expect(await balance("ar", { customerId: nameOnly.id })).toBe(0n);
+  expect((await customerOpeningBills(nameOnly.id)).map((b) => [b.billNo, b.payment, b.open])).toEqual([["N-1", "Cancelled", 0n]]);
+  expect(await openInvoices(db, nameOnly.id)).toEqual([]);
+  await expect(cancelOpeningBill(owner, n1.id)).rejects.toThrow("already cancelled");
+  const audited = await db.execute<{ n: string }>(sql`select count(*) as n from audit_log where table_name = 'opening_bills' and row_id = ${String(n1.id)} and action = 'update' and user_id = ${owner.id}`);
+  expect(Number(audited[0].n)).toBe(1);
+
+  const vendor = await vendorNamed("OI Later Vendor");
+  const [v1] = await db.select().from(openingBills).where(eq(openingBills.vendorId, vendor.id));
+  expect(await cancelOpeningBill(owner, v1.id)).toBe(`/vendors/${vendor.id}`);
+  expect((await vendorNamed("OI Later Vendor")).openingBalancePaise).toBe(0n);
+  expect(await balance("ap", { vendorId: vendor.id })).toBe(0n);
+  expect(await openBills(db, vendor.id)).toEqual([]);
+
+  // A-101 has ₹5,000 of a receipt on it (above): it can't be cancelled.
+  const ganesh = await customerNamed("OI Shree Ganesh Signs");
+  const [a101] = await db.select().from(openingBills).where(and(eq(openingBills.customerId, ganesh.id), eq(openingBills.billNo, "A-101")));
+  await expect(cancelOpeningBill(owner, a101.id)).rejects.toThrow("Opening A-101 has ₹5,000.00 allocated");
+});
+
+test("D68: a customer write-off settles an opening bill (old uncollectable dues)", async () => {
+  const ganesh = await customerNamed("OI Shree Ganesh Signs");
+  const a102 = (await openInvoices(db, ganesh.id)).find((o) => o.number === "Opening A-102")!;
+  const { id } = await createAdjustment(owner, {
+    kind: "write_off", date: "05/04/2026", narration: "Old dues, not recoverable", lines: "[]", customerId: String(ganesh.id), amount: "8,000.75", moneyAccountId: "",
+    allocations: JSON.stringify([{ target: "opening_bill", id: String(a102.id), amount: "8,000.75" }]),
+  });
+  expect((await openInvoices(db, ganesh.id)).map((o) => o.number)).toEqual(["Opening A-101"]);
+  expect((await getAdjustment(id!))!.allocated.map((a) => [a.what, a.number, a.amount])).toEqual([["Opening bill", "Opening A-102", 8_000_75n]]);
+  await expect(cancelOpeningBill(owner, a102.id)).rejects.toThrow("allocated");
+});
+
 test("a file with bad rows imports nothing and lists every error", async () => {
   const before = await counted();
   const bad = await openingWorkbook({
@@ -257,7 +338,7 @@ test("a file with bad rows imports nothing and lists every error", async () => {
       ["OI Bad GSTIN", "", "", BAD_GSTIN, "", "", "", "", "", "", "", ""], // 3: check digit
       ["OI Bad Mobile", "", "call me", "", "", "", "", "", "", "", "", ""], // 4: mobile
       ["OI Bad Amount", "", "97000 33004", "", "Atlantis", "", "", "", "", "", "Maybe", "12.345"], // 5: state, Yes/No, decimals
-      ["OI No Key", "", "", "", "", "", "", "", "", "", "", "1.234"], // 6: no mobile / GSTIN, and 3 decimals
+      ["OI No Key", "", "", "", "", "", "", "", "", "", "", "1.234"], // 6: 3 decimals (no mobile / GSTIN is fine: keyed by name, D68)
     ],
     customerBills: [
       ["97000 99999", "X-1", "01/03/2026", "", "100"], // 2: unknown customer
@@ -294,10 +375,9 @@ test("a file with bad rows imports nothing and lists every error", async () => {
       "Customers:5:State",
       "Customers:5:Credit customer",
       "Customers:5:Opening balance not bill-wise",
-      "Customers:6:Mobile",
       "Customers:6:Opening balance not bill-wise",
-      "Customer opening bills:2:Customer mobile or GSTIN",
-      "Customer opening bills:6:Customer mobile or GSTIN",
+      "Customer opening bills:2:Customer mobile, GSTIN or name",
+      "Customer opening bills:6:Customer mobile, GSTIN or name",
       "Customer opening bills:3:Bill date",
       "Customer opening bills:4:Bill date",
       "Customer opening bills:4:Amount due",
@@ -309,7 +389,7 @@ test("a file with bad rows imports nothing and lists every error", async () => {
       "Money accounts:2:Account",
     ]),
   );
-  expect(r2.problems).toHaveLength(19);
+  expect(r2.problems).toHaveLength(18);
   expect(r2.imported).toBe(false);
   expect(await counted()).toEqual(before);
   expect(await db.select().from(customers).where(like(customers.name, "OI Bad%"))).toEqual([]);

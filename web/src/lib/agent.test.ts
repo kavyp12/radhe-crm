@@ -147,9 +147,8 @@ test("bootstrap: active customers, open jobs, machines with the sale rate only (
   expect(b.device.id).toBe(ids.device);
   const machine = b.machines.find((m) => m.id === ids.machine)!;
   expect(machine).toEqual({ id: ids.machine, name: "AG Konica", printer_names: ["KONICA-1"], sale_rate: "25.00" });
-  const all = JSON.stringify(b);
-  expect(all).not.toMatch(/cost/i);
-  expect(all).not.toContain("12.34");
+  // D68: keys, not free text — other files' rows (a user named "PB nocost") ride in the same payload.
+  for (const m of b.machines) expect(Object.keys(m).sort()).toEqual(["id", "name", "printer_names", "sale_rate"]);
   expect(b.customers.find((c) => c.id === ids.customer)).toEqual({ id: ids.customer, name: "AG Shree Ganesh Signs", firm_name: null, mobile: "+91 97250 33333" });
   expect(b.jobs.find((j) => j.id === ids.job)).toEqual({ id: ids.job, number: expect.stringMatching(/^RDS-/), customer_id: ids.customer, status: "In Production" });
   expect(Object.keys(b.printing_types[0]).sort()).toEqual(["id", "name"]);
@@ -233,13 +232,13 @@ test("everything sent is checked: printed_at, operator, decimals as text, ids, o
 });
 
 test("quick-add (D64): a new name + mobile makes the customer in the same call; an existing mobile reuses that customer", async () => {
-  const existing = await post(print({ customer_id: null, new_customer: { name: "Ganesh bhai", mobile: "9725033333" } }));
+  const existing = await post(print({ customer_id: null, new_customer: { name: "AG Ganesh bhai", mobile: "9725033333" } }));
   expect(((await existing.json()) as { customer_id: number }).customer_id).toBe(ids.customer);
   const fresh = await post(print({ customer_id: null, new_customer: { name: "AG Walk-in Mehul", mobile: "98980 44444" } }));
   const { customer_id } = (await fresh.json()) as { customer_id: number };
   const [c] = await db.select().from(customers).where(eq(customers.id, customer_id));
   expect(c).toMatchObject({ name: "AG Walk-in Mehul", mobile: "98980 44444", stateCode: "24", gstin: null });
-  expect(await db.select().from(customers).where(eq(customers.name, "Ganesh bhai"))).toHaveLength(0);
+  expect(await db.select().from(customers).where(eq(customers.name, "AG Ganesh bhai"))).toHaveLength(0);
 });
 
 test("reprint check: the latest print jobs of the same file, by full path or name (case ignored); no amounts", async () => {

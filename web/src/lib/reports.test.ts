@@ -8,14 +8,16 @@ import { db } from "@/db";
 import { accounts, expenseCategories, receipts } from "@/db/schema";
 import { OWNER, signedIn, testOwner } from "@/db/test-owner";
 import { createCustomer } from "@/lib/customers";
+import { fyStart, todayIST } from "@/lib/dates";
 import { INR_FORMAT, reportXlsx } from "@/lib/excel";
 import { excelRupees } from "@/lib/num";
 import { reportPdf } from "@/lib/pdf";
 import type { SessionUser } from "@/lib/permissions";
-import { cancelReceipt, createReceipt } from "@/lib/receipts";
+import { cancelReceipt, createReceipt, listReceipts } from "@/lib/receipts";
 import { columnTotal } from "@/lib/report";
 import { collectionReport } from "@/lib/reports";
 import { saveBooks } from "@/lib/settings";
+import { listPeriod, type Range } from "@/lib/statements";
 import { createItem } from "@/lib/stock";
 import { createUser } from "@/lib/users";
 
@@ -145,3 +147,25 @@ test("exports keep the page's permissions: no cost columns without can_view_cost
   expect((await get("nothing", "", owners)).status).toBe(404);
   expect((await get("constructor", "", owners)).status).toBe(404);
 }, 30000);
+
+test("D68: big lists load this FY by default, filtered on the server; All brings every row; Export all follows the period", async () => {
+  expect(listPeriod({})).toMatchObject({ period: "fy", range: { from: fyStart(todayIST()), to: todayIST() }, query: "period=fy" });
+  expect(listPeriod({ period: "all" })).toMatchObject({ range: { from: null, to: null }, query: "period=all" });
+  const c = await customer("RP Lists");
+  const early = await receipt(c, "20/04/2026", "100", "cash", "cash");
+  const late = await receipt(c, "22/04/2026", "200", "cash", "cash");
+  const window = listPeriod({ period: "custom", from: "20/04/2026", to: "21/04/2026" });
+  expect(window.query).toBe("period=custom&from=20%2F04%2F2026&to=21%2F04%2F2026");
+  const ids = async (range?: Range) => (await listReceipts(range)).filter((r) => r.customer === "RP Lists").map((r) => r.id);
+  expect(await ids(window.range)).toEqual([early]);
+  expect(await ids(listPeriod({ period: "all" }).range)).toEqual([late, early]);
+
+  const numbers = await db.select({ id: receipts.id, number: receipts.number }).from(receipts).where(eq(receipts.customerId, c));
+  const numberOf = (id: number) => numbers.find((n) => n.id === id)!.number;
+  const book = new Workbook();
+  await book.xlsx.load(Buffer.from(await (await get("receipts", window.query, await signedIn(OWNER.username, OWNER.password))).arrayBuffer()) as unknown as Parameters<typeof book.xlsx.load>[0]);
+  const cells = JSON.stringify(book.worksheets[0].getSheetValues());
+  expect(cells).toContain(numberOf(early));
+  expect(cells).not.toContain(numberOf(late));
+  expect(cells).toContain("20/04/2026 – 21/04/2026");
+});

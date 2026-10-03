@@ -29,7 +29,7 @@ import { insertReceipt } from "@/lib/receipts";
 import { customerFor, readDate } from "@/lib/sales";
 import { moneyCol, OPEN_PERIODS, party, pick, pickFilters, reportRange, rollUp, type ReportQuery, type ReportResult } from "@/lib/reports";
 import { getSettings } from "@/lib/settings";
-import { rangeText } from "@/lib/statements";
+import { dateIn, rangeText, type Range } from "@/lib/statements";
 
 // Print jobs (P1–P10, A§5, A§11, D19, D64). A new print (mode sale) is sold at the typed rate — the machine's sale rate
 // by default — and posts nothing until it is billed on an invoice / estimate. A print on an existing job (mode
@@ -673,9 +673,10 @@ async function shape(user: SessionUser, rows: Awaited<ReturnType<typeof printJob
 export type PrintJobRow = Awaited<ReturnType<typeof shape>>[number];
 
 /** Every print job, newest first (the list filters in the browser, like other lists). */
-export async function listPrintJobs(user: SessionUser) {
+/** The print jobs list; `range` (D68) = those dated in it, else all. */
+export async function listPrintJobs(user: SessionUser, range?: Range) {
   if (!can(user, "printJobs", "view")) return [];
-  return shape(user, await printJobRows());
+  return shape(user, await printJobRows(dateIn(printJobs.date, range)));
 }
 
 /** P6: a customer's print history. */

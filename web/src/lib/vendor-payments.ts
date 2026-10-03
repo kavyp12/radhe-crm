@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNotNull, notExists, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, notExists, sql, type SQL } from "drizzle-orm";
 import { db, writeTx, type Tx } from "@/db";
 import { accounts, openingBills, purchaseBills, vendorAllocations, vendorPayments, vendors } from "@/db/schema";
 import { formMoney, formText, UserError } from "@/lib/action";
@@ -11,6 +11,7 @@ import { nextNumber } from "@/lib/numbering";
 import { can, type SessionUser } from "@/lib/permissions";
 import { RECEIPT_MODE, RECEIPT_MODES } from "@/lib/receipt-modes";
 import { checkVersion, readDate } from "@/lib/sales";
+import { dateIn, type Range } from "@/lib/statements";
 
 // Vendor payments (S9, A§2, A§3, A§5, D49, D51): money out to a vendor, numbered VP/ and posted on save (Dr ap /
 // Cr money account). Vendor allocations link it to the vendor's purchase bills and opening bills (T43), oldest bill
@@ -84,7 +85,7 @@ export async function openBills(q: Q, vendorId: number, exceptPaymentId?: number
     q
       .select({ id: openingBills.id, billNo: openingBills.billNo, date: openingBills.billDate, dueDate: openingBills.dueDate, total: openingBills.amountPaise })
       .from(openingBills)
-      .where(eq(openingBills.vendorId, vendorId)),
+      .where(and(eq(openingBills.vendorId, vendorId), isNull(openingBills.cancelledAt))),
   ]);
   const [paid, openingPaid] = await Promise.all([
     paidTowardsBills(q, rows.map((r) => r.id), exceptPaymentId),
@@ -126,8 +127,9 @@ export async function vendorOpeningBills(vendorId?: number) {
     .orderBy(asc(openingBills.billDate), asc(openingBills.id));
   const paid = await paidTowardsBills(db, rows.map((r) => r.bill.id), undefined, "opening_bill");
   return rows.map(({ bill: b, vendor }) => {
-    const open = b.amountPaise - (paid.get(b.id) ?? 0n);
-    return { ...b, vendorId: b.vendorId!, vendor, open, payment: billStatus({ status: "active", totalPaise: b.amountPaise, dueDate: b.dueDate }, open) };
+    const status = b.cancelledAt ? "cancelled" : "active";
+    const open = b.cancelledAt ? 0n : b.amountPaise - (paid.get(b.id) ?? 0n);
+    return { ...b, vendorId: b.vendorId!, vendor, status, open, payment: billStatus({ status, totalPaise: b.amountPaise, dueDate: b.dueDate }, open) };
   });
 }
 
@@ -190,6 +192,7 @@ export async function checkBillAllocations(tx: Tx, vendorId: number, available: 
       const o = opening.find((x) => x.id === l.billId);
       if (!o || o.vendorId !== vendorId) throw new UserError("An opening bill here isn't this vendor's: reload the page.", "allocations");
       const number = openingBillLabel(o.billNo);
+      if (o.cancelledAt) throw new UserError(`${number} is cancelled: reload the page.`, "allocations");
       const open = o.amountPaise - (openingPaid.get(o.id) ?? 0n);
       if (l.amount > open) throw new UserError(`${number}: ${formatMoney(l.amount)} is more than its open ${formatMoney(open)}.`, "allocations");
       return { ...l, number };
@@ -551,7 +554,8 @@ const allocatedByPayment = () =>
     .groupBy(vendorAllocations.paymentId)
     .as("vp_allocated");
 
-export async function listVendorPayments() {
+/** The vendor payments list; `range` (D68) = those dated in it, else all. */
+export async function listVendorPayments(range?: Range) {
   const allocated = allocatedByPayment();
   const rows = await db
     .select({
@@ -567,6 +571,7 @@ export async function listVendorPayments() {
     .from(vendorPayments)
     .innerJoin(vendors, eq(vendors.id, vendorPayments.vendorId))
     .leftJoin(allocated, eq(allocated.paymentId, vendorPayments.id))
+    .where(dateIn(vendorPayments.date, range))
     .orderBy(desc(vendorPayments.id));
   return rows.map((r) => {
     const a = r.status === "active" ? BigInt(r.allocated ?? 0) : 0n;

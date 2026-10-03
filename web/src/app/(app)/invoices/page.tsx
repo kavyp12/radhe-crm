@@ -1,15 +1,18 @@
 import Link from "next/link";
+import { ListPeriod } from "@/components/list-period";
 import { PageHeader } from "@/components/page-header";
 import { ExportExcelButton } from "@/components/report-actions";
 import { Button } from "@/components/ui/button";
 import { requirePermission } from "@/lib/auth";
 import { INVOICE_KIND, INVOICE_STATUS, listInvoices } from "@/lib/invoices";
 import { can } from "@/lib/permissions";
+import { listPeriod } from "@/lib/statements";
 import { InvoicesTable } from "./invoices-table";
 
-export default async function InvoicesPage() {
+export default async function InvoicesPage({ searchParams }: PageProps<"/invoices">) {
   const user = await requirePermission("invoices", "view");
-  const rows = await listInvoices();
+  const period = listPeriod(await searchParams);
+  const rows = await listInvoices(period.range);
   const create = can(user, "invoices", "create");
   const newButton = create ? (
     <Button asChild>
@@ -24,7 +27,7 @@ export default async function InvoicesPage() {
         description="Tax invoices and estimates. Payment status comes from the receipts allocated to them."
         action={
           <div className="flex gap-2">
-            <ExportExcelButton name="invoices" />
+            <ExportExcelButton name="invoices" query={period.query} />
             {create && (
               <>
                 <Button asChild variant="outline">
@@ -36,6 +39,7 @@ export default async function InvoicesPage() {
           </div>
         }
       />
+      <ListPeriod {...period} />
       <InvoicesTable
         rows={rows.map((r) => ({
           id: r.id,

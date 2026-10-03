@@ -10,6 +10,7 @@ import { nextNumber } from "@/lib/numbering";
 import { can, type SessionUser } from "@/lib/permissions";
 import { RECEIPT_MODE, RECEIPT_MODES } from "@/lib/receipt-modes";
 import { checkVersion, readDate } from "@/lib/sales";
+import { dateIn, type Range } from "@/lib/statements";
 
 // Expenses (S10, S24, A§2, A§3, D51): paid straight from a money account; numbered EX/ and posted on save:
 //   Dr the category's expense account (with the job, if tagged — A§10 job costing reads it) / Cr the money account.
@@ -272,7 +273,8 @@ export async function cancelExpense(actor: SessionUser, id: number, reason: stri
 
 // ---- Loaders
 
-export async function listExpenses() {
+/** The expenses list; `range` (D68) = those dated in it, else all. */
+export async function listExpenses(range?: Range) {
   return db
     .select({
       id: expenses.id,
@@ -292,6 +294,7 @@ export async function listExpenses() {
     .innerJoin(accounts, eq(accounts.id, expenses.moneyAccountId))
     .leftJoin(vendors, eq(vendors.id, expenses.vendorId))
     .leftJoin(jobs, eq(jobs.id, expenses.jobId))
+    .where(dateIn(expenses.date, range))
     .orderBy(desc(expenses.id));
 }
 

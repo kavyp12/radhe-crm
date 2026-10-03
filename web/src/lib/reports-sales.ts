@@ -497,7 +497,7 @@ export async function pendingPaymentReport(user: SessionUser, q: ReportQuery, no
     ...purchaseBills.map((b) => ({ ...b, href: `/purchase-bills/${b.id}` })),
     ...openingBills.map((b) => ({
       id: b.id, number: openingBillLabel(b.billNo), vendorBillNo: b.billNo, date: b.billDate, dueDate: b.dueDate, vendorId: b.vendorId, vendor: b.vendor,
-      status: "active" as const, total: b.amountPaise, open: b.open, payment: b.payment, href: `/vendors/${b.vendorId}`,
+      status: b.status, total: b.amountPaise, open: b.open, payment: b.payment, href: `/vendors/${b.vendorId}`,
     })),
   ];
   const picks = [

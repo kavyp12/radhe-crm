@@ -130,6 +130,8 @@ export const openingBills = pgTable(
     billDate: date("bill_date").notNull(),
     dueDate: date("due_date").notNull(),
     amountPaise: bigint("amount_paise", { mode: "bigint" }).notNull(),
+    /** Cancelled by the owner while nothing was allocated to it (D68); the party's opening was reposted without it. */
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     createdBy: text("created_by").references(() => users.id),
     updatedAt: timestamp("updated_at", { withTimezone: true })

@@ -27,12 +27,14 @@ import {
   salesPersonReport,
   salesReport,
 } from "@/lib/reports-sales";
+import { listPeriod, rangeText } from "@/lib/statements";
 import { listItems } from "@/lib/stock";
 import { listVendors } from "@/lib/vendors";
 
 // What /export/<name> can download (S27, D59): the reports and the main lists. Each goes through the same loader and
 // permission as its page, so a user gets exactly the rows and columns they see there — cost columns only with
-// can_view_cost (hard rule 5). null = not allowed. Lists export every row (the page's filters run in the browser).
+// can_view_cost (hard rule 5). null = not allowed. Lists export every row of the page's period (D68; this FY by
+// default) — the page's other filters run in the browser.
 
 /** The S20 reports by their /reports/<name> (REPORT_INDEX): the page and the export both load through here. */
 export const REPORTS: Record<string, (user: SessionUser, q: ReportQuery) => Promise<ReportResult | null>> = {
@@ -62,9 +64,9 @@ export const reportLoader = (name: string) => (Object.hasOwn(REPORTS, name) ? RE
 
 type Exporter = (user: SessionUser, q: ReportQuery) => Promise<Report | null>;
 
-const list = (title: string, columns: ReportColumn[], rows: ReportRow[]): Report => ({
+const list = (title: string, columns: ReportColumn[], rows: ReportRow[], filters = ["All entries"]): Report => ({
   title,
-  filters: ["All entries"],
+  filters,
   generatedAt: new Date(),
   tables: [{ columns, rows }],
 });
@@ -74,9 +76,10 @@ const money = (key: string, label: string): ReportColumn => ({ key, label, type:
 export const EXPORTS: Record<string, Exporter> = {
   ...Object.fromEntries(Object.entries(REPORTS).map(([name, load]): [string, Exporter] => [name, async (user, q) => (await load(user, q))?.report ?? null])),
 
-  invoices: async (user) => {
+  invoices: async (user, q) => {
     if (!can(user, "invoices", "view")) return null;
-    const rows = await listInvoices();
+    const { range } = listPeriod(q); // D68: the page's period (this FY by default)
+    const rows = await listInvoices(range);
     return list(
       "Invoices",
       [
@@ -101,12 +104,14 @@ export const EXPORTS: Record<string, Exporter> = {
         total: r.total,
         open: r.open,
       })),
+      [rangeText(range)],
     );
   },
 
-  receipts: async (user) => {
+  receipts: async (user, q) => {
     if (!can(user, "payments", "view")) return null;
-    const rows = await listReceipts();
+    const { range } = listPeriod(q); // D68: the page's period (this FY by default)
+    const rows = await listReceipts(range);
     return list(
       "Receipts",
       [
@@ -129,6 +134,7 @@ export const EXPORTS: Record<string, Exporter> = {
         allocated: r.allocated,
         onAccount: r.onAccount,
       })),
+      [rangeText(range)],
     );
   },
 
@@ -159,9 +165,10 @@ export const EXPORTS: Record<string, Exporter> = {
   },
 
   // Purchase rates: the whole list needs can_view_cost (D51), as its page does.
-  "purchase-bills": async (user) => {
+  "purchase-bills": async (user, q) => {
     if (!can(user, "books", "view") || !canViewCost(user)) return null;
-    const rows = await listPurchaseBills();
+    const { range } = listPeriod(q); // D68: the page's period (this FY by default)
+    const rows = await listPurchaseBills(undefined, range);
     return list(
       "Purchase bills",
       [
@@ -184,12 +191,14 @@ export const EXPORTS: Record<string, Exporter> = {
         total: r.total,
         open: r.open,
       })),
+      [rangeText(range)],
     );
   },
 
-  expenses: async (user) => {
+  expenses: async (user, q) => {
     if (!can(user, "books", "view")) return null;
-    const rows = await listExpenses();
+    const { range } = listPeriod(q); // D68: the page's period (this FY by default)
+    const rows = await listExpenses(range);
     return list(
       "Expenses",
       [
@@ -212,6 +221,7 @@ export const EXPORTS: Record<string, Exporter> = {
         status: r.status === "cancelled" ? "Cancelled" : "Active",
         amount: r.amount,
       })),
+      [rangeText(range)],
     );
   },
 

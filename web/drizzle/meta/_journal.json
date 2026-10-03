@@ -428,6 +428,13 @@
       "when": 1790934943959,
       "tag": "0060_opening_bills_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1791007291833,
+      "tag": "0061_opening_bill_cancel",
+      "breakpoints": true
     }
   ]
 }

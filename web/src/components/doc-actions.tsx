@@ -71,10 +71,12 @@ export function ActionDialog({
   done,
   reason,
   variant = "outline",
+  size,
   children,
 }: {
   action: Action;
   label: string;
+  size?: "sm";
   title: string;
   description?: ReactNode;
   confirmLabel: string;
@@ -88,7 +90,9 @@ export function ActionDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant={variant}>{label}</Button>
+        <Button variant={variant} size={size}>
+          {label}
+        </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>

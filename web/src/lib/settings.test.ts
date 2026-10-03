@@ -1,17 +1,23 @@
 import { and, desc, eq } from "drizzle-orm";
-import { beforeAll, expect, test } from "vitest";
-import { db } from "@/db";
-import { auditLog } from "@/db/schema";
+import { afterAll, beforeAll, expect, test } from "vitest";
+import { db, writeTx } from "@/db";
+import { auditLog, settings } from "@/db/schema";
 import { testOwner } from "@/db/test-owner";
 import type { SessionUser } from "@/lib/permissions";
 import { getSettings, percentText, updateSettings, type SettingsInput } from "@/lib/settings";
 
 // Other test files only set the books start date or restore what they change, so the order below is the life of
-// these fields in a test run.
+// these fields in a test run. This file restores the row too (D68): later files rely on the empty limits.
 
 let owner: SessionUser;
+let saved: typeof settings.$inferInsert;
 beforeAll(async () => {
   owner = await testOwner();
+  const [row] = await db.select().from(settings).where(eq(settings.id, 1));
+  saved = { ...row, id: undefined, updatedAt: undefined };
+});
+afterAll(async () => {
+  await writeTx(owner, (tx) => tx.update(settings).set(saved).where(eq(settings.id, 1)));
 });
 
 const blank: SettingsInput = {

@@ -19,6 +19,7 @@ import { gstMode, lineTotals } from "@/lib/lines";
 import { nextNumber } from "@/lib/numbering";
 import { can, type SessionUser } from "@/lib/permissions";
 import { companyState, customerFor, jobsOnInvoices, lineRow, quotationInvoice, readDate, readLines } from "@/lib/sales";
+import { dateIn, type Range } from "@/lib/statements";
 
 // Jobs / work orders (S2, S3, A§2, A§8). Sales and the owner create them (from an approved quotation, lines copied —
 // R0 — or blank); production and the owner move them In Production → Ready → Delivered; issuing an invoice sets
@@ -227,11 +228,13 @@ const listColumns = {
   firmName: customers.firmName,
 };
 
-export async function listJobs(user: SessionUser) {
+/** The jobs list; `range` (D68) = those dated in it, else all. */
+export async function listJobs(user: SessionUser, range?: Range) {
   return db
     .select(money(user) ? { ...listColumns, total: jobs.totalPaise } : listColumns)
     .from(jobs)
     .innerJoin(customers, eq(customers.id, jobs.customerId))
+    .where(dateIn(jobs.date, range))
     .orderBy(desc(jobs.id));
 }
 

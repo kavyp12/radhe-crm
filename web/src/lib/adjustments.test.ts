@@ -145,7 +145,7 @@ test("a write-off settles the oldest invoice first: its open amount goes down, b
   const { id: d } = await createAdjustment(owner, customerAdjustment("discount", c, "20", [{ target: "invoice", id: b, amount: "20" }]));
   expect(await posted(d!)).toEqual({ discount_allowed: 20_00n, ar: -20_00n });
   await expect(createAdjustment(owner, customerAdjustment("discount", c, "20", [{ target: "invoice", id: b, amount: "15" }]))).rejects.toThrow(
-    "Put the whole ₹20.00 on the invoices / debit notes it settles: ₹15.00 is allocated.",
+    "Put the whole ₹20.00 on the invoices / debit notes / opening bills it settles: ₹15.00 is allocated.",
   );
   await expect(createAdjustment(owner, customerAdjustment("write_off", c, "500", [{ target: "invoice", id: b, amount: "500" }]))).rejects.toThrow(
     "is more than its open ₹450.00",

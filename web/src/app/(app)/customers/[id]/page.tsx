@@ -16,6 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { db } from "@/db";
 import { followUps, users } from "@/db/schema";
 import { OpeningBills } from "@/components/opening-bills";
+import { cancelOpeningBillAction } from "@/app/(app)/settings/actions";
 import { customerOpeningBills, onAccountSources } from "@/lib/allocations";
 import { listAttachments } from "@/lib/attachments";
 import { requirePermission } from "@/lib/auth";
@@ -333,7 +334,7 @@ export default async function CustomerPage({ params, searchParams }: PageProps<"
         </TabsContent>
 
         <TabsContent value="history" className="grid grid-cols-1 gap-4">
-          <OpeningBills rows={openingBills} />
+          <OpeningBills rows={openingBills} cancel={can(user, "settings", "edit") ? cancelOpeningBillAction : undefined} />
           <Timeline chains={chains} user={user} />
         </TabsContent>
 

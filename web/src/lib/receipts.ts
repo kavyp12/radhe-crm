@@ -23,6 +23,7 @@ import { nextNumber } from "@/lib/numbering";
 import { can, type SessionUser } from "@/lib/permissions";
 import { RECEIPT_MODE, RECEIPT_MODES } from "@/lib/receipt-modes";
 import { checkVersion, customerFor, readDate } from "@/lib/sales";
+import { dateIn, type Range } from "@/lib/statements";
 
 // Receipts (S6, A§2, A§3, A§7, D49): money in from a customer. Numbered on save and posted in the same transaction
 // (Dr money account / Cr ar). The allocation panel links it to the customer's invoices; what isn't allocated is
@@ -392,7 +393,8 @@ const allocatedByReceipt = () =>
     .groupBy(allocations.receiptId)
     .as("allocated");
 
-export async function listReceipts() {
+/** The receipts list; `range` (D68) = those dated in it, else all. */
+export async function listReceipts(range?: Range) {
   const allocated = allocatedByReceipt();
   const rows = await db
     .select({
@@ -409,6 +411,7 @@ export async function listReceipts() {
     .from(receipts)
     .innerJoin(customers, eq(customers.id, receipts.customerId))
     .leftJoin(allocated, eq(allocated.receiptId, receipts.id))
+    .where(dateIn(receipts.date, range))
     .orderBy(desc(receipts.id));
   return rows.map((r) => {
     const allocatedPaise = r.status === "active" ? BigInt(r.allocated ?? 0) : 0n;

@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { ListPeriod } from "@/components/list-period";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { listPrintJobs, listRow } from "@/lib/print-jobs";
+import { listPeriod } from "@/lib/statements";
 import { PrintJobsTable } from "./print-jobs-table";
 
 const PERIODS = ["today", "yesterday", "week", "month"] as const;
@@ -15,11 +17,12 @@ const PERIODS = ["today", "yesterday", "week", "month"] as const;
 export default async function PrintJobsPage({ searchParams }: PageProps<"/print-jobs">) {
   const user = await requirePermission("printJobs", "view");
   const q = await searchParams;
+  const period = listPeriod(q); // the dashboard's ?period=today links filter on the server too
   const text = (key: string) => (typeof q[key] === "string" ? (q[key] as string) : "");
   const picked = Object.fromEntries(
     [["Machine", text("machine")], ["Billing", text("billing")]].filter(([, v]) => v),
   );
-  const rows = await listPrintJobs(user);
+  const rows = await listPrintJobs(user, period.range);
   const newButton = can(user, "printJobs", "create") ? (
     <Button asChild>
       <Link href="/print-jobs/new">New print job</Link>
@@ -47,6 +50,7 @@ export default async function PrintJobsPage({ searchParams }: PageProps<"/print-
           </div>
         }
       />
+      <ListPeriod {...period} />
       <PrintJobsTable
         rows={rows.map(listRow)}
         showMoney={can(user, "printJobs", "money")}

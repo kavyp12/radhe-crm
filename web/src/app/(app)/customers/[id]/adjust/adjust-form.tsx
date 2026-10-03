@@ -156,11 +156,11 @@ export function AdjustForm({
         description={
           refund
             ? "The money on account it uses up, oldest first; change any line."
-            : "The open invoices and debit notes it settles, oldest first; change any line. The whole amount must be allocated."
+            : "The open invoices, debit notes and opening bills it settles, oldest first; change any line. The whole amount must be allocated."
         }
       >
         {rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{refund ? "Nothing on account to pay back." : "No open invoices or debit notes."}</p>
+          <p className="text-sm text-muted-foreground">{refund ? "Nothing on account to pay back." : "No open invoices, debit notes or opening bills."}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-140 border-separate border-spacing-0 text-[13px]">

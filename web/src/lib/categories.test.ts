@@ -30,11 +30,13 @@ const S10: [string, string][] = [
   ["Office Expense", "none"], ["Marketing", "none"], ["Miscellaneous", "other"],
 ];
 
+// D68: this file edits only categories it adds — every other file prices lines on the seeded ones (the first product
+// category's GST %, Rent for bills and expenses) — and checks the seeded ones by name, not the whole table.
 test("after migrate: the 14 S4 and 21 S10 categories, each expense category with its own expense account", async () => {
-  const products = await listProductCategories();
+  const products = (await listProductCategories()).filter((p) => S4.includes(p.name));
   expect(products.map((p) => [p.name, p.hsnSac, p.gstBp, p.active])).toEqual(S4.map((n) => [n, null, 1800, true]));
 
-  const expenses = await listExpenseCategories();
+  const expenses = (await listExpenseCategories()).filter((e) => S10.some(([n]) => n === e.name));
   expect(expenses.map((e) => [e.name, e.costBucket])).toEqual(S10);
   expect(new Set(expenses.map((e) => e.accountId)).size).toBe(21);
   const own = await db.select().from(accounts);
@@ -45,9 +47,10 @@ test("after migrate: the 14 S4 and 21 S10 categories, each expense category with
 });
 
 test("owner / accountant edit HSN/SAC, GST % and the bucket, add categories, deactivate; bad values refused", async () => {
-  const [led] = await listProductCategories();
+  await saveProductCategory(owner, null, { name: "CT Board", hsnSac: "", gstPercent: "18", active: true });
+  const led = (await listProductCategories()).find((p) => p.name === "CT Board")!;
   await saveProductCategory(owner, led.id, { name: "", hsnSac: "9403 20", gstPercent: "12.5", active: true });
-  expect((await listProductCategories())[0]).toMatchObject({ name: "LED Sign Board", hsnSac: "940320", gstBp: 1250 });
+  expect((await listProductCategories()).find((p) => p.id === led.id)).toMatchObject({ name: "CT Board", hsnSac: "940320", gstBp: 1250 });
   const good = { name: "", hsnSac: "", gstPercent: "18", active: true };
   for (const [patch, field] of [
     [{ hsnSac: "94A3" }, "hsnSac"],
@@ -65,7 +68,8 @@ test("owner / accountant edit HSN/SAC, GST % and the bucket, add categories, dea
     saveProductCategory(accountant, null, { name: "neon sign", hsnSac: "", gstPercent: "18", active: true }),
   ).rejects.toMatchObject({ field: "name" });
 
-  const rent = (await listExpenseCategories()).find((e) => e.name === "Rent")!;
+  await saveExpenseCategory(owner, null, { name: "CT Rent", costBucket: "none", active: true });
+  const rent = (await listExpenseCategories()).find((e) => e.name === "CT Rent")!;
   await saveExpenseCategory(accountant, rent.id, { name: "", costBucket: "other", active: false });
   expect((await listExpenseCategories()).find((e) => e.id === rent.id)).toMatchObject({ costBucket: "other", active: false });
   await expect(saveExpenseCategory(owner, rent.id, { name: "", costBucket: "misc", active: true })).rejects.toMatchObject({
@@ -76,7 +80,8 @@ test("owner / accountant edit HSN/SAC, GST % and the bucket, add categories, dea
   await saveExpenseCategory(owner, null, { name: "Paint", costBucket: "material", active: true });
   const paint = (await listExpenseCategories()).find((e) => e.name === "Paint")!;
   const [account] = await db.select().from(accounts).where(eq(accounts.id, paint.accountId));
-  expect(account).toMatchObject({ code: "6022", name: "Paint", type: "expense" });
+  expect(account).toMatchObject({ code: expect.stringMatching(/^60\d\d$/), name: "Paint", type: "expense" });
+  expect(Number(account.code)).toBeGreaterThan(6021); // after the 21 seeded ones
 });
 
 test("categories are closed to sales and production", async () => {

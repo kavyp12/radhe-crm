@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { beforeAll, expect, test } from "vitest";
 import { db } from "@/db";
 import { accounts, allocations, approvalRequests, journalEntries, journalLines, receipts } from "@/db/schema";
@@ -213,8 +213,16 @@ test("a non-owner's cancel, edit and backdated receipt go to the owner; nothing 
   const c = await createCustomer(owner, customer("Needs Approval"));
   const a = await invoice(c, "9,000");
   const { id } = await createReceipt(accountant, receipt(c, "5,000", [[a, "5,000"]]));
+  // This file's accountant's latest request (D68: other files leave pending receipt requests too).
   const pending = async (type: string) =>
-    (await db.select().from(approvalRequests).where(and(eq(approvalRequests.type, type), eq(approvalRequests.status, "pending")))).at(-1)!;
+    (
+      await db
+        .select()
+        .from(approvalRequests)
+        .where(and(eq(approvalRequests.type, type), eq(approvalRequests.status, "pending"), eq(approvalRequests.requestedBy, accountant.id)))
+        .orderBy(desc(approvalRequests.id))
+        .limit(1)
+    )[0];
 
   // Edit: ₹5,000 → ₹9,000, all to the invoice.
   const edit = receipt(c, "9,000", [[a, "9,000"]]);

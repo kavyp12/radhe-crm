@@ -37,7 +37,7 @@ export default async function AdjustCustomerPage({ params, searchParams }: PageP
           id: i.id,
           number: i.number,
           date: i.date,
-          note: i.target === "invoice" ? "Invoice" : "Debit note",
+          note: i.target === "invoice" ? "Invoice" : i.target === "debit_note" ? "Debit note" : "Opening bill",
           open: i.open,
         }))}
         onAccount={sources.map((s) => ({

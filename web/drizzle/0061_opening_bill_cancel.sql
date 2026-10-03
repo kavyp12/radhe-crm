@@ -1,0 +1,3 @@
+ALTER TABLE "allocations" DROP CONSTRAINT "allocations_adjustment_settles";--> statement-breakpoint
+ALTER TABLE "opening_bills" ADD COLUMN "cancelled_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "allocations" ADD CONSTRAINT "allocations_adjustment_settles" CHECK ("allocations"."adjustment_id" is null or "allocations"."invoice_id" is not null or "allocations"."debit_note_id" is not null or "allocations"."opening_bill_id" is not null);

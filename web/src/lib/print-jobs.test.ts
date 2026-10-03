@@ -60,7 +60,7 @@ beforeAll(async () => {
       name, firmName: "", mobile, email: "", gstin: "", stateCode: "24", billingAddress: "", siteAddress: "", creditLimit: "", creditDays: "",
       isCreditCustomer, salesPersonId: "", collectionPersonId: "", notes: "",
     });
-  ids.abc = await customer("PJ ABC Enterprise", false, "98250 11111");
+  ids.abc = await customer("PJ ABC Enterprise", false, "93750 64001"); // a mobile no other file uses (D68)
   ids.credit = await customer("PJ Credit Signs", true);
   const line = { lineId: "", categoryId: String(ids.category), description: "Shop board", hsnSac: "", width: "", height: "", qty: "1", unit: "Nos", rate: "20,000", discount: "", gst: "18" };
   ids.job = await createJob(owner, {
@@ -300,8 +300,8 @@ test("quick-add customer (D64): name + mobile makes an unregistered state-24 cus
   // Same 10 digits typed differently → the same customer, not a second one.
   const again = await create({ customerId: "", newCustomerName: "Ramesh bhai", newCustomerMobile: "9909022222", payment: "credit" });
   expect((await row(again)).customerId).toBe(c.id);
-  // ABC's mobile (98250 11111) → ABC.
-  expect((await row(await create({ customerId: "", newCustomerName: "Someone", newCustomerMobile: "9825011111", payment: "credit" }))).customerId).toBe(ids.abc);
+  // ABC's mobile (93750 64001) → ABC.
+  expect((await row(await create({ customerId: "", newCustomerName: "Someone", newCustomerMobile: "9375064001", payment: "credit" }))).customerId).toBe(ids.abc);
   await expect(create({ customerId: "", newCustomerName: "No Mobile", payment: "credit" })).rejects.toThrow("10-digit mobile");
   await expect(create({ customerId: "", newCustomerName: "", payment: "credit" })).rejects.toThrow("Pick the customer");
 });
@@ -325,7 +325,8 @@ test("what each role sees (A§8): production no money; a print on a job's rate a
   const pj = await row(ids.p3);
   const hits = async (who: SessionUser, q: string) => (await search(who, q)).find((g) => g.label === "Print jobs")?.hits ?? [];
   expect((await hits(owner, pj.number))[0]).toMatchObject({ href: `/print-jobs/${ids.p3}`, amount: "₹900.00" });
-  expect((await hits(owner, "job_panel")).map((h) => [h.href, h.amount])).toEqual([[`/print-jobs/${onJob}`, undefined]]);
+  const panel = (await hits(owner, "job_panel")).find((h) => h.href === `/print-jobs/${onJob}`);
+  expect(panel && [panel.href, panel.amount]).toEqual([`/print-jobs/${onJob}`, undefined]);
   expect((await hits(production, pj.number))[0]).toEqual({ title: pj.number, detail: expect.stringContaining("ABC_FRONT_BOARD.cdr"), href: `/print-jobs/${ids.p3}` });
 });
 

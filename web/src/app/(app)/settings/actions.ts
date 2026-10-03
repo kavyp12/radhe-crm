@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { formAction, type FormState } from "@/lib/action";
 import { createPairingCode, renameDevice, revokeDevice } from "@/lib/agent";
 import { requirePermission } from "@/lib/auth";
+import { cancelOpeningBill } from "@/lib/opening-import";
 import { saveBooks, setSettingsImage, updateSettings } from "@/lib/settings";
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? "");
@@ -73,4 +74,11 @@ export async function revokeDeviceAction(id: number): Promise<FormState> {
   const state = await formAction(() => revokeDevice(actor, id));
   revalidatePath("/settings");
   return state;
+}
+
+/** D68: cancel an opening bill nothing is allocated to (owner); the party's opening is reposted without it. */
+export async function cancelOpeningBillAction(id: number): Promise<FormState> {
+  const actor = await requirePermission("settings", "edit");
+  if (!Number.isSafeInteger(id)) throw new Error("Bad opening bill id");
+  return formAction(async () => revalidatePath(await cancelOpeningBill(actor, id)));
 }

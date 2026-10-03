@@ -32,6 +32,7 @@ import { formatMoney, lineCalc, milliText, noteTotals, parseMoney, parseQty } fr
 import { nextNumber } from "@/lib/numbering";
 import { can, type SessionUser } from "@/lib/permissions";
 import { checkVersion, companyState, dueDateFor, newShareToken, readDate } from "@/lib/sales";
+import { dateIn, type Range } from "@/lib/statements";
 
 // Credit and debit notes (S16, A§2–§7, D49): corrections to one issued invoice — lines picked from it (a qty and / or a
 // taxable amount; a credit note never more than the line has left after earlier ones, D50), GST in the invoice's mode,
@@ -419,7 +420,8 @@ export async function cancelNote(actor: SessionUser, kind: NoteKind, id: number,
 // ---- Loaders
 
 /** Both kinds, newest first; debit notes with their open amount and payment status. */
-export async function listNotes() {
+/** Credit and debit notes; `range` (D68) = those dated in it, else all. */
+export async function listNotes(range?: Range) {
   const paid = paidByDebitNote();
   const [credit, debit] = await Promise.all(
     (["credit", "debit"] as const).map((kind) => {
@@ -442,7 +444,7 @@ export async function listNotes() {
         .from(t.doc)
         .innerJoin(invoices, eq(invoices.id, t.doc.invoiceId))
         .innerJoin(customers, eq(customers.id, t.doc.customerId));
-      return kind === "debit" ? q.leftJoin(paid, eq(paid.debitNoteId, t.doc.id)) : q;
+      return (kind === "debit" ? q.leftJoin(paid, eq(paid.debitNoteId, t.doc.id)) : q).where(dateIn(t.doc.date, range));
     }),
   );
   const shape = (kind: NoteKind) => (r: (typeof credit)[number]) => {

@@ -1,17 +1,21 @@
+import { ListPeriod } from "@/components/list-period";
 import { PageHeader } from "@/components/page-header";
 import { requirePermission } from "@/lib/auth";
 import { listNotes, NOTE_KIND, NOTE_STATUS } from "@/lib/notes";
+import { listPeriod } from "@/lib/statements";
 import { NotesTable } from "./notes-table";
 
-export default async function NotesPage() {
+export default async function NotesPage({ searchParams }: PageProps<"/credit-debit-notes">) {
   await requirePermission("invoices", "view");
-  const rows = await listNotes();
+  const period = listPeriod(await searchParams);
+  const rows = await listNotes(period.range);
   return (
     <div className="grid grid-cols-1 gap-5">
       <PageHeader
         title="Credit/Debit Notes"
         description="Corrections to issued invoices: returns, rate changes, discounts. Made from the invoice's page."
       />
+      <ListPeriod {...period} />
       <NotesTable
         rows={rows.map((r) => ({
           href: `/credit-debit-notes/${NOTE_KIND[r.kind].path}/${r.id}`,

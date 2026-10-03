@@ -172,28 +172,32 @@ test("an issued invoice can't be edited; cancel reverses on the invoice date, ne
 });
 
 test("a non-owner issuing with a discount over the limit files a request and posts nothing; approval issues it", async () => {
+  const [{ discountLimitBp: before }] = await db.select({ discountLimitBp: settings.discountLimitBp }).from(settings).where(eq(settings.id, 1));
   await writeTx(owner, (tx) => tx.update(settings).set({ discountLimitBp: 500 }).where(eq(settings.id, 1)));
-  const date = todayIST().split("-").reverse().join("/");
-  const id = await createInvoice(accountant, input(local, { date }, [line({ rate: "1000", discount: "100" })])); // 10%
-  expect((await issueInvoice(accountant, id)).message).toBe(SENT_FOR_APPROVAL);
-  expect(await getInvoice(id)).toMatchObject({ status: "draft", number: null });
-  expect((await posted(id)).rows).toEqual([]);
+  try {
+    const date = todayIST().split("-").reverse().join("/");
+    const id = await createInvoice(accountant, input(local, { date }, [line({ rate: "1000", discount: "100" })])); // 10%
+    expect((await issueInvoice(accountant, id)).message).toBe(SENT_FOR_APPROVAL);
+    expect(await getInvoice(id)).toMatchObject({ status: "draft", number: null });
+    expect((await posted(id)).rows).toEqual([]);
 
-  const [req] = await db
-    .select()
-    .from(approvalRequests)
-    .where(and(eq(approvalRequests.type, "invoice.issue"), eq(approvalRequests.targetId, id)));
-  expect(req).toMatchObject({ status: "pending", requestedBy: accountant.id });
-  await approve(owner, req.id, "ok");
-  expect((await getInvoice(id))!.status).toBe("issued");
-  expect((await posted(id)).net.ar).toBe(1062_00n); // ₹900 + 18%
+    const [req] = await db
+      .select()
+      .from(approvalRequests)
+      .where(and(eq(approvalRequests.type, "invoice.issue"), eq(approvalRequests.targetId, id)));
+    expect(req).toMatchObject({ status: "pending", requestedBy: accountant.id });
+    await approve(owner, req.id, "ok");
+    expect((await getInvoice(id))!.status).toBe("issued");
+    expect((await posted(id)).net.ar).toBe(1062_00n); // ₹900 + 18%
 
-  // An accountant's cancel of an issued invoice is a request too (A§7): nothing reversed yet.
-  expect((await cancelInvoice(accountant, id, "Duplicate")).message).toBe(SENT_FOR_APPROVAL);
-  expect((await getInvoice(id))!.status).toBe("issued");
-  expect((await posted(id)).net.ar).toBe(1062_00n);
-
-  await writeTx(owner, (tx) => tx.update(settings).set({ discountLimitBp: null }).where(eq(settings.id, 1)));
+    // An accountant's cancel of an issued invoice is a request too (A§7): nothing reversed yet.
+    expect((await cancelInvoice(accountant, id, "Duplicate")).message).toBe(SENT_FOR_APPROVAL);
+    expect((await getInvoice(id))!.status).toBe("issued");
+    expect((await posted(id)).net.ar).toBe(1062_00n);
+  } finally {
+    // D68: put back what was there, even when a check above fails
+    await writeTx(owner, (tx) => tx.update(settings).set({ discountLimitBp: before }).where(eq(settings.id, 1)));
+  }
   // Sales only view invoices.
   await expect(createInvoice(sales, input(local))).rejects.toThrow("Not allowed");
 });

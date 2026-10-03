@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, ne, notExists, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, ne, notExists, or, sql, type SQL } from "drizzle-orm";
 import type { Status } from "@/components/status-badge";
 import { db, writeTx, type Tx } from "@/db";
 import { adjustments, allocations, creditNotes, debitNotes, invoiceLines, invoices, jobs, openingBills, printJobs, receipts } from "@/db/schema";
@@ -88,8 +88,8 @@ export async function customerOpeningBills(customerId: number) {
   const rows = await db.select().from(openingBills).where(eq(openingBills.customerId, customerId)).orderBy(asc(openingBills.billDate), asc(openingBills.id));
   const paid = await paidTowardsOpeningBills(db, rows.map((r) => r.id));
   return rows.map((r) => {
-    const open = r.amountPaise - (paid.get(r.id) ?? 0n);
-    return { ...r, open, payment: paymentStatus({ status: "issued", totalPaise: r.amountPaise, dueDate: r.dueDate }, open)! };
+    const open = r.cancelledAt ? 0n : r.amountPaise - (paid.get(r.id) ?? 0n);
+    return { ...r, open, payment: paymentStatus({ status: r.cancelledAt ? "cancelled" : "issued", totalPaise: r.amountPaise, dueDate: r.dueDate }, open)! };
   });
 }
 
@@ -163,7 +163,7 @@ export async function openInvoices(q: Q, customerId: number, exceptReceiptId?: n
     q
       .select({ id: openingBills.id, billNo: openingBills.billNo, date: openingBills.billDate, dueDate: openingBills.dueDate, total: openingBills.amountPaise })
       .from(openingBills)
-      .where(eq(openingBills.customerId, customerId)),
+      .where(and(eq(openingBills.customerId, customerId), isNull(openingBills.cancelledAt))),
   ]);
   const [paid, notePaid, openingPaid] = await Promise.all([
     paidTowards(q, invoiceRows.map((r) => r.id), exceptReceiptId),
@@ -333,6 +333,7 @@ export async function checkAllocations(
       const o = openingRows.find((r) => r.id === l.id);
       if (!o || o.customerId !== customerId) throw new UserError("An opening bill here isn't this customer's: reload the page.", "allocations");
       const number = openingBillLabel(o.billNo);
+      if (o.cancelledAt) throw new UserError(`${number} is cancelled: reload the page.`, "allocations");
       const open = o.amountPaise - (openingPaid.get(o.id) ?? 0n);
       if (l.amount > open) throw new UserError(`${number}: ${formatMoney(l.amount)} is more than its open ${formatMoney(open)}.`, "allocations");
       return { ...l, number };

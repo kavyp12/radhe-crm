@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { beforeAll, expect, test } from "vitest";
 import { db } from "@/db";
 import { accounts, expenseCategories, jobCostEntries } from "@/db/schema";
@@ -87,7 +87,7 @@ test("S11: sale ₹1,00,000 − cost ₹62,000 (material 42k, labour 8k, printin
   expect((await jobCosting(owner, job))!.cost.labour).toBe(8500_00n);
   await cancelExpense(owner, extra, "Entered on the wrong job");
   await addJobCost(staff.accountant!, job, { bucket: "other", date: formatDate(today), amount: "300", note: "" });
-  const other = (await db.select().from(jobCostEntries).where(eq(jobCostEntries.bucket, "other")))[0];
+  const other = (await db.select().from(jobCostEntries).where(and(eq(jobCostEntries.jobId, job), eq(jobCostEntries.bucket, "other"))))[0];
   await deactivateJobCost(owner, other.id);
   await expect(deactivateJobCost(owner, other.id)).rejects.toThrow("This cost entry is already removed.");
   const after = (await jobCosting(owner, job))!;

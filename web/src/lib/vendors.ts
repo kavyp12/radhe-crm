@@ -54,6 +54,12 @@ const postOpening = (tx: Tx, id: number, name: string, amount: bigint) =>
     { account: "ap", vendorId: id },
   );
 
+/** A vendor's opening balance changed inside the caller's transaction (opening import, opening-bill cancel, D68). */
+export async function setVendorOpening(tx: Tx, id: number, name: string, amount: bigint) {
+  await tx.update(vendors).set({ openingBalancePaise: amount }).where(eq(vendors.id, id));
+  await postOpening(tx, id, name, amount);
+}
+
 export async function createVendor(actor: SessionUser, input: VendorInput): Promise<number> {
   if (!can(actor, "vendors", "create")) throw new Error("Not allowed");
   return writeTx(actor, (tx) => insertVendor(tx, actor, input));

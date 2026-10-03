@@ -160,36 +160,40 @@ test("status rules: Draft → Sent → Approved; only Draft / Sent editable; edi
 });
 
 test("a non-owner sending with a discount over the limit files an approval request; the owner's approval sends it", async () => {
+  const [{ discountLimitBp: before }] = await db.select({ discountLimitBp: settings.discountLimitBp }).from(settings).where(eq(settings.id, 1));
   await writeTx(owner, (tx) => tx.update(settings).set({ discountLimitBp: 500 }).where(eq(settings.id, 1))); // 5%
-  const date = todayIST().split("-").reverse().join("/");
+  try {
+    const date = todayIST().split("-").reverse().join("/");
 
-  const within = await createQuotation(sales, input(local, [line({ rate: "1000", discount: "50" })], { date }));
-  expect((await sendQuotation(sales, within)).message).toBe("Marked as sent.");
+    const within = await createQuotation(sales, input(local, [line({ rate: "1000", discount: "50" })], { date }));
+    expect((await sendQuotation(sales, within)).message).toBe("Marked as sent.");
 
-  const over = await createQuotation(sales, input(local, [line({ rate: "1000", discount: "100" })], { date })); // 10%
-  expect((await sendQuotation(sales, over)).message).toBe(SENT_FOR_APPROVAL);
-  expect((await getQuotation(over))!.status).toBe("draft");
-  const [req] = await db
-    .select()
-    .from(approvalRequests)
-    .where(and(eq(approvalRequests.targetType, "quotations"), eq(approvalRequests.targetId, over)));
-  expect(req).toMatchObject({ type: "quotation.send", status: "pending", requestedBy: sales.id });
-  expect(req.reason).toContain("over the limit");
-  await approve(owner, req.id, "");
-  expect((await getQuotation(over))!.status).toBe("sent");
+    const over = await createQuotation(sales, input(local, [line({ rate: "1000", discount: "100" })], { date })); // 10%
+    expect((await sendQuotation(sales, over)).message).toBe(SENT_FOR_APPROVAL);
+    expect((await getQuotation(over))!.status).toBe("draft");
+    const [req] = await db
+      .select()
+      .from(approvalRequests)
+      .where(and(eq(approvalRequests.targetType, "quotations"), eq(approvalRequests.targetId, over)));
+    expect(req).toMatchObject({ type: "quotation.send", status: "pending", requestedBy: sales.id });
+    expect(req.reason).toContain("over the limit");
+    await approve(owner, req.id, "");
+    expect((await getQuotation(over))!.status).toBe("sent");
 
-  // A request for an older version is refused once the quotation has changed (D44).
-  const stale = await createQuotation(sales, input(local, [line({ rate: "1000", discount: "100" })], { date }));
-  await sendQuotation(sales, stale);
-  await updateQuotation(sales, stale, input(local, [line({ rate: "1000", discount: "200" })], { date }));
-  const [staleReq] = await db
-    .select()
-    .from(approvalRequests)
-    .where(and(eq(approvalRequests.targetType, "quotations"), eq(approvalRequests.targetId, stale)));
-  await expect(approve(owner, staleReq.id, "")).rejects.toThrow("changed after the request");
-  expect((await getQuotation(stale))!.status).toBe("draft");
-
-  await writeTx(owner, (tx) => tx.update(settings).set({ discountLimitBp: null }).where(eq(settings.id, 1)));
+    // A request for an older version is refused once the quotation has changed (D44).
+    const stale = await createQuotation(sales, input(local, [line({ rate: "1000", discount: "100" })], { date }));
+    await sendQuotation(sales, stale);
+    await updateQuotation(sales, stale, input(local, [line({ rate: "1000", discount: "200" })], { date }));
+    const [staleReq] = await db
+      .select()
+      .from(approvalRequests)
+      .where(and(eq(approvalRequests.targetType, "quotations"), eq(approvalRequests.targetId, stale)));
+    await expect(approve(owner, staleReq.id, "")).rejects.toThrow("changed after the request");
+    expect((await getQuotation(stale))!.status).toBe("draft");
+  } finally {
+    // D68: put back what was there, even when a check above fails
+    await writeTx(owner, (tx) => tx.update(settings).set({ discountLimitBp: before }).where(eq(settings.id, 1)));
+  }
 });
 
 test("duplicate = a new draft with its own number and the same lines", async () => {

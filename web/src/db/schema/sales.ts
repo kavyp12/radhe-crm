@@ -384,10 +384,10 @@ export const allocations = pgTable(
     ),
     check("allocations_from_job_on_invoice", sql`${t.fromJobId} is null or ${t.invoiceId} is not null`),
     check("allocations_from_print_job_on_invoice", sql`${t.fromPrintJobId} is null or ${t.invoiceId} is not null`),
-    // A write-off / discount settles invoices and debit notes only.
+    // A write-off / discount settles invoices, debit notes and opening bills (D68) only.
     check(
       "allocations_adjustment_settles",
-      sql`${t.adjustmentId} is null or ${t.invoiceId} is not null or ${t.debitNoteId} is not null`,
+      sql`${t.adjustmentId} is null or ${t.invoiceId} is not null or ${t.debitNoteId} is not null or ${t.openingBillId} is not null`,
     ),
   ],
 );

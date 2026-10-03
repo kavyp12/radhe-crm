@@ -3,14 +3,16 @@ import { Workbook, type CellValue, type Worksheet } from "exceljs";
 import { writeTx, type Tx } from "@/db";
 import { accounts, customers, expenseCategories, openingBills, settings, stockItems, vendors } from "@/db/schema";
 import { UserError } from "@/lib/action";
-import { insertCustomer } from "@/lib/customers";
+import { openingBillLabel, paidTowardsOpeningBills } from "@/lib/allocations";
+import { insertCustomer, setCustomerOpening } from "@/lib/customers";
 import { addDays, formatDate, parseDate } from "@/lib/dates";
 import { GST_STATES } from "@/lib/gstin";
 import { divRound, formatMoney, moneyText, parseMoney, parseQty } from "@/lib/num";
 import { can, canViewCost, type SessionUser } from "@/lib/permissions";
 import { setMoneyOpening } from "@/lib/settings";
 import { insertItem } from "@/lib/stock";
-import { insertVendor } from "@/lib/vendors";
+import { paidTowardsBills } from "@/lib/vendor-payments";
+import { insertVendor, setVendorOpening } from "@/lib/vendors";
 
 // Opening data import (T43, D40, D67; Q5 still open, so it takes both lump sums and bill-wise dues). The owner fills
 // one Excel template — customers, customer opening bills, vendors, vendor opening bills, stock items, money accounts —
@@ -28,11 +30,12 @@ const AMOUNT = "Rupees as text, up to 2 decimals: 12500 or 12,500.50.";
 export const SHEETS = {
   customers: {
     name: "Customers",
-    about: "One row per customer. Customers already in the CRM (same mobile or GSTIN) are refused — import before entering customers by hand.",
+    about:
+      "One row per customer. A customer already in the CRM (same mobile or GSTIN; the name for one with neither) is refused, unless it has no opening balance yet and the row brings one (a lump or bills): then only those dues are added and its other columns are ignored. Import before daily use.",
     columns: [
       { key: "name", header: "Name", required: true, field: "name", help: "The customer's name." },
       { key: "firmName", header: "Firm name", field: "firmName", help: "Optional." },
-      { key: "mobile", header: "Mobile", field: "mobile", help: "Mobile number. A mobile or a GSTIN is needed: they are how the import spots customers already in the CRM." },
+      { key: "mobile", header: "Mobile", field: "mobile", help: "Mobile number. The mobile or GSTIN is how the import spots customers already in the CRM; with neither, the exact name is." },
       { key: "gstin", header: "GSTIN", field: "gstin", help: "15 characters, e.g. 24ABCDE1234F1Z5. Its first two digits must be the state." },
       { key: "state", header: "State", field: "stateCode", help: "State code (24) or name (Gujarat). Blank = the GSTIN's state, or 24 Gujarat without a GSTIN." },
       { key: "email", header: "Email", field: "email", help: "Optional: where quotation and invoice PDFs are emailed." },
@@ -53,7 +56,12 @@ export const SHEETS = {
     name: "Customer opening bills",
     about: "Unpaid old bills, one row each. Receipts can later be allocated to them, and outstanding ages them by their bill date.",
     columns: [
-      { key: "party", header: "Customer mobile or GSTIN", required: true, help: 'The customer\'s mobile or GSTIN exactly as on the "Customers" sheet.' },
+      {
+        key: "party",
+        header: "Customer mobile, GSTIN or name",
+        required: true,
+        help: 'The customer\'s mobile or GSTIN (the name, for one with neither) as on the "Customers" sheet, or of a customer already in the CRM with no opening balance yet.',
+      },
       { key: "billNo", header: "Bill no", required: true, help: "The old bill's number. Each customer's bill numbers must differ." },
       { key: "billDate", header: "Bill date", required: true, help: "DD/MM/YYYY, on or before the books start date." },
       { key: "dueDate", header: "Due date", help: "DD/MM/YYYY, on or after the bill date. Blank = bill date + the customer's credit days." },
@@ -62,7 +70,8 @@ export const SHEETS = {
   },
   vendors: {
     name: "Vendors",
-    about: "One row per vendor. Vendors already in the CRM (same GSTIN or name) are refused.",
+    about:
+      "One row per vendor. A vendor already in the CRM (same GSTIN or name) is refused, unless it has no opening balance yet and the row brings one (a lump or bills): then only those dues are added and its other columns are ignored.",
     columns: [
       { key: "name", header: "Name", required: true, field: "name", help: "The vendor's name (it must differ from every other vendor's)." },
       { key: "gstin", header: "GSTIN", field: "gstin", help: "Optional, 15 characters. Its first two digits must be the state." },
@@ -82,7 +91,7 @@ export const SHEETS = {
     name: "Vendor opening bills",
     about: "The vendor's unpaid old bills, one row each. Vendor payments can later be allocated to them; pending payment ages them by their bill date.",
     columns: [
-      { key: "party", header: "Vendor name or GSTIN", required: true, help: 'The vendor\'s name or GSTIN exactly as on the "Vendors" sheet.' },
+      { key: "party", header: "Vendor name or GSTIN", required: true, help: 'The vendor\'s name or GSTIN as on the "Vendors" sheet, or of a vendor already in the CRM with no opening balance yet.' },
       { key: "billNo", header: "Bill no", required: true, help: "The vendor's bill number. Each vendor's bill numbers must differ." },
       { key: "billDate", header: "Bill date", required: true, help: "DD/MM/YYYY, on or before the books start date." },
       { key: "dueDate", header: "Due date", help: "DD/MM/YYYY, on or after the bill date. Blank = bill date + the vendor's credit days." },
@@ -234,6 +243,9 @@ class Rollback extends Error {
 const lower = (s: string) => s.trim().toLowerCase();
 const last10 = (mobile: string) => mobile.replace(/\D/g, "").slice(-10);
 const gstinKey = (gstin: string) => gstin.replace(/\s/g, "").toUpperCase();
+const looksLikeGstin = (text: string) => gstinKey(text).length === 15 && /^\d\d/.test(gstinKey(text));
+/** D68: a customer with neither mobile nor GSTIN is keyed by its exact name (trimmed, case-insensitive). */
+const nameKey = (name: string) => `name:${lower(name)}`;
 
 /**
  * Checks the uploaded workbook and, with `commit`, imports it — one transaction either way, rolled back unless
@@ -332,8 +344,9 @@ async function run(tx: Tx, actor: SessionUser, lines: Record<SheetKey, Line[]>):
     }
   }
   /** Bills of one kind, checked: party key → its good bills; `parties` = every row's party (to check they exist). */
+  type Bill = { line: Line; billNo: string; billDate: string; dueDate: string | null; amount: bigint };
   const readBills = (key: "customerBills" | "vendorBills", partyKey: (party: string) => string) => {
-    const byParty = new Map<string, { line: Line; billNo: string; billDate: string; dueDate: string | null; amount: bigint }[]>();
+    const byParty = new Map<string, Bill[]>();
     const parties: { key: string; row: number }[] = [];
     const seen = new Map<string, number>();
     for (const l of lines[key]) {
@@ -354,20 +367,87 @@ async function run(tx: Tx, actor: SessionUser, lines: Record<SheetKey, Line[]>):
     }
     return { byParty, parties };
   };
-  const existingBills = new Set(
-    (await tx.select({ c: openingBills.customerId, v: openingBills.vendorId, no: openingBills.billNo }).from(openingBills)).map((b) =>
-      b.c !== null ? `c${b.c}|${lower(b.no)}` : `v${b.v}|${lower(b.no)}`,
-    ),
-  );
+  // Opening bills already in the CRM: their numbers stay taken (cancelled too); a live one means an opening is posted.
+  const billRows = await tx.select({ c: openingBills.customerId, v: openingBills.vendorId, no: openingBills.billNo, cancelledAt: openingBills.cancelledAt }).from(openingBills);
+  const partyOf = (b: { c: number | null; v: number | null }) => (b.c !== null ? `c${b.c}` : `v${b.v}`);
+  const existingBills = new Set(billRows.map((b) => `${partyOf(b)}|${lower(b.no)}`));
+  const withBills = new Set(billRows.filter((b) => !b.cancelledAt).map(partyOf));
+
+  /**
+   * D68: dues (bills and / or a lump) for a party already in the CRM — allowed while it has no opening posted, so
+   * masters may come first and dues later. The party row is locked; its opening = Σ bills + lump, posted once.
+   */
+  async function duesForExisting(side: "c" | "v", found: { id: number; name: string }, mine: Bill[], lump: bigint, sheet: SheetKey, line: Line) {
+    const billSheet = side === "c" ? "customerBills" : "vendorBills";
+    const [current] =
+      side === "c"
+        ? await tx.select({ opening: customers.openingBalancePaise, days: customers.creditDays }).from(customers).where(eq(customers.id, found.id)).for("update")
+        : await tx.select({ opening: vendors.openingBalancePaise, days: vendors.creditDays }).from(vendors).where(eq(vendors.id, found.id)).for("update");
+    const hasOpening = current.opening !== 0n || withBills.has(`${side}${found.id}`);
+    if (hasOpening && sheet !== billSheet) dup(sheet, line.row, null, `Already in the CRM with an opening balance: ${found.name}.`);
+    let refused = hasOpening;
+    for (const b of mine) {
+      if (existingBills.has(`${side}${found.id}|${lower(b.billNo)}`)) dup(billSheet, b.line.row, header(billSheet, "billNo"), `Already in the CRM: ${found.name}'s bill ${b.billNo}.`);
+      else if (hasOpening && sheet === billSheet) dup(billSheet, b.line.row, header(billSheet, "party"), `${found.name} already has an opening balance in the CRM: change it on their page.`);
+      else continue;
+      refused = true;
+    }
+    if (refused) return;
+    const sum = mine.reduce((t, b) => t + b.amount, lump);
+    await attempt(sheet, line, async (sp) => {
+      await insertBills(sp, side === "c" ? { customerId: found.id } : { vendorId: found.id }, mine, current.days ?? (side === "c" ? s.defaultCreditDays : null));
+      await (side === "c" ? setCustomerOpening : setVendorOpening)(sp, found.id, found.name, sum);
+    });
+  }
+  /** A party's opening bills; a blank due date = bill date + its credit days. */
+  async function insertBills(q: Tx, party: { customerId: number } | { vendorId: number }, mine: Bill[], days: number | null) {
+    if (!mine.length) return;
+    await q.insert(openingBills).values(
+      mine.map((b) => ({ ...party, billNo: b.billNo, billDate: b.billDate, dueDate: b.dueDate ?? addDays(b.billDate, days ?? 0), amountPaise: b.amount, createdBy: actor.id })),
+    );
+  }
+  /** Bill rows naming a party that isn't on its master sheet → that party in the CRM (D68), grouped by party. */
+  function billsForCrm<P extends { id: number; name: string }>(
+    billSheet: "customerBills" | "vendorBills",
+    parties: { key: string; row: number }[],
+    bills: Map<string, Bill[]>,
+    onSheet: Map<string, number>,
+    inCrm: (key: string) => P[],
+    what: "customer" | "vendor",
+  ) {
+    const out = new Map<number, { party: P; bills: Bill[] }>();
+    const done = new Set<string>();
+    for (const p of parties) {
+      if (onSheet.has(p.key)) continue;
+      const matches = inCrm(p.key);
+      if (!matches.length) {
+        say(billSheet, p.row, header(billSheet, "party"), `No ${what} with this ${what === "customer" ? "mobile, GSTIN or name" : "name or GSTIN"} on the sheet or in the CRM.`);
+        continue;
+      }
+      if (matches.length > 1) {
+        say(billSheet, p.row, header(billSheet, "party"), `More than one ${what} in the CRM matches (${matches.map((m) => m.name).join(", ")}): use the ${what === "customer" ? "mobile or GSTIN" : "GSTIN"}.`);
+        continue;
+      }
+      if (done.has(p.key)) continue;
+      done.add(p.key);
+      const entry = out.get(matches[0].id) ?? { party: matches[0], bills: [] };
+      entry.bills.push(...(bills.get(p.key) ?? []));
+      out.set(matches[0].id, entry);
+    }
+    return out;
+  }
   const totals: SheetTotal[] = [];
   const total = (key: SheetKey, rows: number, amount: bigint | null) => totals.push({ sheet: SHEETS[key].name, rows, amount: amount === null ? null : formatMoney(amount) });
 
   // ---- Customers and their opening bills
   {
     const inDb = await tx.select({ id: customers.id, name: customers.name, mobile: customers.mobile, gstin: customers.gstin }).from(customers);
-    const keyOf = new Map<string, number>(); // file key (GSTIN / last 10 mobile digits) → row
-    const customerKey = (party: string) => (gstinKey(party).length === 15 ? gstinKey(party) : last10(party) || lower(party));
+    const keyOf = new Map<string, number>(); // file key (GSTIN / last 10 mobile digits / name) → row
+    const customerKey = (p: string) => (looksLikeGstin(p) ? gstinKey(p) : /^[\d\s+()-]+$/.test(p.trim()) ? last10(p) : nameKey(p));
+    const inCrm = (key: string) =>
+      inDb.filter((c) => (key.startsWith("name:") ? nameKey(c.name) === key : c.gstin === key || (!!c.mobile && last10(c.mobile) === key)));
     const { byParty: bills, parties } = readBills("customerBills", customerKey);
+    const handled = new Set<number>(); // CRM customers whose dues came from a "Customers" row
     let lumps = 0n;
     for (const l of lines.customers) {
       if (!complete("customers", l)) continue;
@@ -376,26 +456,29 @@ async function run(tx: Tx, actor: SessionUser, lines: Record<SheetKey, Line[]>):
       const creditCustomer = lower(l.v.creditCustomer);
       if (creditCustomer && creditCustomer !== "yes" && creditCustomer !== "no") say("customers", l.row, header("customers", "creditCustomer"), "Type Yes or No.");
       const keys = [l.v.gstin && gstinKey(l.v.gstin), l.v.mobile && last10(l.v.mobile)].filter((k): k is string => !!k);
-      if (!keys.length) {
-        say("customers", l.row, header("customers", "mobile"), "Give a mobile or a GSTIN: they are how duplicates are spotted.");
-        continue;
-      }
+      if (!keys.length) keys.push(nameKey(l.v.name)); // D68
       const twin = keys.map((k) => keyOf.get(k)).find((r) => r !== undefined);
       if (twin !== undefined) {
-        say("customers", l.row, null, `Same mobile or GSTIN as row ${twin}.`);
+        say("customers", l.row, null, `Same mobile, GSTIN or name as row ${twin}.`);
         continue;
       }
       for (const k of keys) keyOf.set(k, l.row);
-      const found = inDb.find((c) => (c.gstin && keys.includes(c.gstin)) || (c.mobile && keys.includes(last10(c.mobile))));
+      const found = [...new Map(keys.flatMap(inCrm).map((c) => [c.id, c])).values()];
       const mine = keys.flatMap((k) => bills.get(k) ?? []);
-      if (found) {
-        dup("customers", l.row, null, `Already in the CRM: ${found.name}.`);
-        for (const b of mine) if (existingBills.has(`c${found.id}|${lower(b.billNo)}`)) dup("customerBills", b.line.row, null, `Already in the CRM: ${found.name}'s bill ${b.billNo}.`);
+      if (found.length) {
+        if (lump === null) continue;
+        if (lump === 0n && !mine.length) dup("customers", l.row, null, `Already in the CRM: ${found[0].name}.`);
+        else if (found.length > 1) say("customers", l.row, null, `Matches more than one customer in the CRM (${found.map((c) => c.name).join(", ")}): give the mobile or GSTIN.`);
+        else {
+          handled.add(found[0].id);
+          lumps += lump;
+          await duesForExisting("c", found[0], mine, lump, "customers", l);
+        }
         continue;
       }
       if (stateCode === null || lump === null) continue;
       lumps += lump;
-      const sum = mine.reduce((s, b) => s + b.amount, lump); // the party's opening balance (D67)
+      const sum = mine.reduce((t, b) => t + b.amount, lump); // the party's opening balance (D67)
       const id = await attempt("customers", l, (sp) =>
         insertCustomer(
           sp,
@@ -408,16 +491,12 @@ async function run(tx: Tx, actor: SessionUser, lines: Record<SheetKey, Line[]>):
           s.defaultCreditDays,
         ),
       );
-      if (id === null) continue;
-      const days = l.v.creditDays ? Number(l.v.creditDays) : s.defaultCreditDays;
-      for (const b of mine) {
-        await tx.insert(openingBills).values({
-          customerId: id, billNo: b.billNo, billDate: b.billDate, dueDate: b.dueDate ?? addDays(b.billDate, days ?? 0), amountPaise: b.amount, createdBy: actor.id,
-        });
-      }
+      if (id !== null) await insertBills(tx, { customerId: id }, mine, l.v.creditDays ? Number(l.v.creditDays) : s.defaultCreditDays);
     }
-    for (const p of parties) {
-      if (!keyOf.has(p.key)) say("customerBills", p.row, header("customerBills", "party"), `No customer with this mobile or GSTIN on the "Customers" sheet.`);
+    for (const [id, e] of billsForCrm("customerBills", parties, bills, keyOf, inCrm, "customer")) {
+      if (!e.bills.length) continue; // its rows had problems of their own
+      if (handled.has(id)) say("customerBills", e.bills[0].line.row, header("customerBills", "party"), `${e.party.name} is on the "Customers" sheet: use the same mobile, GSTIN or name as there.`);
+      else await duesForExisting("c", e.party, e.bills, 0n, "customerBills", e.bills[0].line);
     }
     total("customers", lines.customers.length, lumps);
     total("customerBills", lines.customerBills.length, [...bills.values()].flat().reduce((t, b) => t + b.amount, 0n));
@@ -427,8 +506,10 @@ async function run(tx: Tx, actor: SessionUser, lines: Record<SheetKey, Line[]>):
   {
     const inDb = await tx.select({ id: vendors.id, name: vendors.name, gstin: vendors.gstin }).from(vendors);
     const keyOf = new Map<string, number>();
-    const vendorKey = (party: string) => (gstinKey(party).length === 15 && /^\d\d/.test(party.trim()) ? gstinKey(party) : lower(party));
+    const vendorKey = (p: string) => (looksLikeGstin(p) ? gstinKey(p) : lower(p));
+    const inCrm = (key: string) => inDb.filter((v) => lower(v.name) === key || v.gstin === key);
     const { byParty: bills, parties } = readBills("vendorBills", vendorKey);
+    const handled = new Set<number>();
     let lumps = 0n;
     for (const l of lines.vendors) {
       if (!complete("vendors", l)) continue;
@@ -441,31 +522,33 @@ async function run(tx: Tx, actor: SessionUser, lines: Record<SheetKey, Line[]>):
         continue;
       }
       for (const k of keys) keyOf.set(k, l.row);
-      const found = inDb.find((v) => lower(v.name) === lower(l.v.name) || (v.gstin && keys.includes(v.gstin)));
+      const found = [...new Map(keys.flatMap(inCrm).map((v) => [v.id, v])).values()];
       const mine = keys.flatMap((k) => bills.get(k) ?? []);
-      if (found) {
-        dup("vendors", l.row, null, `Already in the CRM: ${found.name}.`);
-        for (const b of mine) if (existingBills.has(`v${found.id}|${lower(b.billNo)}`)) dup("vendorBills", b.line.row, null, `Already in the CRM: ${found.name}'s bill ${b.billNo}.`);
+      if (found.length) {
+        if (lump === null) continue;
+        if (lump === 0n && !mine.length) dup("vendors", l.row, null, `Already in the CRM: ${found[0].name}.`);
+        else if (found.length > 1) say("vendors", l.row, null, `Matches more than one vendor in the CRM (${found.map((v) => v.name).join(", ")}).`);
+        else {
+          handled.add(found[0].id);
+          lumps += lump;
+          await duesForExisting("v", found[0], mine, lump, "vendors", l);
+        }
         continue;
       }
       if (stateCode === null || lump === null) continue;
       lumps += lump;
-      const sum = mine.reduce((s, b) => s + b.amount, lump);
+      const sum = mine.reduce((t, b) => t + b.amount, lump);
       const id = await attempt("vendors", l, (sp) =>
         insertVendor(sp, actor, {
           name: l.v.name, gstin: l.v.gstin, stateCode, mobile: l.v.mobile, address: l.v.address, creditDays: l.v.creditDays, notes: "", openingBalance: moneyText(sum),
         }),
       );
-      if (id === null) continue;
-      const days = l.v.creditDays ? Number(l.v.creditDays) : 0;
-      for (const b of mine) {
-        await tx.insert(openingBills).values({
-          vendorId: id, billNo: b.billNo, billDate: b.billDate, dueDate: b.dueDate ?? addDays(b.billDate, days), amountPaise: b.amount, createdBy: actor.id,
-        });
-      }
+      if (id !== null) await insertBills(tx, { vendorId: id }, mine, l.v.creditDays ? Number(l.v.creditDays) : 0);
     }
-    for (const p of parties) {
-      if (!keyOf.has(p.key)) say("vendorBills", p.row, header("vendorBills", "party"), `No vendor with this name or GSTIN on the "Vendors" sheet.`);
+    for (const [id, e] of billsForCrm("vendorBills", parties, bills, keyOf, inCrm, "vendor")) {
+      if (!e.bills.length) continue;
+      if (handled.has(id)) say("vendorBills", e.bills[0].line.row, header("vendorBills", "party"), `${e.party.name} is on the "Vendors" sheet: use the same name or GSTIN as there.`);
+      else await duesForExisting("v", e.party, e.bills, 0n, "vendorBills", e.bills[0].line);
     }
     total("vendors", lines.vendors.length, lumps);
     total("vendorBills", lines.vendorBills.length, [...bills.values()].flat().reduce((t, b) => t + b.amount, 0n));
@@ -545,4 +628,32 @@ async function run(tx: Tx, actor: SessionUser, lines: Record<SheetKey, Line[]>):
   }
 
   return { imported: false, problems, duplicates, totals };
+}
+
+/**
+ * D68: the owner cancels an opening bill nothing is allocated to (a wrong or doubled line). The row stays, marked
+ * cancelled (audited); the party's opening balance is reversed and reposted without it (D40). Returns the party's page.
+ */
+export async function cancelOpeningBill(actor: SessionUser, id: number): Promise<string> {
+  if (!can(actor, "settings", "edit")) throw new Error("Not allowed");
+  return writeTx(actor, async (tx) => {
+    const [bill] = await tx.select().from(openingBills).where(eq(openingBills.id, id)).for("update");
+    if (!bill) throw new UserError("That opening bill doesn't exist.");
+    const label = openingBillLabel(bill.billNo);
+    if (bill.cancelledAt) throw new UserError(`${label} is already cancelled.`);
+    const paid = (bill.customerId !== null ? await paidTowardsOpeningBills(tx, [id]) : await paidTowardsBills(tx, [id], undefined, "opening_bill")).get(id);
+    if (paid) {
+      const by = bill.customerId !== null ? "receipt or adjustment" : "payment";
+      throw new UserError(`${label} has ${formatMoney(paid)} allocated to it: take that off first (edit the ${by}).`);
+    }
+    await tx.update(openingBills).set({ cancelledAt: new Date() }).where(eq(openingBills.id, id));
+    if (bill.customerId !== null) {
+      const [c] = await tx.select({ name: customers.name, opening: customers.openingBalancePaise }).from(customers).where(eq(customers.id, bill.customerId)).for("update");
+      await setCustomerOpening(tx, bill.customerId, c.name, c.opening - bill.amountPaise);
+      return `/customers/${bill.customerId}`;
+    }
+    const [v] = await tx.select({ name: vendors.name, opening: vendors.openingBalancePaise }).from(vendors).where(eq(vendors.id, bill.vendorId!)).for("update");
+    await setVendorOpening(tx, bill.vendorId!, v.name, v.opening - bill.amountPaise);
+    return `/vendors/${bill.vendorId}`;
+  });
 }

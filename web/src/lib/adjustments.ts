@@ -12,12 +12,13 @@ import {
   expenseCategories,
   invoices,
   jobs,
+  openingBills,
   receipts,
   users,
   vendors,
 } from "@/db/schema";
 import { formMoney, formText, UserError } from "@/lib/action";
-import { checkAllocations, deactivate, lockSource, onAccountSources, readAllocations, type OnAccountSource } from "@/lib/allocations";
+import { checkAllocations, deactivate, lockSource, onAccountSources, openingBillLabel, readAllocations, type OnAccountSource } from "@/lib/allocations";
 import { needsBackdateApproval, registerExecutor, runOrRequest } from "@/lib/approvals";
 import { formatDate } from "@/lib/dates";
 import { checkBooksDate, liveEntry, post, reverse } from "@/lib/ledger";
@@ -68,7 +69,8 @@ type Line = {
   jobId: number | null;
   party: string | null; // customer / vendor / job, for the approval request
 };
-type Allocation = { target: "invoice" | "debit_note" | "receipt" | "credit_note"; id: number; number: string; amount: bigint };
+type Settled = "invoice" | "debit_note" | "opening_bill";
+type Allocation = { target: Settled | "receipt" | "credit_note"; id: number; number: string; amount: bigint };
 
 const MAX_LINES = 100;
 
@@ -233,10 +235,11 @@ async function readAdjustment(tx: Tx, input: AdjustmentInput) {
     other = { accountId: account.id, account: account.name, debit: 0n, credit: amount, customerId: null, vendorId: null, jobId: null, party: null };
   } else {
     const lines = readAllocations(input.allocations);
-    if (lines.some((l) => l.target !== "invoice" && l.target !== "debit_note")) {
-      throw new UserError("A write-off or discount settles invoices and debit notes only.", "allocations");
+    // D68: old uncollectable dues (opening bills) may be written off too.
+    if (lines.some((l) => l.target !== "invoice" && l.target !== "debit_note" && l.target !== "opening_bill")) {
+      throw new UserError("A write-off or discount settles invoices, debit notes and opening bills only.", "allocations");
     }
-    allocated = (await checkAllocations(tx, customer.id, amount, lines)).map((l) => ({ ...l, target: l.target as "invoice" | "debit_note" }));
+    allocated = (await checkAllocations(tx, customer.id, amount, lines)).map((l) => ({ ...l, target: l.target as Settled }));
     const [account] = await tx
       .select()
       .from(accounts)
@@ -245,7 +248,7 @@ async function readAdjustment(tx: Tx, input: AdjustmentInput) {
   }
   const total = allocated.reduce((s, a) => s + a.amount, 0n);
   if (total !== amount) {
-    const what = kind === "refund" ? "the receipts / credit notes it pays back" : "the invoices / debit notes it settles";
+    const what = kind === "refund" ? "the receipts / credit notes it pays back" : "the invoices / debit notes / opening bills it settles";
     throw new UserError(`Put the whole ${formatMoney(amount)} on ${what}: ${formatMoney(total)} is allocated.`, "allocations");
   }
   const lines: Line[] = kind === "refund" ? [{ ...arLine, debit: amount, credit: 0n }, other] : [other, { ...arLine, debit: 0n, credit: amount }];
@@ -296,9 +299,10 @@ async function doCreate(tx: Tx, actor: SessionUser, input: AdjustmentInput) {
       r.allocations.map((a) => ({
         receiptId: a.target === "receipt" ? a.id : null,
         creditNoteId: a.target === "credit_note" ? a.id : null,
-        adjustmentId: a.target === "invoice" || a.target === "debit_note" ? row.id : null,
+        adjustmentId: a.target === "invoice" || a.target === "debit_note" || a.target === "opening_bill" ? row.id : null,
         invoiceId: a.target === "invoice" ? a.id : null,
         debitNoteId: a.target === "debit_note" ? a.id : null,
+        openingBillId: a.target === "opening_bill" ? a.id : null,
         refundAdjustmentId: a.target === "receipt" || a.target === "credit_note" ? row.id : null,
         amountPaise: a.amount,
         createdBy: actor.id,
@@ -464,12 +468,16 @@ export async function getAdjustment(id: number) {
         creditNoteId: allocations.creditNoteId,
         creditNote: creditNotes.number,
         creditNoteDate: creditNotes.date,
+        openingBillId: allocations.openingBillId,
+        openingBillNo: openingBills.billNo,
+        openingBillDate: openingBills.billDate,
       })
       .from(allocations)
       .leftJoin(invoices, eq(invoices.id, allocations.invoiceId))
       .leftJoin(debitNotes, eq(debitNotes.id, allocations.debitNoteId))
       .leftJoin(receipts, eq(receipts.id, allocations.receiptId))
       .leftJoin(creditNotes, eq(creditNotes.id, allocations.creditNoteId))
+      .leftJoin(openingBills, eq(openingBills.id, allocations.openingBillId))
       .where(or(eq(allocations.adjustmentId, id), eq(allocations.refundAdjustmentId, id)))
       .orderBy(asc(allocations.id)),
   ]);
@@ -478,8 +486,8 @@ export async function getAdjustment(id: number) {
     amount: l.amount,
     active: l.active,
     changedAt: l.changedAt,
-    number: l.invoice ?? l.debitNote ?? l.receipt ?? l.creditNote ?? "",
-    date: (l.invoiceDate ?? l.debitNoteDate ?? l.receiptDate ?? l.creditNoteDate)!,
+    number: l.invoice ?? l.debitNote ?? l.receipt ?? l.creditNote ?? (l.openingBillNo ? openingBillLabel(l.openingBillNo) : ""),
+    date: (l.invoiceDate ?? l.debitNoteDate ?? l.receiptDate ?? l.creditNoteDate ?? l.openingBillDate)!,
     href:
       l.invoiceId !== null
         ? `/invoices/${l.invoiceId}`
@@ -487,8 +495,10 @@ export async function getAdjustment(id: number) {
           ? `/credit-debit-notes/dn/${l.debitNoteId}`
           : l.receiptId !== null
             ? `/receipts/${l.receiptId}`
-            : `/credit-debit-notes/cn/${l.creditNoteId}`,
-    what: l.invoiceId !== null ? "Invoice" : l.debitNoteId !== null ? "Debit note" : l.receiptId !== null ? "Receipt" : "Credit note",
+            : l.openingBillId !== null
+              ? `/customers/${row.adjustment.customerId}?tab=history` // opening bills live on the customer's History tab
+              : `/credit-debit-notes/cn/${l.creditNoteId}`,
+    what: l.invoiceId !== null ? "Invoice" : l.debitNoteId !== null ? "Debit note" : l.receiptId !== null ? "Receipt" : l.openingBillId !== null ? "Opening bill" : "Credit note",
   }));
   return { ...row.adjustment, customer: row.customer, createdByName: row.createdBy, lines, allocated };
 }

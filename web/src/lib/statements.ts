@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, gte, lte, type AnyColumn } from "drizzle-orm";
 import { db, writeTx } from "@/db";
 import { statementLinks } from "@/db/schema";
 import { formatDate, fyStart, parseDate, periodRange, todayIST } from "@/lib/dates";
@@ -40,6 +40,24 @@ export function readRange(period?: string, fromText?: string, toText?: string): 
     return { period: p, range: { from: null, to: null }, error: "Use DD/MM/YYYY for the dates, e.g. 01/04/2026." };
   }
 }
+
+/** Big lists' period choices (D68): this FY by default, "All entries" on request. */
+export const LIST_PERIODS = Object.entries(LEDGER_PERIODS) as [string, string][];
+
+/**
+ * A big list's period from its page's search params (D68: filtered on the server, so a phone never gets 15,000 rows),
+ * and the same choice as a query string for its "Export all".
+ */
+export function listPeriod(q: Record<string, string | string[] | undefined>) {
+  const text = (key: string) => (typeof q[key] === "string" ? (q[key] as string) : "");
+  const { period, range, error } = readRange(text("period") || "fy", text("from"), text("to"));
+  const query = new URLSearchParams({ period });
+  if (period === "custom") for (const key of ["from", "to"]) if (text(key)) query.set(key, text(key));
+  return { period, range, error, from: text("from"), to: text("to"), query: query.toString() };
+}
+
+/** A loader's date filter: rows dated inside the range; no range = every row. */
+export const dateIn = (column: AnyColumn, range?: Range) => (range ? and(range.from ? gte(column, range.from) : undefined, range.to ? lte(column, range.to) : undefined) : undefined);
 
 /** "01/04/2026 – 29/09/2026", "Up to 29/09/2026", "All entries". */
 export function rangeText({ from, to }: Range): string {

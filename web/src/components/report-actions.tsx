@@ -65,11 +65,14 @@ export function ReportActions({ name, query, pdfName, title }: { name: string; q
   );
 }
 
-/** "Export all" on a main list: every row of the list (its filters run in the browser), with the columns this user sees (S27, D60). */
-export function ExportExcelButton({ name }: { name: string }) {
+/**
+ * "Export all" on a main list: every row of the list for its chosen period (`query`, D68) — not just what the browser
+ * filters show — with the columns this user sees (S27, D60).
+ */
+export function ExportExcelButton({ name, query = "" }: { name: string; query?: string }) {
   return (
     <Button asChild variant="outline">
-      <a href={exportHref(name, "", "xlsx")} download>
+      <a href={exportHref(name, query, "xlsx")} download>
         <FileSpreadsheet aria-hidden />
         Export all
       </a>

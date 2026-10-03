@@ -82,6 +82,12 @@ const postOpening = (tx: Tx, id: number, name: string, amount: bigint) =>
     { account: "opening_equity" },
   );
 
+/** A customer's opening balance changed inside the caller's transaction (opening import, opening-bill cancel, D68). */
+export async function setCustomerOpening(tx: Tx, id: number, name: string, amount: bigint) {
+  await tx.update(customers).set({ openingBalancePaise: amount }).where(eq(customers.id, id));
+  await postOpening(tx, id, name, amount);
+}
+
 export async function createCustomer(actor: SessionUser, input: CustomerInput): Promise<number> {
   if (!can(actor, "customers", "create")) throw new Error("Not allowed");
   const { defaultCreditDays } = await getSettings();

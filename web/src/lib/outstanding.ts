@@ -1,4 +1,4 @@
-import { eq, isNotNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/db";
 import { customers, debitNotes, invoices, journalLines, openingBills, users } from "@/db/schema";
@@ -98,7 +98,7 @@ export async function outstanding(today = todayIST()) {
       .select({ id: openingBills.id, billNo: openingBills.billNo, customerId: openingBills.customerId, date: openingBills.billDate, dueDate: openingBills.dueDate, total: openingBills.amountPaise, paid: obPaid.paise })
       .from(openingBills)
       .leftJoin(obPaid, eq(obPaid.openingBillId, openingBills.id))
-      .where(isNotNull(openingBills.customerId)),
+      .where(and(isNotNull(openingBills.customerId), isNull(openingBills.cancelledAt))),
     db
       .select({
         id: customers.id,

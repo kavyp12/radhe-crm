@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ListPeriod } from "@/components/list-period";
 import { PageHeader } from "@/components/page-header";
 import { ExportExcelButton } from "@/components/report-actions";
 import { Button } from "@/components/ui/button";
@@ -6,11 +7,13 @@ import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { RECEIPT_MODE } from "@/lib/receipt-modes";
 import { listReceipts } from "@/lib/receipts";
+import { listPeriod } from "@/lib/statements";
 import { ReceiptsTable } from "./receipts-table";
 
-export default async function ReceiptsPage() {
+export default async function ReceiptsPage({ searchParams }: PageProps<"/receipts">) {
   const user = await requirePermission("payments", "view");
-  const rows = await listReceipts();
+  const period = listPeriod(await searchParams);
+  const rows = await listReceipts(period.range);
   const newButton = can(user, "payments", "create") ? (
     <Button asChild>
       <Link href="/receipts/new">New receipt</Link>
@@ -24,11 +27,12 @@ export default async function ReceiptsPage() {
         description="Money received from customers, and the invoices it paid. What isn't allocated is on account."
         action={
           <div className="flex gap-2">
-            <ExportExcelButton name="receipts" />
+            <ExportExcelButton name="receipts" query={period.query} />
             {newButton}
           </div>
         }
       />
+      <ListPeriod {...period} />
       <ReceiptsTable
         rows={rows.map((r) => ({
           id: r.id,
