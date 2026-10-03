@@ -435,6 +435,13 @@
       "when": 1791007291833,
       "tag": "0061_opening_bill_cancel",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1791008866352,
+      "tag": "0062_rate_limits",
+      "breakpoints": true
     }
   ]
 }

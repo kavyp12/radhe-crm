@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, check, index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, index, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { ROLES } from "../../lib/permissions"; // relative: drizzle-kit does not read tsconfig paths
 
 // Better Auth tables (D04). Property names are Better Auth's field names; lib/auth.ts maps its models to these
@@ -80,3 +80,12 @@ export const verifications = pgTable(
   },
   (t) => [index("verifications_identifier_idx").on(t.identifier)],
 );
+
+// Better Auth's request rate limits (D42, T44a): kept in the database so every server instance shares the counts.
+// key = client IP + path; last_request = epoch milliseconds. Not audited (D42), and Better Auth prunes old rows.
+export const rateLimits = pgTable("rate_limits", {
+  id: text("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  count: integer("count").notNull(),
+  lastRequest: bigint("last_request", { mode: "number" }).notNull(),
+});

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["bom1"],
+  "functions": {
+    "src/app/export/**/*": { "maxDuration": 300 },
+    "src/app/**/opening-import/**/*": { "maxDuration": 300 },
+    "src/app/**/pdf/route.ts": { "maxDuration": 60 },
+    "src/app/**/statement/route.ts": { "maxDuration": 60 },
+    "src/app/share/**/*": { "maxDuration": 60 }
+  }
+}

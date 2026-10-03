@@ -8,7 +8,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 import { db } from "@/db";
-import { authAccounts, sessions, users, verifications } from "@/db/schema";
+import { authAccounts, rateLimits, sessions, users, verifications } from "@/db/schema";
 import { can, ROLES, type Action, type Area, type SessionUser } from "@/lib/permissions";
 
 // The only Better Auth endpoints reachable (HTTP or auth.api). Users are created, changed and disabled by the
@@ -18,7 +18,7 @@ const OPEN_ENDPOINTS = new Set(["/sign-in/username", "/get-session", "/sign-out"
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
     provider: "pg",
-    schema: { users, sessions, auth_accounts: authAccounts, verifications },
+    schema: { users, sessions, auth_accounts: authAccounts, verifications, rate_limits: rateLimits },
   }),
   user: {
     modelName: "users",
@@ -31,6 +31,9 @@ export const auth = betterAuth({
   session: { modelName: "sessions" },
   account: { modelName: "auth_accounts" },
   verification: { modelName: "verifications" },
+  // D42: rate limits live in the database (shared by every Vercel instance). Better Auth's defaults stand: on in
+  // production only; sign-in 3 tries per 10 s per client IP, other endpoints 100 per 10 s.
+  rateLimit: { storage: "database", modelName: "rate_limits" },
   emailAndPassword: { enabled: true, disableSignUp: true },
   plugins: [username(), nextCookies()],
   hooks: {

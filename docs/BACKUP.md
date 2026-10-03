@@ -18,7 +18,9 @@ There are two ways to take the data out:
 cd web
 pnpm db:backup
 ```
-This writes `web/backups/<database>-YYYY-MM-DD-HHmm.dump` (India time) from `DATABASE_URL` in `web/.env`, using `pg_dump --format=custom`. It looks for `pg_dump` on the PATH, then in `C:\Program Files\PostgreSQL\16\bin`; set `PG_BIN` to use another folder. pg_dump's major version must be at least the server's.
+This writes `<database>-YYYY-MM-DD-HHmm.dump` (India time) into `BACKUP_DIR` (blank = `web/backups/`) from `DIRECT_DATABASE_URL` (blank = `DATABASE_URL`) in `web/.env`, using `pg_dump --format=custom`. A server that isn't on this PC gets `sslmode=require`. It looks for `pg_dump` on the PATH, then in `C:\Program Files\PostgreSQL\16\bin`; set `PG_BIN` to use another folder. pg_dump's major version must be at least the server's (Supabase runs 17: install the PG 17 client tools for prod).
+
+After a good dump it prunes that database's older dumps in the same folder: the newest dump of each of the last **7 days, 4 weeks and 12 months** stays, the rest are deleted (`src/db/retention.ts`). Other files and other databases' dumps are never touched. A failed pg_dump leaves no file behind.
 
 ## Restore
 `pg_restore.exe` sits next to `pg_dump.exe`. Restore as the app role `radhe`, never as `postgres`: `--no-owner` makes the restoring role own everything.
@@ -59,10 +61,10 @@ Last check: 2026-10-02 (T36). `radhe_dev` was restored into `radhe_test` both wa
 These are proposals for Ronnie and the client to confirm.
 - **Dev:** before risky work, such as migrations on real data, the opening-data import (T43) or upgrades.
 - **Prod, from go-live:** every night automatically (D10: Supabase's daily backups plus our own nightly pg_dump). Also back up by hand before any deploy that carries a migration.
-- **Keep:** the last 7 daily, 4 weekly and 12 monthly dumps. Keep at least one copy off the server and away from the office PC: three copies, on two kinds of storage, one of them off-site. Examples are the owner's Google Drive or an external disk kept at home. TODO(ask): where Radhe wants the off-site copy.
+- **Keep:** the last 7 daily, 4 weekly and 12 monthly dumps (`pnpm db:backup` prunes to this by itself). Keep at least one copy off the server and away from the office PC: three copies, on two kinds of storage, one of them off-site. Examples are the owner's Google Drive or an external disk kept at home. TODO(ask): where Radhe wants the off-site copy.
 - **Test a restore once a month** with the check above. A backup that has never been restored is not proven.
 
 ## Production (T44)
 - **Supabase backups (Pro plan, Mumbai):** daily, kept 7 days, restored from the Supabase dashboard. They cover the database only.
-- **Our nightly pg_dump:** T44 decides where it runs (a scheduled job) and where the dumps are stored (private storage outside Supabase). The restore steps above stay the same; use the prod connection string, and a pg_dump at least as new as the server.
-- **Uploaded files:** the Supabase Storage bucket needs its own copy. T44 sets that up.
+- **Our nightly pg_dump:** `pnpm db:backup` with `DIRECT_DATABASE_URL` = the prod session / direct URL and `BACKUP_DIR` = the Q8 place, run nightly by the office PC's Task Scheduler or a scheduled GitHub Action (docs/DEPLOY.md §7; T44b picks one with Ronnie). The restore steps above stay the same; use the prod direct URL, and a pg_dump at least as new as the server.
+- **Uploaded files:** they are in the private Supabase Storage bucket, not in the dump. Copy the bucket on the same schedule (DEPLOY.md §7: rclone over Supabase's S3 endpoint).

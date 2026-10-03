@@ -6,9 +6,13 @@ import * as schema from "./schema";
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is not set");
 
+// Prod (D69): DATABASE_URL is Supabase's transaction pooler, which can't keep prepared statements, and each Vercel
+// function instance keeps a small pool (the pooler shares the database's real connections between them); idle ones
+// close so a sleeping instance holds nothing. The same settings work against one local PostgreSQL.
+// ponytail: 5 per instance; more only if requests queue for a connection under load.
 // Reuse one connection pool across dev hot reloads.
 const g = globalThis as unknown as { pgClient?: postgres.Sql };
-const client = g.pgClient ?? postgres(url);
+const client = g.pgClient ?? postgres(url, { prepare: false, max: process.env.VERCEL ? 5 : 10, idle_timeout: 20 });
 if (process.env.NODE_ENV !== "production") g.pgClient = client;
 
 export const db = drizzle({ client, schema });
