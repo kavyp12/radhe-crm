@@ -191,7 +191,7 @@ Refs: S/P/R = docs/SPEC.md · A§ = docs/ARCHITECTURE.md · D = docs/DECISIONS.m
 
 - [ ] **T44 · Deploy** — D10, D69 · split: T44a prod readiness (B17a, no accounts needed, may run alongside B15a) · T44b go-live (B17b, with Ronnie)
   T44a: Supabase driver for lib/storage.ts (D34) via the Storage REST API; Better Auth rate-limit storage in the DB (D42); Supabase pooler settings (pooled URL for the app, direct URL for migrations); env check at start-up; security headers; vercel.json (region bom1, function time limits); `pnpm db:backup` against a remote DB + retention; `pnpm smoke <url>`; docs/DEPLOY.md runbook + docs/ADMIN-GUIDE.md.
-  T44b: Supabase prod (Mumbai) + private bucket; Vercel project (root web/, region bom1) + env; migrations; seed owner; domain; nightly backup to the Q8 location; prod smoke test; restore tested. (Pushing to GitHub/Vercel only with Ronnie's OK.)
+  T44b (D71 — replaces the Supabase / Vercel plan): push to the private GitHub repo; on Ronnie's Hostinger VPS — own PostgreSQL database + role, Node app under a process manager behind the web server with HTTPS, uploads on disk; migrations; seed owner (Jay Patel); domain; nightly backup (DB + uploads) + off-site copy (Q8); prod smoke test; restore tested. Other projects on the server untouched. (Pushing only with Ronnie's OK.)
   Done when: T44a — tests + build clean, smoke script green against a local production build · T44b — prod URL works end-to-end · backup job ran once · restore tested.
 
 - [ ] **🚦 G3 · Client UAT & sign-off** — client uses it for real; reviewer converts feedback into fix tasks until sign-off.
