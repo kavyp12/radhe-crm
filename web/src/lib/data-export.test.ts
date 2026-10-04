@@ -129,7 +129,8 @@ test("the journal export: Σ Dr = Σ Cr = the journal for the period; voucher ty
     expect(columnTotal(t, "credit")).toBe(BigInt(cr));
     expect(columnTotal(t, "debit")).toBe(columnTotal(t, "credit"));
   }
-  const t = (await journalReport(owner, { period: "custom", from: "20/06/2026", to: "21/06/2026" }))!.report.tables[0];
+  const days = (await journalReport(owner, { period: "custom", from: "20/06/2026", to: "21/06/2026" }))!.report;
+  const t = days.tables[0];
   expect(t.columns.map((c) => c.label)).toEqual(["Date", "Voucher type", "Voucher no", "Ledger", "Dr", "Cr", "Narration"]);
   const [inv] = await db.select().from(invoices).where(eq(invoices.id, ids.invoice));
   const ar = t.rows.find((r) => r.number === inv.number && String(r.ledger).startsWith("Accounts Receivable"))!;
@@ -141,7 +142,9 @@ test("the journal export: Σ Dr = Σ Cr = the journal for the period; voucher ty
   const xlsx = await reportXlsx(fy);
   await mkdir(".samples", { recursive: true });
   await writeFile(".samples/journal.xlsx", xlsx);
-  await writeFile(".samples/journal.pdf", await reportPdf(fy));
+  // The sample PDF shows this file's own two days: a year of every test file's entries took 40–90 s to render
+  // (react-pdf), so this test's time hung on the rest of the suite (D68).
+  await writeFile(".samples/journal.pdf", await reportPdf(days));
   const book = await readXlsx(xlsx);
   const sheet = book.worksheets[0];
   const totals = sheet.getRow(sheet.rowCount);

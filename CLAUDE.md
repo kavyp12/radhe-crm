@@ -31,6 +31,11 @@ Unclear or missing → STOP and ask. Never invent business rules, GST rates, HSN
 - `pnpm db:generate` — drizzle-kit migration from src/db/schema/ (one file per module, re-exported by index.ts) (custom SQL: `pnpm db:generate --custom --name=<name>`)
 - `pnpm db:migrate` — apply migrations in drizzle/ to DATABASE_URL (radhe_dev). "already exists, skipping" NOTICEs on repeat runs are normal.
 - `pnpm db:seed` — run src/db/seed.ts
+- `pnpm db:backup` — pg_dump into `BACKUP_DIR` (blank = web/backups), then prunes to 7 daily / 4 weekly / 12 monthly. `PG_BIN` = the folder holding pg_dump (blank = PATH, then PostgreSQL 16's bin). Restore: docs/BACKUP.md.
+- `pnpm db:volume` — test DB only (TEST_DATABASE_URL; refuses any DB not named *_test): wipes it, fills ~3 years of synthetic data, times dashboard / reports / search.
+- `pnpm smoke <url>` — checks a running site from outside and changes nothing; `SMOKE_USER` / `SMOKE_PASSWORD` add a real sign-in.
+- `UPLOAD_DIR` — where uploaded files go (STORAGE_DRIVER=local; blank = web/uploads). On the live server: a folder outside the app (D71).
+- `DIRECT_DATABASE_URL` — when set, db:migrate and db:backup use it instead of DATABASE_URL (only for a pooled database; blank in dev and on the server).
 
 One-time DB setup (new machine):
 1. As the postgres superuser, create the app role and DBs — the app, migrations and tests never use the superuser:

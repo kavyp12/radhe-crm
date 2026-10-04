@@ -31,9 +31,9 @@ export const auth = betterAuth({
   session: { modelName: "sessions" },
   account: { modelName: "auth_accounts" },
   verification: { modelName: "verifications" },
-  // D42: rate limits live in the database (shared by every Vercel instance). Better Auth's defaults stand: on in
-  // production only; sign-in 3 tries per 10 s per client IP, other endpoints 100 per 10 s.
-  rateLimit: { storage: "database", modelName: "rate_limits" },
+  // D42: rate limits live in the database (shared by every Vercel instance), on in production only. D70: sign-in
+  // 10 tries per 60 s per client IP (office staff share one connection); other endpoints keep the default 100 per 10 s.
+  rateLimit: { storage: "database", modelName: "rate_limits", customRules: { "/sign-in/username": { window: 60, max: 10 } } },
   emailAndPassword: { enabled: true, disableSignUp: true },
   plugins: [username(), nextCookies()],
   hooks: {

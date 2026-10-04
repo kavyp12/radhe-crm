@@ -142,7 +142,8 @@ beforeAll(async () => {
   await createUser(owner, { name: "pc.sales", username: "pc.sales", role: "sales", canViewCost: false, password: "pc-sales-pass-1" });
 });
 
-test("without a session: server actions → /login, route handlers → 401", async () => {
+// A cold start compiles every module imported here, which can take far longer than 5 s (D70).
+test("without a session: server actions → /login, route handlers → 401", { timeout: 120_000 }, async () => {
   cookie = null;
   const { searchAction } = await import("@/app/(app)/actions");
   const { createReceiptAction, openItemsAction } = await import("@/app/(app)/receipts/actions");
@@ -154,15 +155,16 @@ test("without a session: server actions → /login, route handlers → 401", asy
   expect(await redirectedTo(saveSettingsAction({}, new FormData()))).toBe("/login");
   expect(await redirectedTo(cancelInvoiceAction(1, {}, new FormData()))).toBe("/login");
 
+  // Each handler runs and is awaited before the next import starts: none may outlive this test (the next one signs in).
   const routes = [
-    [(await import("@/app/export/all-data/route")).GET(get("/export/all-data") as never), 401],
-    [(await import("@/app/export/[name]/route")).GET(get("/export/sales") as never, params({ name: "sales" }) as never), 401],
-    [(await import("@/app/(app)/invoices/[id]/pdf/route")).GET(get("/invoices/1/pdf") as never, params({ id: "1" }) as never), 401],
-    [(await import("@/app/(app)/customers/[id]/statement/route")).GET(get("/customers/1/statement") as never, params({ id: "1" }) as never), 401],
-    [(await import("@/app/api/files/[id]/route")).GET(get("/api/files/1") as never, params({ id: "1" }) as never), 401],
-    [(await import("@/app/api/agent/bootstrap/route")).GET(get("/api/agent/bootstrap"), params({})), 401],
-  ] as const;
-  for (const [res, status] of routes) expect((await res).status).toBe(status);
+    async () => (await import("@/app/export/all-data/route")).GET(get("/export/all-data") as never),
+    async () => (await import("@/app/export/[name]/route")).GET(get("/export/sales") as never, params({ name: "sales" }) as never),
+    async () => (await import("@/app/(app)/invoices/[id]/pdf/route")).GET(get("/invoices/1/pdf") as never, params({ id: "1" }) as never),
+    async () => (await import("@/app/(app)/customers/[id]/statement/route")).GET(get("/customers/1/statement") as never, params({ id: "1" }) as never),
+    async () => (await import("@/app/api/files/[id]/route")).GET(get("/api/files/1") as never, params({ id: "1" }) as never),
+    async () => (await import("@/app/api/agent/bootstrap/route")).GET(get("/api/agent/bootstrap"), params({})),
+  ];
+  for (const run of routes) expect((await run()).status).toBe(401);
 });
 
 test("signed in outside the area: a sales user is sent to the dashboard / refused", async () => {

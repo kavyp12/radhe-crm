@@ -9,7 +9,7 @@ There are two ways to take the data out:
 | For | Restoring after a crash, a bad import or a move to a new machine | Reading, the accountant, other software |
 | Restorable | Yes (below) | No |
 
-**Not in either:** uploaded files (attachments, logo, signature). In dev they live in `web/uploads/` — copy that folder with each backup. In prod they are in Supabase Storage (T44).
+**Not in either:** uploaded files (attachments, logo, signature). In dev they live in `web/uploads/` — copy that folder with each backup. On the live server they are in `UPLOAD_DIR` (`/srv/radhe-crm/uploads`), archived every night next to the dump (DEPLOY.md §7).
 
 **Keep backups private.** A dump holds everything, including password hashes, customer details and the tokens behind share links. Don't email or WhatsApp it; encrypt any copy that leaves the machine. `web/backups/` is gitignored: never commit a dump.
 
@@ -18,7 +18,7 @@ There are two ways to take the data out:
 cd web
 pnpm db:backup
 ```
-This writes `<database>-YYYY-MM-DD-HHmm.dump` (India time) into `BACKUP_DIR` (blank = `web/backups/`) from `DIRECT_DATABASE_URL` (blank = `DATABASE_URL`) in `web/.env`, using `pg_dump --format=custom`. A server that isn't on this PC gets `sslmode=require`. It looks for `pg_dump` on the PATH, then in `C:\Program Files\PostgreSQL\16\bin`; set `PG_BIN` to use another folder. pg_dump's major version must be at least the server's (Supabase runs 17: install the PG 17 client tools for prod).
+This writes `<database>-YYYY-MM-DD-HHmm.dump` (India time) into `BACKUP_DIR` (blank = `web/backups/`) from `DIRECT_DATABASE_URL` (blank = `DATABASE_URL`) in `web/.env`, using `pg_dump --format=custom`. A server that isn't on this PC gets `sslmode=require`. It looks for `pg_dump` on the PATH, then in `C:\Program Files\PostgreSQL\16\bin`; set `PG_BIN` to use another folder. pg_dump's major version must be at least the server's (on the live server, its own PostgreSQL's pg_dump is on the PATH).
 
 After a good dump it prunes that database's older dumps in the same folder: the newest dump of each of the last **7 days, 4 weeks and 12 months** stays, the rest are deleted (`src/db/retention.ts`). Other files and other databases' dumps are never touched. A failed pg_dump leaves no file behind.
 
@@ -60,11 +60,12 @@ Last check: 2026-10-02 (T36). `radhe_dev` was restored into `radhe_test` both wa
 ## How often, and where to keep copies
 These are proposals for Ronnie and the client to confirm.
 - **Dev:** before risky work, such as migrations on real data, the opening-data import (T43) or upgrades.
-- **Prod, from go-live:** every night automatically (D10: Supabase's daily backups plus our own nightly pg_dump). Also back up by hand before any deploy that carries a migration.
+- **Prod, from go-live:** every night automatically (D71: our nightly pg_dump plus an archive of the uploads folder, on the server, plus an off-site copy). Every update (`web/update.sh`) also takes a dump just before it migrates.
 - **Keep:** the last 7 daily, 4 weekly and 12 monthly dumps (`pnpm db:backup` prunes to this by itself). Keep at least one copy off the server and away from the office PC: three copies, on two kinds of storage, one of them off-site. Examples are the owner's Google Drive or an external disk kept at home. TODO(ask): where Radhe wants the off-site copy.
 - **Test a restore once a month** with the check above. A backup that has never been restored is not proven.
 
-## Production (T44)
-- **Supabase backups (Pro plan, Mumbai):** daily, kept 7 days, restored from the Supabase dashboard. They cover the database only.
-- **Our nightly pg_dump:** `pnpm db:backup` with `DIRECT_DATABASE_URL` = the prod session / direct URL and `BACKUP_DIR` = the Q8 place, run nightly by the office PC's Task Scheduler or a scheduled GitHub Action (docs/DEPLOY.md §7; T44b picks one with Ronnie). The restore steps above stay the same; use the prod direct URL, and a pg_dump at least as new as the server.
-- **Uploaded files:** they are in the private Supabase Storage bucket, not in the dump. Copy the bucket on the same schedule (DEPLOY.md §7: rclone over Supabase's S3 endpoint).
+## Live server (T44b, D71)
+- **Nightly:** the app user's cron runs `pnpm db:backup` (02:30 India time, same retention as above) and archives the uploads folder (02:40; the newest 7 archives are kept), both into `/srv/radhe-crm/backups` (docs/DEPLOY.md §7).
+- **Off-site copy:** TODO(ask) Q8 — until then the copies live only on the server.
+- **Restore:** the steps above, on the server as the app user, with `$url` = `postgres://radhe_crm@127.0.0.1:5432/<database>` (stop the app first: `systemctl stop radhe-crm`). Uploaded files: `tar -xf /srv/radhe-crm/backups/uploads-<date>.tar -C /srv/radhe-crm`.
+- **Check a restore:** into the scratch database `radhe_crm_check` on the same server, never into `radhe_crm` (docs/DEPLOY.md §7).

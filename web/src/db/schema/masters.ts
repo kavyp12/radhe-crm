@@ -142,9 +142,9 @@ export const openingBills = pgTable(
   (t) => [
     index("opening_bills_customer_idx").on(t.customerId),
     index("opening_bills_vendor_idx").on(t.vendorId),
-    // D67's natural key: party + bill no.
-    uniqueIndex("opening_bills_customer_bill_no").on(t.customerId, sql`lower(${t.billNo})`),
-    uniqueIndex("opening_bills_vendor_bill_no").on(t.vendorId, sql`lower(${t.billNo})`),
+    // D67's natural key: party + bill no, among live bills only — a cancelled bill's number may be used again (D70).
+    uniqueIndex("opening_bills_customer_bill_no").on(t.customerId, sql`lower(${t.billNo})`).where(sql`${t.cancelledAt} is null`),
+    uniqueIndex("opening_bills_vendor_bill_no").on(t.vendorId, sql`lower(${t.billNo})`).where(sql`${t.cancelledAt} is null`),
     check("opening_bills_one_party", sql`num_nonnulls(${t.customerId}, ${t.vendorId}) = 1`),
     check("opening_bills_amount_positive", sql`${t.amountPaise} > 0`),
     check("opening_bills_due_after_bill", sql`${t.dueDate} >= ${t.billDate}`),

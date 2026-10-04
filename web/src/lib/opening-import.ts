@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { eq, isNull, sql } from "drizzle-orm";
 import { Workbook, type CellValue, type Worksheet } from "exceljs";
 import { writeTx, type Tx } from "@/db";
 import { accounts, customers, expenseCategories, openingBills, settings, stockItems, vendors } from "@/db/schema";
@@ -367,11 +367,12 @@ async function run(tx: Tx, actor: SessionUser, lines: Record<SheetKey, Line[]>):
     }
     return { byParty, parties };
   };
-  // Opening bills already in the CRM: their numbers stay taken (cancelled too); a live one means an opening is posted.
-  const billRows = await tx.select({ c: openingBills.customerId, v: openingBills.vendorId, no: openingBills.billNo, cancelledAt: openingBills.cancelledAt }).from(openingBills);
+  // Live opening bills already in the CRM: their numbers are taken and an opening is posted. A cancelled bill's number
+  // is free again (D70), so a corrected bill can come back under its real number.
+  const billRows = await tx.select({ c: openingBills.customerId, v: openingBills.vendorId, no: openingBills.billNo }).from(openingBills).where(isNull(openingBills.cancelledAt));
   const partyOf = (b: { c: number | null; v: number | null }) => (b.c !== null ? `c${b.c}` : `v${b.v}`);
   const existingBills = new Set(billRows.map((b) => `${partyOf(b)}|${lower(b.no)}`));
-  const withBills = new Set(billRows.filter((b) => !b.cancelledAt).map(partyOf));
+  const withBills = new Set(billRows.map(partyOf));
 
   /**
    * D68: dues (bills and / or a lump) for a party already in the CRM — allowed while it has no opening posted, so

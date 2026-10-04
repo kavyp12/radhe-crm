@@ -47,9 +47,10 @@ asked, then **Approve** (it is done there and then) or **Reject** (nothing chang
 things yourself they happen at once. Every change, by anyone, is kept in the record's **History** / **Changes** tab.
 
 ## Backups
-- Every night a full copy of the database is saved automatically (set up at go-live; where the copy is kept is your
-  choice — for example your Google Drive or an external disk at home). Supabase also keeps its own copies for 7 days.
-- Copies kept: the last 7 days, 4 weeks and 12 months.
+- Every night a full copy of the database and of the uploaded photos and files is saved automatically on the server
+  (set up at go-live). A second copy goes off the server, to a place of your choice — for example your Google Drive or
+  an external disk at home — so losing the server never loses your data.
+- Copies of the database kept: the last 7 days, 4 weeks and 12 months; of the uploaded files: the last 7 days.
 - **Settings → Data → All data as Excel** downloads everything as one Excel file for reading or for your accountant.
   It is not a backup that can be restored; the nightly copy is.
 - Once a month, ask Ronnie to test a restore. A backup that has never been restored is not proven.
@@ -79,13 +80,14 @@ Do this once, before staff start entering bills.
    **Adjust outstanding → Write-off** on the customer's page.
 
 ## When something goes wrong
-- **Someone can't sign in:** check they are Active (Users) and reset their password. Several wrong passwords in a few
-  seconds from one place make the sign-in wait briefly; try again after a minute.
+- **Someone can't sign in:** check they are Active (Users) and reset their password. More than 10 sign-in tries within a
+  minute from one place (everyone in the office shares one internet connection) make the sign-in wait; try again
+  after a minute.
 - **A wrong entry:** don't ask for the database to be edited. Cancel or edit the entry in the app (with approval if
   needed); the books then correct themselves and the history shows what happened.
 - **A print didn't arrive from a PC:** the agent keeps prints while the internet is down and sends them later. If a PC
   says it isn't paired, make a new pairing code.
-- **The site is down or every page shows an error:** call Ronnie. He checks the hosting logs; a bad update can be
-  rolled back in a minute.
+- **The site is down or every page shows an error:** call Ronnie. He checks the server's logs; a bad update can be
+  rolled back in a few minutes.
 - **Lost data or a big mistake across many records:** call Ronnie before anyone enters more. The nightly backups can
   bring the data back to an earlier day.

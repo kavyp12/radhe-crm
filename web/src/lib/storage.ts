@@ -17,9 +17,10 @@ function checkKey(key: string): string {
   return key;
 }
 
-// UPLOAD_DIR only exists so tests can write to a temp folder. The turbopackIgnore hints keep the build from
-// tracing the whole project into the server bundle because of these runtime paths.
-const root = () => path.resolve(/*turbopackIgnore: true*/ process.env.UPLOAD_DIR ?? path.join(process.cwd(), "uploads"));
+// UPLOAD_DIR: tests write to a temp folder; the live server keeps files outside the app folder (D71). Blank = web/uploads.
+// The turbopackIgnore hints keep the build from tracing the whole project into the server bundle because of these
+// runtime paths.
+const root = () => path.resolve(/*turbopackIgnore: true*/ process.env.UPLOAD_DIR || path.join(process.cwd(), "uploads"));
 const fileFor = (key: string) => path.join(/*turbopackIgnore: true*/ root(), checkKey(key));
 
 const localDisk: Storage = {

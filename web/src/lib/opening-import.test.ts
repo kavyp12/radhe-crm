@@ -305,6 +305,15 @@ test("D68: the owner cancels an unallocated opening bill — the opening is repo
   const audited = await db.execute<{ n: string }>(sql`select count(*) as n from audit_log where table_name = 'opening_bills' and row_id = ${String(n1.id)} and action = 'update' and user_id = ${owner.id}`);
   expect(Number(audited[0].n)).toBe(1);
 
+  // D70: the cancelled bill's number is free again — the corrected bill comes back under its real number, once.
+  const fixed = { customerBills: [["OI Name Only", "n-1", "01/03/2026", "", "750"]] };
+  expect(result(await importOpeningData(owner, await openingWorkbook(fixed), true))).toEqual({ problems: [], duplicates: [] });
+  expect((await customerNamed("OI Name Only")).openingBalancePaise).toBe(750_00n);
+  expect(await balance("ar", { customerId: nameOnly.id })).toBe(750_00n);
+  expect((await importOpeningData(owner, await openingWorkbook(fixed), true)).duplicates.map((d) => d.message)).toEqual(["Already in the CRM: OI Name Only's bill n-1."]);
+  const twin = db.insert(openingBills).values({ customerId: nameOnly.id, billNo: "N-1", billDate: "2026-03-01", dueDate: "2026-03-01", amountPaise: 1n, createdBy: owner.id });
+  await expect(twin).rejects.toMatchObject({ cause: { code: "23505", constraint_name: "opening_bills_customer_bill_no" } });
+
   const vendor = await vendorNamed("OI Later Vendor");
   const [v1] = await db.select().from(openingBills).where(eq(openingBills.vendorId, vendor.id));
   expect(await cancelOpeningBill(owner, v1.id)).toBe(`/vendors/${vendor.id}`);
